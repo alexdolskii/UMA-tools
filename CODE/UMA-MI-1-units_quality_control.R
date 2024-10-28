@@ -31,57 +31,99 @@
 library(dplyr)
 library(stringr)
 
+#Delete!!!!
 # Define patterns for each data type
-patterns <- list(
-  gs = list(
-    matrix_pattern = "^Cell\\.\\.GS_\\.Matrix\\.objmsk_Total\\.Area_Sum.*",
-    wim_pattern = "^Cell\\.\\.WIM_GS_matrix_Total\\.Area_Sum.*"
-  ),
-  pfak = list(
-    matrix_pattern = "^Cell\\.\\.pFAK\\.Matrix\\.objmsk_Total\\.Area_Sum.*",
-    wim_pattern = "^Cell\\.\\.WIM_pFAK_Matrix\\.Area_Sum.*"
-  ),
-  palld = list(
-    # Updated patterns for PALLD to match your data file
-    matrix_pattern = "^Cell\\.\\.iso3_\\.Matrix\\.objmsk_Area_Sum.*",
-    wim_pattern = "^Cell\\.\\.WIM_iso3_matrix_Area_Sum.*"
-  ),
-  psmad = list(
-    matrix_pattern = "^Cell\\.\\.psmad_matrix\\.objmsk_Total\\.Area_Sum.*",
-    wim_pattern = "^Cell\\.\\.WIM_psmad_matrix_Total\\.Area_Sum.*"
-  )
-)
+# patterns <- list(
+#   gs = list(
+#     matrix_pattern = "^Cell\\.\\.GS_\\.Matrix\\.objmsk_Total\\.Area_Sum.*",
+#     wim_pattern = "^Cell\\.\\.WIM_GS_matrix_Total\\.Area_Sum.*"
+#   ),
+#   pfak = list(
+#     matrix_pattern = "^Cell\\.\\.pFAK\\.Matrix\\.objmsk_Total\\.Area_Sum.*",
+#     wim_pattern = "^Cell\\.\\.WIM_pFAK_Matrix\\.Area_Sum.*"
+#   ),
+#   palld = list(
+#     # Updated patterns for PALLD to match your data file
+#     matrix_pattern = "^Cell\\.\\.iso3_\\.Matrix\\.objmsk_Area_Sum.*",
+#     wim_pattern = "^Cell\\.\\.WIM_iso3_matrix_Area_Sum.*"
+#   ),
+#   psmad = list(
+#     matrix_pattern = "^Cell\\.\\.psmad_matrix\\.objmsk_Total\\.Area_Sum.*",
+#     wim_pattern = "^Cell\\.\\.WIM_psmad_matrix_Total\\.Area_Sum.*"
+#   )
+# )
+
+pattern_fib <- "^Cell\\.\\.[^WIM]\\S+[Mm]atrix\\S+Total\\.Area_Sum"
+pattern_WIM <- "^Cell\\.\\.WIM\\S+[Mm]atrix\\S+Total\\.Area_Sum"
+pattern_Nuclei_counts <- "^Cell\\.\\.\\S+nuc\\.\\S+msk\\S+Features\\.Count_Sum"
+pattern_fib_intensity <- "^Cell\\.\\.[^WIM]\\S+[Mm]atrix\\S+Integrated\\.Intensity_Sum"
+pattern_intensity <- "^Cell\\.\\.\\S+_obj\\.?msk_Integrated\\.Intensity_Sum"
 
 # Function to process the file
 process_file <- function(file_path, data_type_key, data_type, threshold) {
   # Read the file
-  data <- read.table(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+  prel_data <- read.table(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
   
+  # Не уверена в необходимости этой строчки кода
   # Add NEW_NAMES column if it doesn't exist
-  if (!"NEW_NAMES" %in% colnames(data)) {
-    data$NEW_NAMES <- paste(data$Plate.ID, data$Well.Name, data$Site.ID, data$MEASUREMENT.SET.ID)
+  if (!"NEW_NAMES" %in% colnames(prel_data)) {
+    prel_data$NEW_NAMES <- paste(prel_data$Plate.ID, prel_data$Well.Name, prel_data$Site.ID, prel_data$MEASUREMENT.SET.ID)
   }
   
-  # Get patterns for the specified data type
-  pattern_info <- patterns[[data_type_key]]
-  matrix_pattern <- pattern_info$matrix_pattern
-  wim_pattern <- pattern_info$wim_pattern
+  # Find the names of columns that correspond to our patterns
+  fib <- str_subset(colnames(prel_data), regex(pattern_fib))
+  wim <- str_subset(colnames(prel_data), regex(pattern_WIM))
+  nc <- str_subset(colnames(prel_data), regex(pattern_Nuclei_counts))
+  fib_int <- str_subset(colnames(prel_data), regex(pattern_fib_intensity))
+  mar_int <- str_subset(colnames(prel_data), regex(pattern_intensity))
   
-  # Identify columns
-  matrix_col <- str_subset(colnames(data), regex(matrix_pattern))
-  wim_col <- str_subset(colnames(data), regex(wim_pattern))
+  # Filter our df and choose only features that are necessary for the following analysis
+  data <- prel_data[c('Plate.ID', 
+                    'Well.Name', 
+                    'Site.ID', 
+                    'MEASUREMENT.SET.ID', 
+                    fib, 
+                    wim, 
+                    nc, 
+                    fib_int, 
+                    mar_int
+  )]
+  
+  # Make names of our df readable
+  names(data) <- c('Plate.ID', 
+                   'Well.Name', 
+                   'Site.ID', 
+                   'MEASUREMENT.SET.ID', 
+                   paste0(data_type, '_fibronectin_mask'), 
+                   paste0(data_type, '_wim_mask'), 
+                   paste0(data_type, '_nuclei_counts'), 
+                   paste0(data_type, '_fibronectin_integrated_intensity_sum'),
+                   paste0(data_type, '_marker_integrated_intensity_sum'))
+  
+  # Delete!!!!!!
+  # # Get patterns for the specified data type
+  # pattern_info <- patterns[[data_type_key]]
+  # matrix_pattern <- pattern_info$matrix_pattern
+  # wim_pattern <- pattern_info$wim_pattern
+  # 
+  # # Identify columns
+  # matrix_col <- str_subset(colnames(data), regex(matrix_pattern))
+  # wim_col <- str_subset(colnames(data), regex(wim_pattern))
+  
+  # Нужно изменить, чтобы проверка была на NA. Нужна ли вообще
   
   # Check if multiple or no columns are matched
-  if (length(matrix_col) == 0 || length(wim_col) == 0) {
-    message(sprintf("Required columns not found in the dataset for file: %s", basename(file_path)))
-    return(sprintf('File: %s\nRequired columns not found in the dataset.\n', basename(file_path)))
-  } else if (length(matrix_col) > 1 || length(wim_col) > 1) {
-    message(sprintf("Multiple columns matched the pattern in file: %s. Please refine the patterns.", basename(file_path)))
-    return(sprintf('File: %s\nMultiple columns matched the pattern.\n', basename(file_path)))
-  }
+  # if (length(matrix_col) == 0 || length(wim_col) == 0) {
+  #   message(sprintf("Required columns not found in the dataset for file: %s", basename(file_path)))
+  #   return(sprintf('File: %s\nRequired columns not found in the dataset.\n', basename(file_path)))
+  # } else if (length(matrix_col) > 1 || length(wim_col) > 1) {
+  #   message(sprintf("Multiple columns matched the pattern in file: %s. Please refine the patterns.", basename(file_path)))
+  #   return(sprintf('File: %s\nMultiple columns matched the pattern.\n', basename(file_path)))
+  # }
   
   # Calculate the Matrix/WIM Area ratio
-  ratio_values <- (as.numeric(data[[matrix_col]]) / as.numeric(data[[wim_col]])) * 100
+  ratio_values <- ((data[[paste0(data_type, '_fibronectin_mask')]] 
+                    / data[[paste0(data_type, '_wim_mask')]]) * 100)
   
   # Add the ratio to the data
   data <- data %>%
@@ -140,9 +182,16 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 
 # Main code
 # Ask for user input
-file_path <- readline(prompt = "Enter the path to the data file: ")
-data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
-threshold_input <- readline(prompt = "Enter the threshold value: ")
+# file_path <- readline(prompt = "Enter the path to the data file: ")
+# data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
+# threshold_input <- readline(prompt = "Enter the threshold value: ")
+
+#Kate_example
+
+file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/txt-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.txt'
+data_type <- 'GS'
+threshold_input <- '50'
+
 
 # Convert threshold to numeric
 threshold <- as.numeric(threshold_input)
