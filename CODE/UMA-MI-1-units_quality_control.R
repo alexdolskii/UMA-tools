@@ -57,6 +57,12 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
     stop('Please use file with .txt or .xlsx extensions')
   }
   
+  # Check if data_type argument corresponds to file contents
+  coulumn_substring <- c('GS'='GS', 'pFAK'='pFAK', 'PALLD'='iso3', 'pSMAD'='psmad')
+  if (!any(grepl(coulumn_substring[data_type], colnames(prel_data)))){
+    stop('The marker name does not match the file content!')
+  }
+  
   # Find the names of columns that correspond to our patterns
   fib <- str_subset(colnames(prel_data), regex(pattern_fib))
   wim <- str_subset(colnames(prel_data), regex(pattern_WIM))
