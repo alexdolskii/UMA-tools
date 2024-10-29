@@ -32,28 +32,6 @@ library(dplyr)
 library(stringr)
 library(readxl)
 
-#Delete!!!!
-# Define patterns for each data type
-# patterns <- list(
-#   gs = list(
-#     matrix_pattern = "^Cell\\.\\.GS_\\.Matrix\\.objmsk_Total\\.Area_Sum.*",
-#     wim_pattern = "^Cell\\.\\.WIM_GS_matrix_Total\\.Area_Sum.*"
-#   ),
-#   pfak = list(
-#     matrix_pattern = "^Cell\\.\\.pFAK\\.Matrix\\.objmsk_Total\\.Area_Sum.*",
-#     wim_pattern = "^Cell\\.\\.WIM_pFAK_Matrix\\.Area_Sum.*"
-#   ),
-#   palld = list(
-#     # Updated patterns for PALLD to match your data file
-#     matrix_pattern = "^Cell\\.\\.iso3_\\.Matrix\\.objmsk_Area_Sum.*",
-#     wim_pattern = "^Cell\\.\\.WIM_iso3_matrix_Area_Sum.*"
-#   ),
-#   psmad = list(
-#     matrix_pattern = "^Cell\\.\\.psmad_matrix\\.objmsk_Total\\.Area_Sum.*",
-#     wim_pattern = "^Cell\\.\\.WIM_psmad_matrix_Total\\.Area_Sum.*"
-#   )
-# )
-
 pattern_fib <- "^Cell\\.\\.[^WIM]\\S+[Mm]atrix\\S+Total\\.Area_Sum"
 pattern_WIM <- "^Cell\\.\\.WIM\\S+[Mm]atrix\\S+Total\\.Area_Sum"
 pattern_Nuclei_counts <- "^Cell\\.\\.\\S+nuc\\.\\S+msk\\S+Features\\.Count_Sum"
@@ -70,6 +48,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
                           stringsAsFactors = FALSE)
   } else if (endsWith(file_path, '.xlsx')) {
     prel_data <- read_excel(file_path)
+    # Rename columns in excel file to match with patterns
     names(prel_data) <- gsub("\\s", ".", colnames(prel_data))
     names(prel_data) <- gsub(":", ".", colnames(prel_data))
     names(prel_data) <- gsub("\\(", ".", colnames(prel_data))
@@ -77,8 +56,6 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   } else {
     stop('Please use file with .txt or .xlsx extensions')
   }
-  
-  print(prel_data)
   
   # Не уверена в необходимости этой строчки кода
   # Add NEW_NAMES column if it doesn't exist
@@ -116,26 +93,22 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
                    paste0(data_type, '_fibronectin_integrated_intensity_sum'),
                    paste0(data_type, '_marker_integrated_intensity_sum'))
   
-  # Delete!!!!!!
-  # # Get patterns for the specified data type
-  # pattern_info <- patterns[[data_type_key]]
-  # matrix_pattern <- pattern_info$matrix_pattern
-  # wim_pattern <- pattern_info$wim_pattern
-  # 
-  # # Identify columns
-  # matrix_col <- str_subset(colnames(data), regex(matrix_pattern))
-  # wim_col <- str_subset(colnames(data), regex(wim_pattern))
-  
-  # Нужно изменить, чтобы проверка была на NA. Нужна ли вообще
-  
-  # Check if multiple or no columns are matched
-  # if (length(matrix_col) == 0 || length(wim_col) == 0) {
-  #   message(sprintf("Required columns not found in the dataset for file: %s", basename(file_path)))
-  #   return(sprintf('File: %s\nRequired columns not found in the dataset.\n', basename(file_path)))
-  # } else if (length(matrix_col) > 1 || length(wim_col) > 1) {
-  #   message(sprintf("Multiple columns matched the pattern in file: %s. Please refine the patterns.", basename(file_path)))
-  #   return(sprintf('File: %s\nMultiple columns matched the pattern.\n', basename(file_path)))
-  # }
+  #Check if multiple or no columns are matched
+  if (any(length(fib) == 0,
+         length(wim) == 0,
+         length(nc) == 0,
+         length(fib_int) == 0,
+         length(mar_int) == 0)) {
+    message <- sprintf("Required columns not found in the dataset for file: %s", basename(file_path))
+    return(message)
+  } else if (any(length(fib) > 0,
+                length(wim) > 0,
+                length(nc) > 0,
+                length(fib_int) > 0,
+                length(mar_int) > 0)) {
+    message <- sprintf("Multiple columns matched the pattern in file: %s. Please check columns!", basename(file_path))
+    return(message)
+  }
   
   # Calculate the Matrix/WIM Area ratio
   ratio_values <- ((data[[paste0(data_type, '_fibronectin_mask')]] 
@@ -178,12 +151,10 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   # Save the filtered data
   output_file_name <- strsplit(basename(file_path), split = "\\.")[[1]][1]
   output_file_filtered <- file.path(output_dir, paste0('filtered_', output_file_name, '.csv'))
-#  write.table(data_filtered, file = output_file_filtered, sep = "\t", row.names = FALSE, quote = FALSE)
   write.csv(data_filtered, file = output_file_filtered, row.names = FALSE, quote = FALSE)
   
   # Save the discarded data
   output_file_discarded <- file.path(output_dir, paste0('discarded_', output_file_name, '.csv'))
-#  write.table(data_discarded, file = output_file_discarded, sep = "\t", row.names = FALSE, quote = FALSE)
   write.csv(data_discarded, file = output_file_discarded, row.names = FALSE, quote = FALSE)
   
   # Prepare log information
