@@ -49,10 +49,10 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   } else if (endsWith(file_path, '.xlsx')) {
     prel_data <- read_excel(file_path)
     # Rename columns in excel file to match with patterns
-    names(prel_data) <- gsub("\\s", ".", colnames(prel_data))
-    names(prel_data) <- gsub(":", ".", colnames(prel_data))
-    names(prel_data) <- gsub("\\(", ".", colnames(prel_data))
-    names(prel_data) <- gsub("\\)", ".", colnames(prel_data))
+    colnames(prel_data) <- gsub("\\s", ".", colnames(prel_data))
+    colnames(prel_data) <- gsub(":", ".", colnames(prel_data))
+    colnames(prel_data) <- gsub("\\(", ".", colnames(prel_data))
+    colnames(prel_data) <- gsub("\\)", ".", colnames(prel_data))
   } else {
     stop('Please use file with .txt or .xlsx extensions')
   }
