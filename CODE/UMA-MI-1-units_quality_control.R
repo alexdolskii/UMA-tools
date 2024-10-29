@@ -172,11 +172,9 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   writeLines(log_info, con = log_file)
   
   message(sprintf("Processing complete. Results saved in folder: %s", output_dir))
-  
-#  return(invisible(NULL))
 }
 
-# Main code
+
 # Ask for user input
 # file_path <- readline(prompt = "Enter the path to the data file: ")
 # data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
@@ -184,9 +182,9 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 
 #Kate_example
 
-file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/excel-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
-data_type <- 'GS'
-threshold_input <- '50'
+# file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/excel-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
+# data_type <- 'GS'
+# threshold_input <- '50'
 
 
 # Convert threshold to numeric
