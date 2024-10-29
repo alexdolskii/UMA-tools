@@ -176,12 +176,15 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   dir.create(output_dir, showWarnings = FALSE)
   
   # Save the filtered data
-  output_file_filtered <- file.path(output_dir, paste0('filtered_', basename(file_path)))
-  write.table(data_filtered, file = output_file_filtered, sep = "\t", row.names = FALSE, quote = FALSE)
+  output_file_name <- strsplit(basename(file_path), split = "\\.")[[1]][1]
+  output_file_filtered <- file.path(output_dir, paste0('filtered_', output_file_name, '.csv'))
+#  write.table(data_filtered, file = output_file_filtered, sep = "\t", row.names = FALSE, quote = FALSE)
+  write.csv(data_filtered, file = output_file_filtered, row.names = FALSE, quote = FALSE)
   
   # Save the discarded data
-  output_file_discarded <- file.path(output_dir, paste0('discarded_', basename(file_path)))
-  write.table(data_discarded, file = output_file_discarded, sep = "\t", row.names = FALSE, quote = FALSE)
+  output_file_discarded <- file.path(output_dir, paste0('discarded_', output_file_name, '.csv'))
+#  write.table(data_discarded, file = output_file_discarded, sep = "\t", row.names = FALSE, quote = FALSE)
+  write.csv(data_discarded, file = output_file_discarded, row.names = FALSE, quote = FALSE)
   
   # Prepare log information
   log_info <- sprintf('File: %s\nData Type: %s\nThreshold: %.2f%%\n%d rows removed (%.2f%%) because Matrix/WIM ratio < %.2f%%.\nRemoved rows: %s\n', 
@@ -204,7 +207,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 
 #Kate_example
 
-file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/excel-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
+file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/txt-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.txt'
 data_type <- 'GS'
 threshold_input <- '50'
 
