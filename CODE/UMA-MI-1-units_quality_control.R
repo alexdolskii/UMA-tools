@@ -30,6 +30,7 @@
 # Load necessary libraries
 library(dplyr)
 library(stringr)
+library(readxl)
 
 #Delete!!!!
 # Define patterns for each data type
@@ -62,7 +63,22 @@ pattern_intensity <- "^Cell\\.\\.\\S+_obj\\.?msk_Integrated\\.Intensity_Sum"
 # Function to process the file
 process_file <- function(file_path, data_type_key, data_type, threshold) {
   # Read the file
-  prel_data <- read.table(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+  if (endsWith(file_path, '.txt')) {
+    prel_data <- read.table(file_path, 
+                          header = TRUE, 
+                          sep = "\t", 
+                          stringsAsFactors = FALSE)
+  } else if (endsWith(file_path, '.xlsx')) {
+    prel_data <- read_excel(file_path)
+    names(prel_data) <- gsub("\\s", ".", colnames(prel_data))
+    names(prel_data) <- gsub(":", ".", colnames(prel_data))
+    names(prel_data) <- gsub("\\(", ".", colnames(prel_data))
+    names(prel_data) <- gsub("\\)", ".", colnames(prel_data))
+  } else {
+    stop('Please use file with .txt or .xlsx extensions')
+  }
+  
+  print(prel_data)
   
   # Не уверена в необходимости этой строчки кода
   # Add NEW_NAMES column if it doesn't exist
@@ -188,7 +204,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 
 #Kate_example
 
-file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/txt-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.txt'
+file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/excel-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
 data_type <- 'GS'
 threshold_input <- '50'
 
