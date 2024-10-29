@@ -57,7 +57,6 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
     stop('Please use file with .txt or .xlsx extensions')
   }
   
-  # Не уверена в необходимости этой строчки кода
   # Add NEW_NAMES column if it doesn't exist
   if (!"NEW_NAMES" %in% colnames(prel_data)) {
     prel_data$NEW_NAMES <- paste(prel_data$Plate.ID, prel_data$Well.Name, prel_data$Site.ID, prel_data$MEASUREMENT.SET.ID)
@@ -101,11 +100,11 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
          length(mar_int) == 0)) {
     message <- sprintf("Required columns not found in the dataset for file: %s", basename(file_path))
     return(message)
-  } else if (any(length(fib) > 0,
-                length(wim) > 0,
-                length(nc) > 0,
-                length(fib_int) > 0,
-                length(mar_int) > 0)) {
+  } else if (any(length(fib) > 1,
+                length(wim) > 1,
+                length(nc) > 1,
+                length(fib_int) > 1,
+                length(mar_int) > 1)) {
     message <- sprintf("Multiple columns matched the pattern in file: %s. Please check columns!", basename(file_path))
     return(message)
   }
@@ -131,6 +130,8 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   removed_rows <- nrow(data_discarded)
   percent_removed <- (removed_rows / total_rows) * 100
   names_removed <- data_discarded$NEW_NAMES
+  
+  print(names_removed)
   
   # Create 'QC' directory in the same directory as the script
   script_dir <- tryCatch({
