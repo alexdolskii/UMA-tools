@@ -175,10 +175,10 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 }
 
 
-# Ask for user input
-# file_path <- readline(prompt = "Enter the path to the data file: ")
-# data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
-# threshold_input <- readline(prompt = "Enter the threshold value: ")
+#Ask for user input
+file_path <- readline(prompt = "Enter the path to the data file: ")
+data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
+threshold_input <- readline(prompt = "Enter the threshold value: ")
 
 #Kate_example
 
