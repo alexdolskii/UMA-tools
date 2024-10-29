@@ -57,11 +57,6 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
     stop('Please use file with .txt or .xlsx extensions')
   }
   
-  # Add NEW_NAMES column if it doesn't exist
-  if (!"NEW_NAMES" %in% colnames(prel_data)) {
-    prel_data$NEW_NAMES <- paste(prel_data$Plate.ID, prel_data$Well.Name, prel_data$Site.ID, prel_data$MEASUREMENT.SET.ID)
-  }
-  
   # Find the names of columns that correspond to our patterns
   fib <- str_subset(colnames(prel_data), regex(pattern_fib))
   wim <- str_subset(colnames(prel_data), regex(pattern_WIM))
@@ -109,6 +104,11 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
     return(message)
   }
   
+  # Add NEW_NAMES column if it doesn't exist
+  if (!"NEW_NAMES" %in% colnames(data)) {
+    data$NEW_NAMES <- paste(data$Plate.ID, data$Well.Name, data$Site.ID, data$MEASUREMENT.SET.ID)
+  }
+  
   # Calculate the Matrix/WIM Area ratio
   ratio_values <- ((data[[paste0(data_type, '_fibronectin_mask')]] 
                     / data[[paste0(data_type, '_wim_mask')]]) * 100)
@@ -131,7 +131,6 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   percent_removed <- (removed_rows / total_rows) * 100
   names_removed <- data_discarded$NEW_NAMES
   
-  print(names_removed)
   
   # Create 'QC' directory in the same directory as the script
   script_dir <- tryCatch({
@@ -168,7 +167,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   
   message(sprintf("Processing complete. Results saved in folder: %s", output_dir))
   
-  return(invisible(NULL))
+#  return(invisible(NULL))
 }
 
 # Main code
@@ -179,7 +178,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 
 #Kate_example
 
-file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/txt-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.txt'
+file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/excel-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
 data_type <- 'GS'
 threshold_input <- '50'
 
