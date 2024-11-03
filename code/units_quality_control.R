@@ -192,7 +192,6 @@ process_file <- function(file_path, data_type, threshold) {
   names_removed <- data_discarded$LOG_DATA
   names_missing <- data_missing$LOG_DATA
 
-
   # Create 'QC' directory in the same directory as the script
   script_dir <- tryCatch(
     {
