@@ -40,6 +40,27 @@ pattern_intensity <- "^Cell\\.\\.\\S+_obj\\.?msk_Integrated\\.Intensity_Sum"
 
 # Function to process the file
 process_file <- function(file_path, data_type, threshold) {
+  
+  # Convert threshold to numeric
+  threshold <- as.numeric(threshold)
+  
+  # Validate data type
+  valid_data_types <- c("GS", "pFAK", "PALLD", "pSMAD")
+  # valid_data_types_lower <- tolower(valid_data_types)
+  # data_type_lower <- tolower(data_type)
+  if (!(data_type %in% valid_data_types)) {
+    stop("Invalid data type specified. Please choose from 'GS', 'pFAK', 'PALLD', or 'pSMAD'.")
+  }
+  
+  # Process file path to handle backslashes and quotes
+  file_path <- gsub('\"', '', file_path)
+  file_path <- gsub('\\\\', '/', file_path)
+  
+  # Check if file exists
+  if (!file.exists(file_path)) {
+    stop("The specified data file does not exist.")
+  }
+  
   # Read the file
   if (endsWith(file_path, '.txt')) {
     prel_data <- read.table(file_path, 
@@ -58,8 +79,8 @@ process_file <- function(file_path, data_type, threshold) {
   }
   
   # Check if data_type argument corresponds to file contents
-  coulumn_substring <- c('GS'='GS', 'pFAK'='pFAK', 'PALLD'='iso3', 'pSMAD'='psmad')
-  if (!any(grepl(coulumn_substring[data_type], colnames(prel_data)))){
+  column_substring <- c('GS'='GS', 'pFAK'='pFAK', 'PALLD'='iso3', 'pSMAD'='psmad')
+  if (!any(grepl(column_substring[data_type], colnames(prel_data)))){
     stop('The marker name does not match the file content!')
   }
   
@@ -211,34 +232,14 @@ process_file <- function(file_path, data_type, threshold) {
 # #Ask for user input
 # file_path <- readline(prompt = "Enter the path to the data file: ")
 # data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
-# threshold_input <- readline(prompt = "Enter the threshold value: ")
+# threshold <- readline(prompt = "Enter the threshold value: ")
 
 #Kate_example
 
 file_path <- 'data/orig_excel_data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
-data_type <- 'GS'
-threshold_input <- '50'
+data_type <- 'gs'
+threshold <- '50'
 
-
-# Convert threshold to numeric
-threshold <- as.numeric(threshold_input)
-
-# Validate data type
-valid_data_types <- c("GS", "pFAK", "PALLD", "pSMAD")
-valid_data_types_lower <- tolower(valid_data_types)
-data_type_lower <- tolower(data_type)
-if (!data_type_lower %in% valid_data_types_lower) {
-  stop("Invalid data type specified. Please choose from 'GS', 'pFAK', 'PALLD', or 'pSMAD'.")
-}
-
-# Process file path to handle backslashes and quotes
-file_path <- gsub('\"', '', file_path)
-file_path <- gsub('\\\\', '/', file_path)
-
-# Check if file exists
-if (!file.exists(file_path)) {
-  stop("The specified data file does not exist.")
-}
 
 # Process the file
 process_file(file_path, data_type, threshold)
