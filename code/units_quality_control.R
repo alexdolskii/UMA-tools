@@ -232,17 +232,10 @@ process_file <- function(file_path, data_type, threshold) {
 }
 
 
-# #Ask for user input
-# file_path <- readline(prompt = "Enter the path to the data file: ")
-# data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
-# threshold <- readline(prompt = "Enter the threshold value: ")
-
-#Kate_example
-
-file_path <- 'data/orig_excel_data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
-data_type <- 'psmad'
-threshold <- '50'
-
+#Ask for user input
+file_path <- readline(prompt = "Enter the path to the data file: ")
+data_type <- readline(prompt = "Enter the data type (GS, pFAK, PALLD, pSMAD): ")
+threshold <- readline(prompt = "Enter the threshold value: ")
 
 # Process the file
 process_file(file_path, data_type, threshold)
