@@ -109,7 +109,8 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
                 length(nc) > 1,
                 length(fib_int) > 1,
                 length(mar_int) > 1)) {
-    message <- sprintf("Multiple columns matched the pattern in file: %s. Please check columns!", basename(file_path))
+    message <- sprintf("Multiple columns matched the pattern in file: %s. Please check columns!", 
+                       basename(file_path))
     return(message)
   }
   
