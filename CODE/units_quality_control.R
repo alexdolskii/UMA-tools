@@ -135,13 +135,18 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   
   # Data that did not meet the threshold
   data_discarded <- data %>%
-    filter(is.na(Matrix_WIM_Area_ratio) | Matrix_WIM_Area_ratio <= threshold)
+    filter(!is.na(Matrix_WIM_Area_ratio) | Matrix_WIM_Area_ratio <= threshold)
+  
+  # Data that is equal to missing value
+  data_missing <- data %>%
+    filter(is.na(Matrix_WIM_Area_ratio))
   
   # Calculate statistics
   total_rows <- nrow(data)
   removed_rows <- nrow(data_discarded)
   percent_removed <- (removed_rows / total_rows) * 100
   names_removed <- data_discarded$LOG_DATA
+  names_missing <- data_missing$LOG_DATA
   
   
   # Create 'QC' directory in the same directory as the script
@@ -172,13 +177,18 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   output_file_discarded <- file.path(output_dir, paste0('discarded_', output_file_name, '.csv'))
   write.csv(data_discarded, file = output_file_discarded, row.names = FALSE, quote = FALSE)
   
+  # Save the data with empty values
+  output_file_missing <- file.path(output_dir, paste0('missing_', output_file_name, '.csv'))
+  write.csv(data_missing, file = output_file_missing, row.names = FALSE, quote = FALSE)
+  
   # Prepare log information
   log_info <- sprintf('File: %s
                       \nData Type: %s
                       \nThreshold: %.2f%%
                       \nOriginal names of columns: %s
                       \n%d rows removed (%.2f%%) because Matrix/WIM ratio < %.2f%%.
-                      \nRemoved rows: %s\n', 
+                      \nRemoved rows: %s
+                      \nRows with missing values: %s/n', 
                       basename(file_path), 
                       data_type, 
                       threshold, 
@@ -186,7 +196,8 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
                       removed_rows, 
                       percent_removed, 
                       threshold, 
-                      toString(names_removed))
+                      toString(names_removed),
+                      toString(names_missing))
   
   # Save log information to a file in the output directory
   log_file <- file.path(output_dir, "data_quality_log.txt")
