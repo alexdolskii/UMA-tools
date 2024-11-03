@@ -15,7 +15,7 @@
 #
 # Requirements:
 # - R version >= 3.6.0
-# - Packages: dplyr, stringr, readxl
+# - Packages: dplyr, stringr, readxl, ggplot2
 #
 # Usage:
 # - Run the script in R or RStudio.
@@ -34,6 +34,7 @@
 library(dplyr)
 library(stringr)
 library(readxl)
+library(ggplot2)
 
 pattern_fib <- "^Cell\\.\\.[^WIM]\\S+[Mm]atrix\\S+Total\\.Area_Sum"
 pattern_WIM <- "^Cell\\.\\.WIM\\S+[Mm]atrix\\S+Total\\.Area_Sum"
@@ -255,6 +256,23 @@ process_file <- function(file_path, data_type, threshold) {
   # Save log information to a file in the output directory
   log_file <- file.path(output_dir, "data_quality_log.txt")
   writeLines(log_info, con = log_file)
+  
+  # Visualize the results after filtering
+  vis_data <- data.frame(Names = c('Filtered', 'Discarded', 'Missing'), 
+                         Counts = c(nrow(data_filtered), 
+                                    nrow(data_discarded), 
+                                    nrow(data_missing)))
+  vis_data$Names <- factor(vis_data$Names, levels = vis_data$Names)
+  
+  plot <- ggplot(vis_data, aes(x = Names, y = Counts)) +
+    geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+    geom_text(aes(label = Counts), vjust = -0.5, color = "black") +
+    labs(title = "The results of QC", x = "Categories", y = "Counts") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  output_plot_path <- file.path(output_dir, paste0("QC_results_", data_type_lower, ".jpeg"))
+  ggsave(filename = output_plot_path, plot = plot, width = 8, height = 6, dpi = 300)
 
   message(sprintf("Processing complete. Results saved in folder: %s", output_dir))
 }
