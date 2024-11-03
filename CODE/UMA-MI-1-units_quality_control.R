@@ -82,6 +82,9 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
                     mar_int
   )]
   
+  # Save original names of columns for log file 
+  original_names <- paste(colnames(data), collapse = '; ')
+  
   # Make names of our df readable
   names(data) <- c('Plate.ID', 
                    'Well.Name', 
@@ -164,8 +167,20 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   write.csv(data_discarded, file = output_file_discarded, row.names = FALSE, quote = FALSE)
   
   # Prepare log information
-  log_info <- sprintf('File: %s\nData Type: %s\nThreshold: %.2f%%\n%d rows removed (%.2f%%) because Matrix/WIM ratio < %.2f%%.\nRemoved rows: %s\n', 
-                      basename(file_path), data_type, threshold, removed_rows, percent_removed, threshold, toString(names_removed))
+  log_info <- sprintf('File: %s
+                      \nData Type: %s
+                      \nThreshold: %.2f%%
+                      \nOriginal names of columns: %s
+                      \n%d rows removed (%.2f%%) because Matrix/WIM ratio < %.2f%%.
+                      \nRemoved rows: %s\n', 
+                      basename(file_path), 
+                      data_type, 
+                      threshold, 
+                      original_names,
+                      removed_rows, 
+                      percent_removed, 
+                      threshold, 
+                      toString(names_removed))
   
   # Save log information to a file in the output directory
   log_file <- file.path(output_dir, "Data_Quality_Log.txt")
