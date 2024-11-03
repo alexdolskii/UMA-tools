@@ -268,7 +268,7 @@ process_file <- function(file_path, data_type, threshold) {
     geom_bar(stat = "identity", fill = "skyblue", color = "black") +
     geom_text(aes(label = Counts), vjust = -0.5, color = "black") +
     labs(title = "The results of QC", 
-         x = paste0(data_type_lower, "\nThreshold:", threshold), 
+         x = paste0(data_type_lower, "\n\nThreshold: ", threshold), 
          y = "Counts") +
     theme_minimal() +
     theme(plot.title = element_text(hjust = 0.5))
