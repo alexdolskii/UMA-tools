@@ -113,9 +113,12 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
     return(message)
   }
   
-  # Add NEW_NAMES column if it doesn't exist
-  if (!"NEW_NAMES" %in% colnames(data)) {
-    data$NEW_NAMES <- paste(data$Plate.ID, data$Well.Name, data$Site.ID, data$MEASUREMENT.SET.ID)
+  # Add LOG_DATA column if it doesn't exist
+  if (!"LOG_DATA" %in% colnames(data)) {
+    data$LOG_DATA <- paste(data$Plate_ID, 
+                           data$Well_Name, 
+                           data$Site_ID, 
+                           data$MEASUREMENT_SET_ID)
   }
   
   # Calculate the Matrix/WIM Area ratio
@@ -138,7 +141,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   total_rows <- nrow(data)
   removed_rows <- nrow(data_discarded)
   percent_removed <- (removed_rows / total_rows) * 100
-  names_removed <- data_discarded$NEW_NAMES
+  names_removed <- data_discarded$LOG_DATA
   
   
   # Create 'QC' directory in the same directory as the script
@@ -153,7 +156,10 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   # Create output directory within 'QC' with date, time, filename, marker, and threshold
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
   base_filename <- tools::file_path_sans_ext(basename(file_path))
-  output_dir_name <- paste0("QC_", base_filename, "_", data_type, "_", "thresh", threshold, "_", timestamp)
+  output_dir_name <- paste0("QC_", base_filename, 
+                            "_", data_type, 
+                            "_", "thresh", threshold, 
+                            "_", timestamp)
   output_dir <- file.path(qc_dir, output_dir_name)
   dir.create(output_dir, showWarnings = FALSE)
   
@@ -183,7 +189,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
                       toString(names_removed))
   
   # Save log information to a file in the output directory
-  log_file <- file.path(output_dir, "Data_Quality_Log.txt")
+  log_file <- file.path(output_dir, "data_quality_log.txt")
   writeLines(log_info, con = log_file)
   
   message(sprintf("Processing complete. Results saved in folder: %s", output_dir))
