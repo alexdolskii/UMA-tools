@@ -190,7 +190,7 @@ process_file <- function(file_path, data_type, threshold) {
 
   # Calculate statistics
   total_rows <- nrow(data)
-  removed_rows <- nrow(data_discarded)
+  removed_rows <- nrow(data_discarded) + nrow(data_missing)
   percent_removed <- (removed_rows / total_rows) * 100
   names_removed <- data_discarded$LOG_DATA
   names_missing <- data_missing$LOG_DATA
