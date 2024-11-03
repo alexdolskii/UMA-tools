@@ -1,6 +1,6 @@
 # Data Quality Control Script for Biological Data Types: GS, pFAK, PALLD, pSMAD
-# Author: [Your Name]
-# Date: [Date]
+# Author: Aleksandr Dolskii, Ekaterina Shitik
+# Date: 11/03/2024
 #
 # This script performs quality control on a specified data file by filtering out rows
 # where the Matrix/WIM (Whole Image) area ratio is below a user-defined threshold.
@@ -15,7 +15,7 @@
 #
 # Requirements:
 # - R version >= 3.6.0
-# - Packages: dplyr, stringr
+# - Packages: dplyr, stringr, readxl
 #
 # Usage:
 # - Run the script in R or RStudio.
