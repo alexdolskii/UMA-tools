@@ -135,7 +135,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   
   # Data that did not meet the threshold
   data_discarded <- data %>%
-    filter(!is.na(Matrix_WIM_Area_ratio) | Matrix_WIM_Area_ratio <= threshold)
+    filter(!is.na(Matrix_WIM_Area_ratio) & Matrix_WIM_Area_ratio <= threshold)
   
   # Data that is equal to missing value
   data_missing <- data %>%
