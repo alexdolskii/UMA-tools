@@ -45,10 +45,9 @@ process_file <- function(file_path, data_type, threshold) {
   threshold <- as.numeric(threshold)
   
   # Validate data type
-  valid_data_types <- c("GS", "pFAK", "PALLD", "pSMAD")
-  # valid_data_types_lower <- tolower(valid_data_types)
-  # data_type_lower <- tolower(data_type)
-  if (!(data_type %in% valid_data_types)) {
+  valid_data_types_lower <- c("gs", "pfak", "palld", "psmad")
+  data_type_lower <- tolower(data_type)
+  if (!(data_type_lower %in% valid_data_types_lower)) {
     stop("Invalid data type specified. Please choose from 'GS', 'pFAK', 'PALLD', or 'pSMAD'.")
   }
   
@@ -69,6 +68,7 @@ process_file <- function(file_path, data_type, threshold) {
                           stringsAsFactors = FALSE)
   } else if (endsWith(file_path, '.xlsx')) {
     prel_data <- read_excel(file_path)
+    
     # Rename columns in excel file to match with patterns
     colnames(prel_data) <- gsub("\\s", ".", 
                                 gsub(":", ".", 
@@ -79,8 +79,11 @@ process_file <- function(file_path, data_type, threshold) {
   }
   
   # Check if data_type argument corresponds to file contents
-  column_substring <- c('GS'='GS', 'pFAK'='pFAK', 'PALLD'='iso3', 'pSMAD'='psmad')
-  if (!any(grepl(column_substring[data_type], colnames(prel_data)))){
+  column_substring <- c('gs'='GS', 
+                        'pfak'='pFAK', 
+                        'palld'='iso3', 
+                        'psmad'='psmad')
+  if (!any(grepl(column_substring[data_type_lower], colnames(prel_data)))){
     stop('The marker name does not match the file content!')
   }
   
@@ -111,11 +114,11 @@ process_file <- function(file_path, data_type, threshold) {
                    'Well_Name', 
                    'Site_ID', 
                    'MEASUREMENT_SET_ID', 
-                   paste0(data_type, '_fibronectin_mask'), 
-                   paste0(data_type, '_wim_mask'), 
-                   paste0(data_type, '_nuclei_counts'), 
-                   paste0(data_type, '_fibronectin_integrated_intensity_sum'),
-                   paste0(data_type, '_marker_integrated_intensity_sum'))
+                   paste0(data_type_lower, '_fibronectin_mask'), 
+                   paste0(data_type_lower, '_wim_mask'), 
+                   paste0(data_type_lower, '_nuclei_counts'), 
+                   paste0(data_type_lower, '_fibronectin_integrated_intensity_sum'),
+                   paste0(data_type_lower, '_marker_integrated_intensity_sum'))
   
   #Check if multiple or no columns are matched
   if (any(length(fib) == 0,
@@ -144,8 +147,8 @@ process_file <- function(file_path, data_type, threshold) {
   }
   
   # Calculate the Matrix/WIM Area ratio
-  ratio_values <- ((data[[paste0(data_type, '_fibronectin_mask')]] 
-                    / data[[paste0(data_type, '_wim_mask')]]) * 100)
+  ratio_values <- ((data[[paste0(data_type_lower, '_fibronectin_mask')]] 
+                    / data[[paste0(data_type_lower, '_wim_mask')]]) * 100)
   
   # Add the ratio to the data
   data <- data %>%
@@ -184,7 +187,7 @@ process_file <- function(file_path, data_type, threshold) {
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
   base_filename <- tools::file_path_sans_ext(basename(file_path))
   output_dir_name <- paste0("QC_", base_filename, 
-                            "_", data_type, 
+                            "_", data_type_lower, 
                             "_", "thresh", threshold, 
                             "_", timestamp)
   output_dir <- file.path(qc_dir, output_dir_name)
@@ -237,7 +240,7 @@ process_file <- function(file_path, data_type, threshold) {
 #Kate_example
 
 file_path <- 'data/orig_excel_data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
-data_type <- 'gs'
+data_type <- 'psmad'
 threshold <- '50'
 
 
