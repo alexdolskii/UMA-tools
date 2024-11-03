@@ -23,7 +23,10 @@
 #   and the threshold value.
 #
 # Example:
-# source("quality_control_script.R")
+# file_path <- '../data/orig_excel_data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
+# data_type <- 'pSMAD'
+# threshold <- '50'
+# process_file(file_path, data_type, threshold)
 #
 # License: MIT License
 
