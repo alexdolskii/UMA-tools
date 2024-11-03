@@ -86,10 +86,10 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
   original_names <- paste(colnames(data), collapse = '; ')
   
   # Make names of our df readable
-  names(data) <- c('Plate.ID', 
-                   'Well.Name', 
-                   'Site.ID', 
-                   'MEASUREMENT.SET.ID', 
+  names(data) <- c('Plate_ID', 
+                   'Well_Name', 
+                   'Site_ID', 
+                   'MEASUREMENT_SET_ID', 
                    paste0(data_type, '_fibronectin_mask'), 
                    paste0(data_type, '_wim_mask'), 
                    paste0(data_type, '_nuclei_counts'), 
