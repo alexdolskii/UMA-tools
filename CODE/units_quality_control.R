@@ -39,7 +39,7 @@ pattern_fib_intensity <- "^Cell\\.\\.[^WIM]\\S+[Mm]atrix\\S+Integrated\\.Intensi
 pattern_intensity <- "^Cell\\.\\.\\S+_obj\\.?msk_Integrated\\.Intensity_Sum"
 
 # Function to process the file
-process_file <- function(file_path, data_type_key, data_type, threshold) {
+process_file <- function(file_path, data_type, threshold) {
   # Read the file
   if (endsWith(file_path, '.txt')) {
     prel_data <- read.table(file_path, 
@@ -215,7 +215,7 @@ process_file <- function(file_path, data_type_key, data_type, threshold) {
 
 #Kate_example
 
-file_path <- '/Users/ekaterinashitik/UMA-tools/DATA/for-umi-ma/data_pt_cu_far_pl_09242024/excel-raw-data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
+file_path <- 'data/orig_excel_data/Cukierman_TL_GS_ptCufar_pl09242024_pl2298_SITE.xlsx'
 data_type <- 'GS'
 threshold_input <- '50'
 
@@ -231,8 +231,6 @@ if (!data_type_lower %in% valid_data_types_lower) {
   stop("Invalid data type specified. Please choose from 'GS', 'pFAK', 'PALLD', or 'pSMAD'.")
 }
 
-data_type_key <- data_type_lower
-
 # Process file path to handle backslashes and quotes
 file_path <- gsub('\"', '', file_path)
 file_path <- gsub('\\\\', '/', file_path)
@@ -243,4 +241,4 @@ if (!file.exists(file_path)) {
 }
 
 # Process the file
-process_file(file_path, data_type_key, data_type, threshold)
+process_file(file_path, data_type, threshold)
