@@ -216,15 +216,15 @@ process_file <- function(file_path, data_type, threshold) {
 
   # Save the filtered data
   output_file_name <- strsplit(basename(file_path), split = "\\.")[[1]][1]
-  output_file_filtered <- file.path(output_dir, paste0("filtered_", output_file_name, ".csv"))
+  output_file_filtered <- file.path(output_dir, paste0("filtered.csv"))
   write.csv(data_filtered, file = output_file_filtered, row.names = FALSE, quote = FALSE)
 
   # Save the discarded data
-  output_file_discarded <- file.path(output_dir, paste0("discarded_", output_file_name, ".csv"))
+  output_file_discarded <- file.path(output_dir, paste0("discarded.csv"))
   write.csv(data_discarded, file = output_file_discarded, row.names = FALSE, quote = FALSE)
 
   # Save the data with empty values
-  output_file_missing <- file.path(output_dir, paste0("missing_", output_file_name, ".csv"))
+  output_file_missing <- file.path(output_dir, paste0("missing.csv"))
   write.csv(data_missing, file = output_file_missing, row.names = FALSE, quote = FALSE)
 
   # Prepare log information
