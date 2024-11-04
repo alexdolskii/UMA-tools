@@ -196,17 +196,11 @@ process_file <- function(file_path, data_type, threshold) {
   names_removed <- data_discarded$LOG_DATA
   names_missing <- data_missing$LOG_DATA
 
-  # Create 'QC' directory in the same directory as the script
-  script_dir <- tryCatch(
-    {
-      dirname(normalizePath(sys.frames()[[1]]$ofile))
-    },
-    error = function(e) {
-      getwd()
-    }
-  )
-  qc_dir <- file.path(script_dir, "QC")
+  # Create 'QC' directory in the same directory as the data file
+  data_file_dir <- dirname(normalizePath(file_path))
+  qc_dir <- file.path(data_file_dir, "QC")
   dir.create(qc_dir, showWarnings = FALSE)
+  
 
   # Create output directory within 'QC' with date, time, filename, marker, and threshold
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
