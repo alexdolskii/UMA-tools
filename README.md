@@ -1,38 +1,52 @@
-# UMA-tools
+# UMA-tools Setup Guide
 
-For windows:
+## For Windows Users
 
-Install wsl
-    Open PowerShell with administrator privileges. To do this, press the Windows key, type "PowerShell," right-click on PowerShell, and select "Run as administrator".
-    - wsl --install
-    After running the command, a computer restart will be required
+### Step 1: Install WSL (Windows Subsystem for Linux)
 
-Update wsl
-    - sudo apt update
-    - sudo apt upgrade -y
+1. Open Powerell with administrator privileges:
+    Press the Windows key, type "Powerell," right-click on it, and select "Run as administrator".
+2. Run the following command to install WSL:
+    wsl --install
+3. After the installation, restart your computer.
+4. Once WSL is installed, open your WSL terminal and run:
+    sudo apt update
+    sudo apt upgrade -y
 
-Download the Miniconda installer for Linux
-    - wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-After downloading the file, make it executable
-    - chmod +x Miniconda3-latest-Linux-x86_64.sh
-Run the installer script
-    - ./Miniconda3-latest-Linux-x86_64.sh
+### Step 2: Install Miniconda
+1. Download the Miniconda installer for Linux:
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.
+2. Make the installer executable:
+    chmod +x Miniconda3-latest-Linux-x86_64.
+3. Run the installer script:
+    ./Miniconda3-latest-Linux-x86_64.
+4. Restart the ell to apply changes:
+    source ~/.barc
+5. Verify the installation:
+    conda --version
+6. Update Conda to the latest version:
+    conda update conda
 
-After the installation is complete, restart the shell to apply changes
-    - source ~/.bashrc
+### Step 4: Create Environment for UMA Tools
+1. Create the environment:
+   conda env create -f uma_environment.yml -n uma_environment
+2. Activate the environment:
+   conda activate uma_environment
+3. Make the main script executable:
+   chmod +x code/alignment_analysis.py
 
-Verify that conda is installed by running
-    - conda --version
+### Step 5: Installing OrientationPy (v3+)
+1. Clone the Repository. Download the  code for OrientationPy:
+    git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
+2. Enter the cloned directory:
+    cd orientationpy
+3. Install OrientationPy and its dependencies:
+    pip install .
+4. Return to the UMA-tools directory:
+    cd ..
 
-Update Conda to the latest version
-    - conda update conda
+### Step 6:  Running the UMA Tools Script
+1. Modify `input_paths.json` to include your paths to the `.nd2` files.
+2. Run the main analysis script:
+   python ./code/alignment_analysis.py -i input_paths.json
 
-Create enviroment for uma tools
-    - conda env create -f uma_environment.yml -n uma_enviroment1
-    - conda activate <name of enviroment>
-    - chmod +x code/fibronectin_orientation_analysis.py
-
-Modify input_paths.json with your paths to .nd2 files
-
-Run code
-    -./code/Step1.py -i input_paths.json
