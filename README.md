@@ -57,3 +57,26 @@
 2. Run the main analysis script:
    python ./code/alignment_analysis.py -i input_paths.json
 
+
+
+# Dependencies and Tools Used
+
+This program utilizes the following tools:
+
+1. **OrientationPy**  
+   [OrientationPy](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html) is a Python-based plugin used in this project for calculating the **alignment of fibronectin fibers**.
+
+   - Repository: [OrientationPy](https://gitlab.com/epfl-center-for-imaging/orientationpy/)  
+   - License: [The GNU General Public License, Version 3, 29 June 2007 (GPLv3)](https://gitlab.com/epfl-center-for-imaging/orientationpy/-/blob/main/LICENSE.md?ref_type=heads)
+
+2. **Fiji**  
+   [Fiji](https://fiji.sc/) (Fiji Is Just ImageJ) is an open-source distribution of ImageJ with a focus on image analysis. In this project, Fiji was used for **preprocessing image stacks**, including tasks such as contrast enhancement, filtering, and segmentation, to ensure the data is optimized for analysis in OrientationPy.
+
+   - Repository: [Fiji](https://github.com/fiji/fiji)  
+   - License: [GPL License](https://imagej.net/licensing/)
+
+## Usage
+
+- **OrientationPy**: Used for calculating the alignment of fibronectin fibers in the processed images. This helps quantify structural organization and provides insights into [specific biological context, e.g., "tumor microenvironment"].
+- **Fiji**: Serves as the preprocessing tool to optimize the images.
+
