@@ -103,7 +103,6 @@ dependencies:
       - numba==0.58.1
       - numba-progress==1.1.0
       - numpy==1.24.4
-      - orientationpy==0.3.0
       - packaging==24.2
       - pandas==2.0.3
       - pillow==10.4.0

@@ -27,15 +27,22 @@
 6. Update Conda to the latest version:
     conda update conda
 
-### Step 4: Create Environment for UMA Tools
+### Step 3: Create Environment for UMA Tools
 1. Create the environment:
-   conda env create -f uma_environment.yml -n uma_environment
-2. Activate the environment:
-   conda activate uma_environment
-3. Make the main script executable:
-   chmod +x code/alignment_analysis.py
+    conda env create -f uma_environment.yml -n uma_environment
+    
+    To check conda environments:
+    conda info --envs
+    To delete conda envioment:
+    conda remove --name <environment_name> --all
 
-### Step 5: Installing OrientationPy (v3+)
+2. Activate the environment:
+    conda activate uma_environment
+3. Make the main script executable:
+    chmod +x code/alignment_analysis.py
+    chmod +x code/thickness_analysis.py
+
+### Step 4: Installing OrientationPy (v3+)
 1. Clone the Repository. Download the  code for OrientationPy:
     git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
 2. Enter the cloned directory:
@@ -45,7 +52,7 @@
 4. Return to the UMA-tools directory:
     cd ..
 
-### Step 6:  Running the UMA Tools Script
+### Step 5:  Running the UMA Tools Script
 1. Modify `input_paths.json` to include your paths to the `.nd2` files.
 2. Run the main analysis script:
    python ./code/alignment_analysis.py -i input_paths.json

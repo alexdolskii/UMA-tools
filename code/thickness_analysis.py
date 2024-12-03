@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Units thickness analysis
+"""
+
 import imagej
 import os
 from pathlib import Path
@@ -16,7 +23,7 @@ def main():
     print("Initializing ImageJ...")
     try:
         # Using 'headless' mode to ensure the program exits after completion
-        ij = imagej.init(r"C:\Users\dolsk\Desktop\Orientation_assay_script\Fiji.app", mode='headless')
+        ij = imagej.init('sc.fiji:fiji', mode='headless')
         print("ImageJ initialization completed.")
     except Exception as e:
         print(f"Error initializing ImageJ: {e}")
