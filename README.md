@@ -1,5 +1,9 @@
 # UMA-tools Setup Guide
 
+
+The program can be run on Linux or macOS machines. If you are using Windows, you will need to install WSL (Windows Subsystem for Linux).
+
+For the code to function properly, specific package versions are required. Therefore, it is essential to work within a designated environment. As an example, commands for working with Miniconda are provided, but you are free to use any environment management tool that you find convenient. For macOS users, skip the WSL installation and work directly in the terminal.
 ## For Windows Users
 
 ### Step 1: Install WSL (Windows Subsystem for Linux)
@@ -7,7 +11,7 @@
 1. Open Powerell with administrator privileges:
     Press the Windows key, type "Powerell," right-click on it, and select "Run as administrator".
 2. Run the following command to install WSL:
-    wsl --install
+    - wsl --install
 3. After the installation, restart your computer.
 4. Once WSL is installed, open your WSL terminal and run:
     - sudo apt update
@@ -32,18 +36,8 @@
    
 
 ### Step 3: Install Miniconda
-1. Download the Miniconda installer for Linux:
-    - wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.
-2. Make the installer executable:
-    - chmod +x Miniconda3-latest-Linux-x86_64.
-3. Run the installer script:
-    - ./Miniconda3-latest-Linux-x86_64.
-4. Restart the ell to apply changes:
-    - source ~/.barc
-5. Verify the installation:
-    - conda --version
-6. Update Conda to the latest version:
-    - conda update conda
+1. You can find instructions for lunux:
+    https://docs.anaconda.com/miniconda/install/#quick-command-line-install
 
 ### Step 4: Create Environment for UMA Tools
 1. Create the environment:
@@ -61,6 +55,8 @@
     - chmod +x code/thickness_analysis.py
 
 ### Step 5: Installing OrientationPy (v3+)
+The program requires a version higher than the one available via pip. Therefore, it needs to be installed via git (version 0.3.0 is used here). The official website is: https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html 
+
 1. Clone the Repository. Download the  code for OrientationPy:
     - git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
 2. Enter the cloned directory:
@@ -71,9 +67,14 @@
     - cd ..
 
 ### Step 6:  Running the UMA Tools Script
-1. Modify `input_paths.json` to include your paths to the `.nd2` files.
+1. Before running the program, you need to modify a `input_paths.json` file. This file should contain a list of folders with .nd2 images, and you can include as many folders as needed.
+
+Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application FiJi (https://imagej.net/software/fiji/downloads).
+
+
 2. Run the main analysis script:
    - python ./code/alignment_analysis.py -i input_paths.json
+   - python ./code/thickness_analysis.py -i input_paths.json
 
 
 
