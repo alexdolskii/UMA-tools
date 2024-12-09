@@ -15,65 +15,65 @@
 
 ### Step 2: Clone a GitHub Repository on WSL
 1. Check if Git is installed:
-   git --version
-   sudo apt update
-   sudo apt install git
+   - git --version
+   - sudo apt update
+   - sudo apt install git
 2. Choose the Directory for Cloning
-   cd ~
+   - cd ~
    Or create another folder if preferred:
-   mkdir projects
-   cd projects
+   - mkdir projects
+   - cd projects
 3. Clone the Specific Branch of the Repository:
-   git clone -b UMA-tools-linux https://github.com/alexdolskii/UMA-tools.git
+   - git clone -b UMA-tools-linux https://github.com/alexdolskii/UMA-tools.git
 4. Verify the Result:
-   cd UMA-tools
-5. git branch (You will see a list of branches, and an asterisk (`*`) will appear next to `UMA-tools-linux`, confirming you are on the correct branch.)
-6. git pull (This will fetch all new changes from the remote repository in the `UMA-tools-linux` branch.)
+   - cd UMA-tools
+   - git branch (You will see a list of branches, and an asterisk (`*`) will appear next to `UMA-tools-linux`, confirming you are on the correct branch.)
+   - git pull (This will fetch all new changes from the remote repository in the `UMA-tools-linux` branch.)
    
 
 ### Step 3: Install Miniconda
 1. Download the Miniconda installer for Linux:
-    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.
+    - wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.
 2. Make the installer executable:
-    chmod +x Miniconda3-latest-Linux-x86_64.
+    - chmod +x Miniconda3-latest-Linux-x86_64.
 3. Run the installer script:
-    ./Miniconda3-latest-Linux-x86_64.
+    - ./Miniconda3-latest-Linux-x86_64.
 4. Restart the ell to apply changes:
-    source ~/.barc
+    - source ~/.barc
 5. Verify the installation:
-    conda --version
+    - conda --version
 6. Update Conda to the latest version:
-    conda update conda
+    - conda update conda
 
 ### Step 4: Create Environment for UMA Tools
 1. Create the environment:
-    conda env create -f uma_environment.yml -n uma_environment
+    - conda env create -f uma_environment.yml -n uma_environment
     
     To check conda environments:
-    conda info --envs
+    - conda info --envs
     To delete conda envioment:
-    conda remove --name <environment_name> --all
+    - conda remove --name <environment_name> --all
 
 2. Activate the environment:
-    conda activate uma_environment
+    - conda activate uma_environment
 3. Make the main script executable:
-    chmod +x code/alignment_analysis.py
-    chmod +x code/thickness_analysis.py
+    - chmod +x code/alignment_analysis.py
+    - chmod +x code/thickness_analysis.py
 
 ### Step 5: Installing OrientationPy (v3+)
 1. Clone the Repository. Download the  code for OrientationPy:
-    git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
+    - git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
 2. Enter the cloned directory:
-    cd orientationpy
+    - cd orientationpy
 3. Install OrientationPy and its dependencies:
-    pip install .
+    - pip install .
 4. Return to the UMA-tools directory:
-    cd ..
+    - cd ..
 
 ### Step 6:  Running the UMA Tools Script
 1. Modify `input_paths.json` to include your paths to the `.nd2` files.
 2. Run the main analysis script:
-   python ./code/alignment_analysis.py -i input_paths.json
+   - python ./code/alignment_analysis.py -i input_paths.json
 
 
 
