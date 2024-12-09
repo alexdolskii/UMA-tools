@@ -10,8 +10,8 @@
     wsl --install
 3. After the installation, restart your computer.
 4. Once WSL is installed, open your WSL terminal and run:
-    sudo apt update
-    sudo apt upgrade -y
+    - sudo apt update
+    - sudo apt upgrade -y
 
 ### Step 2: Clone a GitHub Repository on WSL
 1. Check if Git is installed:
