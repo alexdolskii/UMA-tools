@@ -539,6 +539,7 @@ def process_part2_orientationpy(results_folder, images_folder):
 
         # Save orientation distribution to CSV
         table_folder = os.path.join(results_folder, "Tables")
+        os.makedirs(table_folder, exist_ok=True)
         excel_filename = os.path.splitext(filename)[0] + '_orientation_distribution.csv'
         excel_path = os.path.join(table_folder, excel_filename)
         df.to_csv(excel_path, index=False)
@@ -548,19 +549,28 @@ def process_part2_orientationpy(results_folder, images_folder):
         print(f"Generating orientation composition image for '{filename}'.")
 
         imDisplayHSV = np.zeros((image_gray.shape[0], image_gray.shape[1], 3), dtype="f4")
-        imDisplayHSV[:, :, 0] = (orientations["theta"] + 90) / 180  # Hue = Orientation
-        imDisplayHSV[:, :, 1] = normalized_directionality  # Saturation = Directionality
-        imDisplayHSV[:, :, 2] = image_gray / image_gray.max()  # Value = Original Image
-        
+        # Hue = (angle + 90)/180 -> normalized to [0, 1]
+        imDisplayHSV[:, :, 0] = (orientations["theta"] + 90) / 180.0  
+        # Saturation = normalized directionality
+        imDisplayHSV[:, :, 1] = normalized_directionality
+        # Value = original image normalized
+        imDisplayHSV[:, :, 2] = image_gray / image_gray.max()
 
-        plt.figure(figsize=(6, 6))
-        plt.imshow(matplotlib.colors.hsv_to_rgb(imDisplayHSV))
-        plt.title(f"Image-Orientation Composition for {filename}")
-        plt.colorbar(matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap='hsv'),
-                     orientation="vertical", label="Degrees from Horizontal", shrink=0.7)
+        # Create a figure and axes for the image
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.imshow(matplotlib.colors.hsv_to_rgb(imDisplayHSV))
+        ax.set_title(f"Image-Orientation Composition for {filename}")
+
+        # Create a ScalarMappable for the colorbar to represent angles
+        sm = matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap='hsv')
+        sm.set_array([])  # Required for proper colorbar functionality
+
+        # Attach the colorbar to the figure and axes
+        fig.colorbar(sm, ax=ax, orientation="vertical", label="Degrees from Horizontal", shrink=0.7)
+
         composition_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_orientation_composition.png")
-        plt.savefig(composition_path)
-        plt.close()
+        fig.savefig(composition_path)
+        plt.close(fig)
         print(f"Orientation composition image saved at '{composition_path}'.")
 
         # Saving directionality values for debugging (optional)
