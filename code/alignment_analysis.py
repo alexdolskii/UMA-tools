@@ -559,7 +559,7 @@ def process_part2_orientationpy(results_folder, images_folder):
         # Create a figure and axes for the image
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.imshow(matplotlib.colors.hsv_to_rgb(imDisplayHSV))
-        ax.set_title(f"Image-Orientation Composition for {filename}")
+        ax.set_title(f"Image-Orientation Composition for\n{filename}")
 
         # Create a ScalarMappable for the colorbar to represent angles
         sm = matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap='hsv')
