@@ -17,16 +17,17 @@ import pandas as pd
 import argparse
 from datetime import datetime
 from pathlib import Path
-from scyjava import jimport, config
+from scyjava import jimport
 
 
 def initialize_imagej():
     """
-    Initialize ImageJ in headless mode with specific JVM options.
+    Initialize ImageJ in headless mode.
 
     Returns:
         ij (imagej.ImageJ): The initialized ImageJ instance.
     """
+    # Attempt to initialize ImageJ headless mode
     ij = imagej.init('sc.fiji:fiji', mode='headless')
     return ij
 
@@ -272,7 +273,7 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
     IJ.saveAs(projected_imp, "Tiff", mask_image_path)
     print(f"  Mask image saved to '{mask_image_path}'.")
 
-    # Local Thickness
+    # Run Local Thickness
     print("  Running Local Thickness...")
     images_before = set(WindowManager.getImageTitles())
     macro_code = 'run("Local Thickness (masked, calibrated, silent)");'
@@ -295,31 +296,41 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
         return None
     local_thickness_imp.setTitle(f"Local_Thickness_of_{filename}")
 
-    # Save Local Thickness image
-    local_thickness_image_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
-    IJ.saveAs(local_thickness_imp, "Tiff", local_thickness_image_path)
-    print(f"  Local Thickness image saved to '{local_thickness_image_path}'.")
+    # Clear previous Results
+    IJ.run("Clear Results")
 
     # Measure thickness
-    rt = jimport('ij.measure.ResultsTable').getResultsTable()
-    if rt is not None:
-        rt.reset()
-
     print("  Measuring thickness...")
     IJ.run(local_thickness_imp, "Measure", "")
     rt = jimport('ij.measure.ResultsTable').getResultsTable()
+
+    # Check that measurements were obtained
     if rt is None or rt.getCounter() == 0:
+        print("  No measurements obtained. Checking table headings and counters...")
+        if rt is not None:
+            headings = rt.getHeadings()
+            print(f"  Current headings: {headings}")
+            print(f"  Number of rows: {rt.getCounter()}")
         area = None
         mean_thickness = None
         min_thickness = None
         max_thickness = None
-        print(f"  No measurements obtained for '{filename}'.")
     else:
-        area = rt.getValue("Area", rt.getCounter() - 1)
-        mean_thickness = rt.getValue("Mean", rt.getCounter() - 1)
-        min_thickness = rt.getValue("Min", rt.getCounter() - 1)
-        max_thickness = rt.getValue("Max", rt.getCounter() - 1)
-        print(f"  Measurements for '{filename}': Area={area}, Mean={mean_thickness}, Min={min_thickness}, Max={max_thickness}")
+        # Attempt to get values safely
+        try:
+            area = rt.getValue("Area", rt.getCounter() - 1)
+            mean_thickness = rt.getValue("Mean", rt.getCounter() - 1)
+            min_thickness = rt.getValue("Min", rt.getCounter() - 1)
+            max_thickness = rt.getValue("Max", rt.getCounter() - 1)
+            print(f"  Measurements for '{filename}': Area={area}, Mean={mean_thickness}, Min={min_thickness}, Max={max_thickness}")
+        except Exception as e:
+            print(f"  Error reading measurements: {e}")
+            area = mean_thickness = min_thickness = max_thickness = None
+
+    # Save the Local Thickness image
+    local_thickness_image_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
+    IJ.saveAs(local_thickness_imp, "Tiff", local_thickness_image_path)
+    print(f"  Local Thickness image saved to '{local_thickness_image_path}'.")
 
     IJ.run("Close All")
     print("  Closed all images.\n")
@@ -336,13 +347,6 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
 def process_single_folder(ij, IJ, WindowManager, Duplicator, ResultsTable, folder, file_extension, fibronectin_channel):
     """
     Process all image files in a single folder.
-
-    Args:
-        ij (imagej.ImageJ): ImageJ instance.
-        IJ, WindowManager, Duplicator, ResultsTable: Java classes.
-        folder (str): Path to the folder.
-        file_extension (str): Chosen file extension.
-        fibronectin_channel (int): Fibronectin channel number.
     """
     image_files = [f for f in os.listdir(folder) if f.lower().endswith(file_extension)]
     if not image_files:
@@ -378,13 +382,6 @@ def process_single_folder(ij, IJ, WindowManager, Duplicator, ResultsTable, folde
 def process_all_folders(ij, IJ, WindowManager, Duplicator, ResultsTable, folder_paths, file_extension, fibronectin_channel):
     """
     Process all provided folders.
-
-    Args:
-        ij (imagej.ImageJ): ImageJ instance.
-        IJ, WindowManager, Duplicator, ResultsTable: Java classes.
-        folder_paths (List[str]): List of folder paths.
-        file_extension (str): File extension.
-        fibronectin_channel (int): Fibronectin channel number.
     """
     for folder in folder_paths:
         process_single_folder(
