@@ -156,23 +156,6 @@ def get_fibronectin_channel_indices(folder_paths):
             fibronectin_channel_indices[folder] = fibronectin_channel_index
     return fibronectin_channel_indices
 
-# Uses the `orientationpy` package for calculations, so make sure it is installed and available.
-
-import imagej
-import os
-from pathlib import Path
-import pandas as pd
-from datetime import datetime
-import sys
-import numpy as np
-from skimage import io, color
-import scyjava as sj  # For Java-Python integration
-import argparse
-import json
-import matplotlib
-import matplotlib.colors
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm  # Importing LogNorm
 
 # Set non-interactive backend for matplotlib
 matplotlib.use('Agg')
