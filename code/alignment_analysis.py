@@ -16,8 +16,9 @@ import pandas as pd
 import scyjava as sj
 from skimage import io
 
-from orientationpy import (computeGradient, computeIntensity,
-                           computeOrientation, computeStructureDirectionality,
+from orientationpy import (computeGradient,
+                           computeOrientation,
+                           computeStructureDirectionality,
                            computeStructureTensor)
 
 # Set non-interactive backend for matplotlib
