@@ -1,61 +1,45 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Orientation Analysis Script
-
-This script processes images for analyzing the orientation of structures such as fibers or membranes.
-It performs the following steps:
-1. Creates 2D projections from 3D images.
-2. Calculates gradients and structure tensor.
-3. Analyzes orientation distribution and generates results.
-
-Uses the `orientationpy` package for calculations, so make sure it is installed and available.
-"""
-
-import imagej
-import os
-from pathlib import Path
-import pandas as pd
-from datetime import datetime
-import sys
-import numpy as np
-from skimage import io, color
-import scyjava as sj 
 import argparse
 import json
+import os
+from datetime import datetime
+from pathlib import Path
+
+import imagej
 import matplotlib
 import matplotlib.colors
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm 
-from orientationpy import computeGradient, computeStructureTensor, computeIntensity, computeStructureDirectionality, computeOrientation, computeStructureTensorBoxes
+import numpy as np
+import pandas as pd
+import scyjava as sj
+from skimage import io
+
+from orientationpy import (computeGradient, computeIntensity,
+                           computeOrientation, computeStructureDirectionality,
+                           computeStructureTensor)
 
 # Set non-interactive backend for matplotlib
 matplotlib.use('Agg')
 
+
 # Custom exception classes
 class ImageJInitializationError(Exception):
-    """Exception raised for unsuccessful initialization of ImageJ."""
+    """Exception raised for unsuccessful
+    initialization of ImageJ."""
     pass
 
-def initialize_imagej():
-    """
-    Initializes the ImageJ context in headless mode with Bio-Formats support.
 
-    Returns:
-        ij: Initialized ImageJ context.
+# Helper function: apply angle correction
+def correct_angle(x):
+    if x < -90:
+        return x + 180
+    elif x > 90:
+        return x - 180
+    else:
+        return x
 
-    Raises:
-        ImageJInitializationError: If ImageJ fails to initialize.
-    """
-    print("Initializing ImageJ in headless mode...")
-    try:
-        # Use mode='headless' instead of headless=True
-        ij = imagej.init('sc.fiji:fiji', mode='headless')
-    except Exception as e:
-        raise ImageJInitializationError(f"Failed to initialize ImageJ: {e}")
-    print("ImageJ successfully initialized.")
-    return ij
 
 def get_folder_paths(input_file_path):
     """
@@ -72,9 +56,8 @@ def get_folder_paths(input_file_path):
         ValueError: If the file does not contain folder paths.
     """
     if not os.path.isfile(input_file_path):
-        raise FileNotFoundError(f"File '{input_file_path}' does not exist.")
-
-    folder_paths = []
+        raise FileNotFoundError(f"File '{input_file_path}' "
+                                f"does not exist.")
 
     if input_file_path.lower().endswith('.json'):
         with open(input_file_path, 'r', encoding='utf-8') as f:
@@ -103,25 +86,10 @@ def get_folder_paths(input_file_path):
     if not valid_folder_paths:
         raise ValueError("No available folders for processing.")
 
-    print(f"\nFound {len(valid_folder_paths)} available folders for processing.")
+    print(f"\nFound {len(valid_folder_paths)} available "
+          f"folders for processing.")
     return valid_folder_paths
 
-def get_angle_value():
-    """
-    Prompts the user for an angle value for analysis.
-
-    Returns:
-        float: Angle value.
-    """
-    angle_input = input("\nEnter angle for analysis (default is 15): ").strip()
-    if angle_input == '':
-        return 15.0
-    else:
-        try:
-            return float(angle_input)
-        except ValueError:
-            print("Invalid input. Default value of 15 is used.")
-            return 15.0
 
 def get_fibronectin_channel_indices(folder_paths):
     """
@@ -131,23 +99,28 @@ def get_fibronectin_channel_indices(folder_paths):
         folder_paths (List[str]): List of folder paths.
 
     Returns:
-        Dict[str, int]: Dictionary mapping folder paths to fibronectin channel indices.
+        Dict[str, int]: Dictionary mapping folder
+        paths to fibronectin channel indices.
     """
     fibronectin_channel_indices = {}
-    same_channel = input("\nDo all folders use the same fibronectin channel? (yes/no): ").strip().lower()
+    same_channel = input("\nDo all folders use the same "
+                         "fibronectin channel? (yes/no): ").strip().lower()
     if same_channel in ('yes', 'y'):
-        channel_input = input("Enter fibronectin channel index (starting from 1): ").strip()
+        channel_input = input("Enter fibronectin channel "
+                              "index (starting from 1): ").strip()
         if channel_input.isdigit():
             fibronectin_channel_index = int(channel_input)
         else:
-            print("Invalid input. Default channel index of 1 is used.")
+            print("Invalid input. Default channel "
+                  "index of 1 is used.")
             fibronectin_channel_index = 1
         for folder in folder_paths:
             fibronectin_channel_indices[folder] = fibronectin_channel_index
     else:
         for folder in folder_paths:
             print(f"\nFolder: {folder}")
-            channel_input = input("Enter fibronectin channel index (starting from 1): ").strip()
+            channel_input = input("Enter fibronectin channel "
+                                  "index (starting from 1): ").strip()
             if channel_input.isdigit():
                 fibronectin_channel_index = int(channel_input)
             else:
@@ -156,19 +129,22 @@ def get_fibronectin_channel_indices(folder_paths):
             fibronectin_channel_indices[folder] = fibronectin_channel_index
     return fibronectin_channel_indices
 
+
 def create_results_folders(folder_path, angle_value_str, timestamp):
     """
     Creates necessary folders to save results in the specified folder.
 
     Args:
         folder_path (str): Path to the input folder.
-        angle_value_str (str): String representation of the angle (e.g., '15' or '15_5').
+        angle_value_str (str): String representation
+        of the angle (e.g., '15' or '15_5').
         timestamp (str): Current timestamp for naming folders.
 
     Returns:
         Tuple[str, str, str]: Paths to results, tables, and images folders.
     """
-    results_folder_name = f"Alignment_assay_results_angle_{angle_value_str}_{timestamp}"
+    results_folder_name = (f"Alignment_assay_results_angle"
+                           f"_{angle_value_str}_{timestamp}")
     results_folder = os.path.join(folder_path, results_folder_name)
     Path(results_folder).mkdir(parents=True, exist_ok=True)
     print(f"Results will be saved in: {results_folder}")
@@ -182,14 +158,20 @@ def create_results_folders(folder_path, angle_value_str, timestamp):
     return results_folder, table_folder, images_folder
 
 
-def process_part1(folder_path, results_folder, fibronectin_channel_index, desired_width, desired_height, ij):
+def process_part1(folder_path,
+                  results_folder,
+                  fibronectin_channel_index,
+                  desired_width,
+                  desired_height,
+                  ij):
     """
     Part 1: Create 2D projections for images in the folder.
 
     Args:
         folder_path (str): Path to the input folder.
-        results_folder (str): Path to the results folder.
-        fibronectin_channel_index (int): Index of the fibronectin channel (starting from 1).
+        results_folder (str): Path to the result folder.
+        fibronectin_channel_index (int): Index of the
+        fibronectin channel (starting from 1).
         desired_width (int): Desired width of output images.
         desired_height (int): Desired height of output images.
         ij: ImageJ context.
@@ -223,18 +205,28 @@ def process_part1(folder_path, results_folder, fibronectin_channel_index, desire
 
         # Get image dimensions
         width, height, channels, slices, frames = imp.getDimensions()
-        print(f"Image dimensions for '{filename}': width={width}, height={height}, channels={channels}, slices={slices}, frames={frames}")
+        print(f"Image dimensions for '{filename}': "
+              f"width={width}, "
+              f"height={height}, "
+              f"channels={channels}, "
+              f"slices={slices}, "
+              f"frames={frames}")
 
         # Check if the specified channel is available
         if fibronectin_channel_index > channels:
-            print(f"Specified channel exceeds available channels in '{filename}'. Skipping file.")
+            print(f"Specified channel exceeds "
+                  f"available channels in '{filename}'. "
+                  f"Skipping file.")
             imp.close()
             continue
 
         # Process the fibronectin channel
-        print(f"Processing fibronectin channel ({fibronectin_channel_index}) in '{filename}'.")
+        print(f"Processing fibronectin channel "
+              f"({fibronectin_channel_index}) in '{filename}'.")
         imp.setC(fibronectin_channel_index)
-        IJ.run(imp, "Duplicate...", f"title=imp_fibro duplicate channels={fibronectin_channel_index}")
+        IJ.run(imp, "Duplicate...",
+               f"title=imp_fibro duplicate "
+               f"channels={fibronectin_channel_index}")
         imp_fibro = IJ.getImage()
 
         # Perform maximum intensity projection along Z
@@ -242,7 +234,9 @@ def process_part1(folder_path, results_folder, fibronectin_channel_index, desire
         zp_fibro.setMethod(ZProjector.MAX_METHOD)
         zp_fibro.doProjection()
         fibro_proj = zp_fibro.getProjection()
-        fibro_proj = fibro_proj.resize(desired_width, desired_height, "bilinear")
+        fibro_proj = fibro_proj.resize(desired_width,
+                                       desired_height,
+                                       "bilinear")
         IJ.run(fibro_proj, "8-bit", "")  # Convert to grayscale
 
         output_filename = os.path.splitext(filename)[0] + '_processed.tif'
@@ -269,15 +263,20 @@ def process_part1(folder_path, results_folder, fibronectin_channel_index, desire
     print(f"\nPart 1 successfully completed for folder {folder_path}.")
     return z_stacks_info_folder
 
+
 def process_part2_orientationpy(results_folder, images_folder):
     """
-    Part 2: Applying orientationpy to 2D projections of the fibronectin channel.
+    Part 2: Applying orientationpy to 2D
+    projections of the fibronectin channel.
     """
-    print("\nPart 2: Applying orientationpy to 2D projections of the fibronectin channel....")
-    processed_files = [f for f in os.listdir(results_folder) if f.lower().endswith('_processed.tif')]
+    print("\nPart 2: Applying orientationpy to "
+          "2D projections of the fibronectin channel....")
+    processed_files = [f for f in os.listdir(results_folder)
+                       if f.lower().endswith('_processed.tif')]
 
     if not processed_files:
-        print("Processed images not found. Make sure Part 1 was successfully completed.")
+        print("Processed images not found. "
+              "Make sure Part 1 was successfully completed.")
         return
 
     for filename in processed_files:
@@ -286,15 +285,22 @@ def process_part2_orientationpy(results_folder, images_folder):
 
         # Read the image into a NumPy array and convert to float
         image_gray = io.imread(file_path).astype(float)
-        print(f"Image '{filename}' successfully read with dimensions {image_gray.shape} in grayscale, with max value: {image_gray.max()}.")
+        print(f"Image '{filename}' successfully "
+              f"read with dimensions "
+              f"{image_gray.shape} in grayscale, "
+              f"with max value: {image_gray.max()}.")
     
         # Set correct anisotropy values
         anisotropy = np.array([1., 1., 1.])  # Relative pixel size for all axes
         gradient_mode = 'splines'
-        gradients = computeGradient(image_gray, mode=gradient_mode, anisotropy=anisotropy)
+        gradients = computeGradient(image_gray,
+                                    mode=gradient_mode,
+                                    anisotropy=anisotropy)
         # Gradients computed
-        print(f"Gradients for '{filename}' computed using mode {gradient_mode} and anisotropy {anisotropy}.")
-        
+        print(f"Gradients for '{filename}' "
+              f"computed using mode {gradient_mode} "
+              f"and anisotropy {anisotropy}.")
+
         # # Visualisation of Gx и Gy gradients optional
         # plt.figure(figsize=(10, 4))
         # Gy, Gx = gradients
@@ -317,12 +323,16 @@ def process_part2_orientationpy(results_folder, images_folder):
         # Compute the structure tensor with appropriate sigma
         sigma = 1  # Reduce sigma if needed
         structure_tensor = computeStructureTensor(gradients, sigma=sigma)
-        intensity = computeIntensity(structure_tensor)
         directionality = computeStructureDirectionality(structure_tensor)
         orientations = computeOrientation(structure_tensor)
 
-        print(f"Structure Tensor, intensity, directionality, and orientation computed for '{filename}' with sigma parameter {sigma}.")
-        
+        print(f"Structure Tensor, "
+              f"intensity, "
+              f"directionality, "
+              f"and orientation computed "
+              f"for '{filename}' with "
+              f"sigma parameter {sigma}.")
+
         # # Проверка значений направленности опционально
         # print(f"Значения направленности: min {directionality.min()},bmax {directionality.max()}, mean {directionality.mean()}, st.dev {directionality.std()}")
 
@@ -418,44 +428,62 @@ def process_part2_orientationpy(results_folder, images_folder):
         ax.set_title(f"Image-Orientation Composition for\n{filename}")
 
         # Create a ScalarMappable for the colorbar to represent angles
-        sm = matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap='hsv')
+        sm = (matplotlib.cm
+              .ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-90,
+                                                               vmax=90),
+                              cmap='hsv'))
         sm.set_array([])  # Required for proper colorbar functionality
 
         # Attach the colorbar to the figure and axes
-        fig.colorbar(sm, ax=ax, orientation="vertical", label="Degrees from Horizontal", shrink=0.7)
+        fig.colorbar(sm,
+                     ax=ax,
+                     orientation="vertical",
+                     label="Degrees from Horizontal",
+                     shrink=0.7)
 
-        composition_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_orientation_composition.png")
+        composition_path = os.path.join(images_folder,
+                                        f"{os.path.splitext(filename)[0]}"
+                                        f"_orientation_composition.png")
         fig.savefig(composition_path)
         plt.close(fig)
-        print(f"Orientation composition image saved at '{composition_path}'.")
+        print(f"Orientation composition image saved at "
+              f"'{composition_path}'.")
 
         # Saving directionality values for debugging (optional)
         # directionality_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_directionality.npy")
         # np.save(directionality_path, normalized_directionality)
         # print(f"Normalized directionality values saved for debugging at '{directionality_path}'.")
 
-def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
+
+def process_part3(results_folder,
+                  analysis_folder,
+                  angle_value,
+                  z_stacks_info):
     """
     Part 3: Processing CSV files and summarizing results.
 
     Arguments:
-        results_folder (str): Path to the results folder.
+        results_folder (str): Path to the result folder.
         analysis_folder (str): Path to the analysis folder.
         angle_value (float): Angle for analysis.
-        z_stacks_info (Dict[str, Dict]): Information about Z-stacks processed for each folder.
+        z_stacks_info (Dict[str, Dict]):
+        Information about Z-stacks processed for each folder.
     """
-    print("\nPart 3: Processing CSV files and generating summary of results...")
+    print("\nPart 3: Processing CSV files "
+          "and generating summary of results...")
 
     table_folder = os.path.join(results_folder, "Tables")
     if not os.path.exists(table_folder):
-        print(f"Folder '{table_folder}' does not exist. Make sure Part 2 was completed successfully.")
+        print(f"Folder '{table_folder}' does not exist. "
+              f"Make sure Part 2 was completed successfully.")
         return
 
     # Get list of CSV files in the Tables folder
     file_list = [f for f in os.listdir(table_folder) if f.endswith('.csv')]
 
     if not file_list:
-        print(f"No CSV files found in '{table_folder}'. Make sure Part 2 was completed successfully.")
+        print(f"No CSV files found in '{table_folder}'. "
+              f"Make sure Part 2 was completed successfully.")
         return
 
     # Initialize list to store summary data
@@ -470,27 +498,20 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
         read_file = pd.read_csv(file_path)
 
         # Rename columns
-        read_file.rename(columns={read_file.columns[0]: "orientation_angle", read_file.columns[1]: "occurrence_value"}, inplace=True)
-
-        # Find maximum value in the "occurrence_value" column
-        max_occurrence_value = read_file['occurrence_value'].max()
+        read_file.rename(columns={read_file.columns[0]: "orientation_angle",
+                                  read_file.columns[1]: "occurrence_value"},
+                         inplace=True)
 
         # Find the corresponding angle
-        angle_of_max_occurrence_value = read_file['orientation_angle'][read_file['occurrence_value'].idxmax()]
+        angle_of_max_occurrence_value = (read_file['orientation_angle'][read_file['occurrence_value']
+                                        .idxmax()])
 
         # Normalize angles relative to the angle of maximum value
-        read_file['angles_normalized_to_angle_of_MOV'] = read_file['orientation_angle'] - angle_of_max_occurrence_value
+        read_file['angles_normalized_to_angle_of_MOV'] = (read_file['orientation_angle']
+                                                          - angle_of_max_occurrence_value)
 
-        # Apply angle correction
-        def correct_angle(x):
-            if x < -90:
-                return x + 180
-            elif x > 90:
-                return x - 180
-            else:
-                return x
-
-        read_file['corrected_angles'] = read_file['angles_normalized_to_angle_of_MOV'].apply(correct_angle)
+        read_file['corrected_angles'] = (read_file['angles_normalized_to_angle_of_MOV']
+                                         .apply(correct_angle))
 
         # Rank corrected angles
         read_file['rank_of_angle_occurrence_value'] = read_file['corrected_angles'].rank(method='min')
@@ -499,7 +520,8 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
         sum_of_occurrence_values = read_file['occurrence_value'].sum()
 
         # Calculate percentage
-        read_file['percent_occurrence_value_to_sum_of_occurrence_value'] = (read_file['occurrence_value'] / sum_of_occurrence_values) * 100
+        read_file['percent_occurrence_value_to_sum_of_occurrence_value'] = (read_file['occurrence_value']
+                                                                            / sum_of_occurrence_values) * 100
 
         # Filter rows by angle range
         filtered_data = read_file[(read_file['corrected_angles'] >= -angle_value) & (read_file['corrected_angles'] <= angle_value)]
@@ -536,25 +558,35 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
             'File_Name': file_name,
             'Number_of_Z_Stacks': number_of_z_stacks,
             'Z_Stack_Type': z_stack_type,
-            f'Percentage_Fibers_Aligned_Within_{angle_value}_Degree': percentage_of_fibers_aligned_within_angle,
+            f'Percentage_Fibers_Aligned_Within_'
+            f'{angle_value}_Degree': percentage_of_fibers_aligned_within_angle,
             'Orientation_Mode': orientation_mode
         })
 
     # Save summary data to CSV
     summary_df = pd.DataFrame(summary_data)
-    summary_file_path = os.path.join(analysis_folder, f'Alignment_Summary.csv')
+    summary_file_path = os.path.join(analysis_folder,
+                                     f'Alignment_Summary.csv')
     summary_df.to_csv(summary_file_path, index=False)
     print(f"\nSummary data saved at: {summary_file_path}")
 
-    print(f"\nProcessing completed for folder {results_folder}. All results saved in folder: {results_folder}")
+    print(f"\nProcessing completed for folder {results_folder}. "
+          f"All results saved in folder: {results_folder}")
 
-def process_folder(folder_path, fibronectin_channel_index, angle_value, desired_width, desired_height, ij):
+
+def process_folder(folder_path,
+                   fibronectin_channel_index,
+                   angle_value,
+                   desired_width,
+                   desired_height,
+                   ij):
     """
     Processes one folder: Part 1, Part 2, and Part 3.
 
     Arguments:
         folder_path (str): Path to the folder for processing.
-        fibronectin_channel_index (int): Index of the fibronectin channel for this folder.
+        fibronectin_channel_index (int): Index of the
+        fibronectin channel for this folder.
         angle_value (float): Angle for analysis.
         desired_width (int): Desired width of output images.
         desired_height (int): Desired height of output images.
@@ -572,66 +604,72 @@ def process_folder(folder_path, fibronectin_channel_index, angle_value, desired_
     timestamp = now.strftime("%Y%m%d_%H%M%S")
 
     # Create folders for results
-    results_folder, table_folder, images_folder = create_results_folders(folder_path, angle_str, timestamp)
+    results_folder, table_folder, images_folder = create_results_folders(folder_path,
+                                                                         angle_str,
+                                                                         timestamp)
 
     # Part 1: Create 2D projections
-    z_stacks_info_folder = process_part1(folder_path, results_folder, fibronectin_channel_index, desired_width, desired_height, ij)
+    z_stacks_info_folder = process_part1(folder_path,
+                                         results_folder,
+                                         fibronectin_channel_index,
+                                         desired_width,
+                                         desired_height,
+                                         ij)
 
     # Part 2: Orientation analysis using orientationpy
-    process_part2_orientationpy(results_folder, images_folder)
+    process_part2_orientationpy(results_folder,
+                                images_folder)
 
     # Part 3: Process CSV files and generate summary of results
     analysis_folder = os.path.join(results_folder, 'Analysis')
     if not os.path.exists(analysis_folder):
         os.makedirs(analysis_folder)
-    process_part3(results_folder, analysis_folder, angle_value, z_stacks_info_folder)
+    process_part3(results_folder,
+                  analysis_folder,
+                  angle_value,
+                  z_stacks_info_folder)
 
-def main():
+
+def main_fibronectin_processing(input_file_path,
+                                angle_value = 15,
+                                desired_width = 500,
+                                desired_height = 500):
     """
     Main function: Parse command line arguments and start processing.
     """
-    # Use argparse to read command line arguments
-    parser = argparse.ArgumentParser(description='Orientation analysis script')
-    parser.add_argument('-i', '--input', required=True, help='Path to the input_paths.json file containing paths to folders for processing')
-
-    args = parser.parse_args()
-
-    input_file_path = args.input
 
     # Initialize ImageJ
+    print("Initializing ImageJ in headless mode...")
     try:
-        ij = initialize_imagej()
-    except ImageJInitializationError as e:
-        print(f"ImageJ initialization error: {e}")
-        sys.exit(1)
-
-    # Desired image size
-    desired_width = 500
-    desired_height = 500
+        # Use mode='headless' instead of headless=True
+        ij = imagej.init('sc.fiji:fiji', mode='headless')
+    except Exception as e:
+        raise ImageJInitializationError(f"Failed to initialize ImageJ: {e}")
+    print("ImageJ successfully initialized.")
 
     # Get folder paths
-    try:
-        folder_paths = get_folder_paths(input_file_path)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"Error getting folder paths: {e}")
-        sys.exit(1)
-
-    # Get angle value for analysis
-    angle_value = get_angle_value()
+    folder_paths = get_folder_paths(input_file_path)
 
     # Get fibronectin channel indices
     fibronectin_channel_indices = get_fibronectin_channel_indices(folder_paths)
 
     # Prompt user to start processing
-    start_processing = input("\nDo you want to start processing the files? (yes/no): ").strip().lower()
+    start_processing = (input("\nDo you want to start "
+                             "processing the files? (yes/no): ")
+                        .strip()
+                        .lower())
     if start_processing not in ('yes', 'y'):
-        print("File processing canceled by user.")
-        sys.exit(0)
+        raise ValueError("File processing canceled by user.")
 
     # Process each folder
     for folder_path in folder_paths:
         fibronectin_channel_index = fibronectin_channel_indices.get(folder_path, 1)
-        process_folder(folder_path, fibronectin_channel_index, angle_value, desired_width, desired_height, ij)
+        process_folder(folder_path,
+                       fibronectin_channel_index,
+                       angle_value,
+                       desired_width,
+                       desired_height,
+                       ij)
 
     print("\nAll folders have been processed.")
 
@@ -641,5 +679,18 @@ def main():
     print("Script execution completed.")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=
+                                     'Orientation analysis script')
+    parser.add_argument('-i',
+                        '--input',
+                        required=True,
+                        help='Path to the input_paths.json '
+                             'file containing paths to folders for processing')
+    parser.add_argument('-a',
+                        '--angle_value',
+                        default=15,
+                        help='Angle value')
 
+    args = parser.parse_args()
+
+    main_fibronectin_processing(args.input, args.angle_value)
