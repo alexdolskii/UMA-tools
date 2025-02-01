@@ -92,45 +92,6 @@ def get_folder_paths(input_file_path):
     return valid_folder_paths
 
 
-def get_fibronectin_channel_indices(folder_paths):
-    """
-    Determines the fibronectin channel index for each folder.
-
-    Args:
-        folder_paths (List[str]): List of folder paths.
-
-    Returns:
-        Dict[str, int]: Dictionary mapping folder
-        paths to fibronectin channel indices.
-    """
-    fibronectin_channel_indices = {}
-    same_channel = input("\nDo all folders use the same "
-                         "fibronectin channel? (yes/no): ").strip().lower()
-    if same_channel in ('yes', 'y'):
-        channel_input = input("Enter fibronectin channel "
-                              "index (starting from 1): ").strip()
-        if channel_input.isdigit():
-            fibronectin_channel_index = int(channel_input)
-        else:
-            print("Invalid input. Default channel "
-                  "index of 1 is used.")
-            fibronectin_channel_index = 1
-        for folder in folder_paths:
-            fibronectin_channel_indices[folder] = fibronectin_channel_index
-    else:
-        for folder in folder_paths:
-            print(f"\nFolder: {folder}")
-            channel_input = input("Enter fibronectin channel "
-                                  "index (starting from 1): ").strip()
-            if channel_input.isdigit():
-                fibronectin_channel_index = int(channel_input)
-            else:
-                print("Invalid input. Default channel index of 1 is used.")
-                fibronectin_channel_index = 1
-            fibronectin_channel_indices[folder] = fibronectin_channel_index
-    return fibronectin_channel_indices
-
-
 def create_results_folders(folder_path, angle_value_str, timestamp):
     """
     Creates necessary folders to save results in the specified folder.
@@ -334,8 +295,8 @@ def process_part2_orientationpy(results_folder, images_folder):
               f"for '{filename}' with "
               f"sigma parameter {sigma}.")
 
-        # # Проверка значений направленности опционально
-        # print(f"Значения направленности: min {directionality.min()},bmax {directionality.max()}, mean {directionality.mean()}, st.dev {directionality.std()}")
+        # # Check the value of direction
+        # print(f"Values of direction: min {directionality.min()},bmax {directionality.max()}, mean {directionality.mean()}, st.dev {directionality.std()}")
 
         # Normalize directionality for visualization
         vmin, vmax = 10, 1e8
@@ -651,8 +612,9 @@ def main_fibronectin_processing(input_file_path,
     # Get folder paths
     folder_paths = get_folder_paths(input_file_path)
 
-    # Get fibronectin channel indices
-    fibronectin_channel_indices = get_fibronectin_channel_indices(folder_paths)
+    # Get fibronectin channel index
+    fibronectin_channel_index = int(input("Enter fibronectin "
+                                          "channel index (starting from 1): ").strip())
 
     # Prompt user to start processing
     start_processing = (input("\nDo you want to start "
@@ -664,7 +626,6 @@ def main_fibronectin_processing(input_file_path,
 
     # Process each folder
     for folder_path in folder_paths:
-        fibronectin_channel_index = fibronectin_channel_indices.get(folder_path, 1)
         process_folder(folder_path,
                        fibronectin_channel_index,
                        angle_value,
