@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import logging
 import json
 import os
 from datetime import datetime
@@ -20,9 +21,6 @@ from orientationpy import (computeGradient,
                            computeOrientation,
                            computeStructureDirectionality,
                            computeStructureTensor)
-
-# Set non-interactive backend for matplotlib
-matplotlib.use('Agg')
 
 
 # Custom exception classes
@@ -82,13 +80,13 @@ def get_folder_paths(input_file_path):
             print(f"File types: {', '.join(file_types)}")
             valid_folder_paths.append(folder_path)
         else:
-            print(f"\nFolder '{folder_path}' does not exist.")
+            logging.warning(f"Folder '{folder_path}' does not exist.")
 
     if not valid_folder_paths:
         raise ValueError("No available folders for processing.")
 
     print(f"\nFound {len(valid_folder_paths)} available "
-          f"folders for processing.")
+                 f"folders for processing.")
     return valid_folder_paths
 
 
@@ -109,7 +107,13 @@ def create_results_folders(folder_path, angle_value_str, timestamp):
                            f"_{angle_value_str}_{timestamp}")
     results_folder = os.path.join(folder_path, results_folder_name)
     Path(results_folder).mkdir(parents=True, exist_ok=True)
-    print(f"Results will be saved in: {results_folder}")
+    logging.info(f"Results will be saved in: {results_folder}")
+
+    # Add logging
+    log_file = os.path.join(results_folder, 'log.log')
+    file_handler = logging.FileHandler(log_file, mode='w')
+    file_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    logging.getLogger('').addHandler(file_handler)
 
     table_folder = os.path.join(results_folder, "Tables")
     images_folder = os.path.join(results_folder, "Images")
@@ -150,7 +154,7 @@ def process_part1(folder_path,
 
     for filename in os.listdir(folder_path):
         if not filename.lower().endswith(('.tif', '.tiff', '.nd2')):
-            print(f"Skipping file '{filename}' as it is not .nd2 or .tif.")
+            logging.warning(f"Skipping file '{filename}' as it is not .nd2 or .tif.")
             continue
 
         file_path = os.path.join(folder_path, filename)
@@ -162,29 +166,29 @@ def process_part1(folder_path,
         # Open the image using Bio-Formats
         imp = IJ.openImage(file_path)
         if imp is None:
-            print(f"Failed to open image '{file_path}'. Check Bio-Formats plugin.")
+            logging.warning(f"Failed to open image '{file_path}'. Check Bio-Formats plugin.")
             continue
 
         # Get image dimensions
         width, height, channels, slices, frames = imp.getDimensions()
         print(f"Image dimensions for '{filename}': "
-              f"width={width}, "
-              f"height={height}, "
-              f"channels={channels}, "
-              f"slices={slices}, "
-              f"frames={frames}")
+                     f"width={width}, "
+                     f"height={height}, "
+                     f"channels={channels}, "
+                     f"slices={slices}, "
+                     f"frames={frames}")
 
         # Check if the specified channel is available
         if fibronectin_channel_index > channels:
             print(f"Specified channel exceeds "
-                  f"available channels in '{filename}'. "
-                  f"Skipping file.")
+                         f"available channels in '{filename}'. "
+                         f"Skipping file.")
             imp.close()
             continue
 
         # Process the fibronectin channel
         print(f"Processing fibronectin channel "
-              f"({fibronectin_channel_index}) in '{filename}'.")
+                     f"({fibronectin_channel_index}) in '{filename}'.")
         imp.setC(fibronectin_channel_index)
         IJ.run(imp, "Duplicate...",
                f"title=imp_fibro duplicate "
@@ -204,7 +208,7 @@ def process_part1(folder_path,
         output_filename = os.path.splitext(filename)[0] + '_processed.tif'
         output_path = os.path.join(results_folder, output_filename)
         IJ.saveAs(fibro_proj, "Tiff", output_path)
-        print(f"Processed image saved at '{output_path}'.")
+        logging.info(f"Processed image saved at '{output_path}'.")
         fibro_proj.close()
         imp_fibro.close()
 
@@ -232,13 +236,13 @@ def process_part2_orientationpy(results_folder, images_folder):
     projections of the fibronectin channel.
     """
     print("\nPart 2: Applying orientationpy to "
-          "2D projections of the fibronectin channel....")
+                 "2D projections of the fibronectin channel....")
     processed_files = [f for f in os.listdir(results_folder)
                        if f.lower().endswith('_processed.tif')]
 
     if not processed_files:
-        print("Processed images not found. "
-              "Make sure Part 1 was successfully completed.")
+        logging.warning("Processed images not found. "
+                        "Make sure Part 1 was successfully completed.")
         return
 
     for filename in processed_files:
@@ -248,9 +252,9 @@ def process_part2_orientationpy(results_folder, images_folder):
         # Read the image into a NumPy array and convert to float
         image_gray = io.imread(file_path).astype(float)
         print(f"Image '{filename}' successfully "
-              f"read with dimensions "
-              f"{image_gray.shape} in grayscale, "
-              f"with max value: {image_gray.max()}.")
+                     f"read with dimensions "
+                     f"{image_gray.shape} in grayscale, "
+                     f"with max value: {image_gray.max()}.")
     
         # Set correct anisotropy values
         anisotropy = np.array([1., 1., 1.])  # Relative pixel size for all axes
@@ -260,8 +264,8 @@ def process_part2_orientationpy(results_folder, images_folder):
                                     anisotropy=anisotropy)
         # Gradients computed
         print(f"Gradients for '{filename}' "
-              f"computed using mode {gradient_mode} "
-              f"and anisotropy {anisotropy}.")
+                     f"computed using mode {gradient_mode} "
+                     f"and anisotropy {anisotropy}.")
 
         # # Visualisation of Gx и Gy gradients optional
         # plt.figure(figsize=(10, 4))
@@ -289,11 +293,11 @@ def process_part2_orientationpy(results_folder, images_folder):
         orientations = computeOrientation(structure_tensor)
 
         print(f"Structure Tensor, "
-              f"intensity, "
-              f"directionality, "
-              f"and orientation computed "
-              f"for '{filename}' with "
-              f"sigma parameter {sigma}.")
+                     f"intensity, "
+                     f"directionality, "
+                     f"and orientation computed "
+                     f"for '{filename}' with "
+                     f"sigma parameter {sigma}.")
 
         # # Check the value of direction
         # print(f"Values of direction: min {directionality.min()},bmax {directionality.max()}, mean {directionality.mean()}, st.dev {directionality.std()}")
@@ -371,7 +375,7 @@ def process_part2_orientationpy(results_folder, images_folder):
         excel_filename = os.path.splitext(filename)[0] + '_orientation_distribution.csv'
         excel_path = os.path.join(table_folder, excel_filename)
         df.to_csv(excel_path, index=False)
-        print(f"Orientation distribution data saved at '{excel_path}'.")
+        logging.info(f"Orientation distribution data saved at '{excel_path}'.")
 
         # Generate orientation composition image (HSV composition)
         print(f"Generating orientation composition image for '{filename}'.")
@@ -408,8 +412,8 @@ def process_part2_orientationpy(results_folder, images_folder):
                                         f"_orientation_composition.png")
         fig.savefig(composition_path)
         plt.close(fig)
-        print(f"Orientation composition image saved at "
-              f"'{composition_path}'.")
+        logging.info(f"Orientation composition image saved at "
+                     f"'{composition_path}'.")
 
         # Saving directionality values for debugging (optional)
         # directionality_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_directionality.npy")
@@ -432,20 +436,20 @@ def process_part3(results_folder,
         Information about Z-stacks processed for each folder.
     """
     print("\nPart 3: Processing CSV files "
-          "and generating summary of results...")
+                 "and generating summary of results...")
 
     table_folder = os.path.join(results_folder, "Tables")
     if not os.path.exists(table_folder):
-        print(f"Folder '{table_folder}' does not exist. "
-              f"Make sure Part 2 was completed successfully.")
+        logging.warning(f"Folder '{table_folder}' does not exist. "
+                        f"Make sure Part 2 was completed successfully.")
         return
 
     # Get list of CSV files in the Tables folder
     file_list = [f for f in os.listdir(table_folder) if f.endswith('.csv')]
 
     if not file_list:
-        print(f"No CSV files found in '{table_folder}'. "
-              f"Make sure Part 2 was completed successfully.")
+        logging.warning(f"No CSV files found in '{table_folder}'. "
+                        f"Make sure Part 2 was completed successfully.")
         return
 
     # Initialize list to store summary data
@@ -465,8 +469,7 @@ def process_part3(results_folder,
                          inplace=True)
 
         # Find the corresponding angle
-        angle_of_max_occurrence_value = (read_file['orientation_angle'][read_file['occurrence_value']
-                                        .idxmax()])
+        angle_of_max_occurrence_value = (read_file['orientation_angle'][read_file['occurrence_value'].idxmax()])
 
         # Normalize angles relative to the angle of maximum value
         read_file['angles_normalized_to_angle_of_MOV'] = (read_file['orientation_angle']
@@ -501,7 +504,7 @@ def process_part3(results_folder,
         output_file_name = f'{os.path.splitext(file_name)[0]}_processed.csv'
         output_file_path = os.path.join(analysis_folder, output_file_name)
         read_file_sorted.to_csv(output_file_path, index=False)
-        print(f"Processed data saved at: {output_file_path}")
+        logging.info(f"Processed data saved at: {output_file_path}")
 
         # Get the base name of the processed file
         processed_base_name = os.path.splitext(file_name.replace('_orientation_distribution.csv', ''))[0]
@@ -530,10 +533,10 @@ def process_part3(results_folder,
     summary_file_path = os.path.join(analysis_folder,
                                      f'Alignment_Summary.csv')
     summary_df.to_csv(summary_file_path, index=False)
-    print(f"\nSummary data saved at: {summary_file_path}")
+    logging.info(f"\nSummary data saved at: {summary_file_path}")
 
-    print(f"\nProcessing completed for folder {results_folder}. "
-          f"All results saved in folder: {results_folder}")
+    logging.info(f"\nProcessing completed for folder {results_folder}. "
+                 f"All results saved in folder: {results_folder}")
 
 
 def process_folder(folder_path,
@@ -555,7 +558,7 @@ def process_folder(folder_path,
         ij: ImageJ context.
     """
     if not os.path.exists(folder_path):
-        print(f"Folder '{folder_path}' does not exist. Skipping this folder.")
+        logging.warning(f"Folder '{folder_path}' does not exist. Skipping this folder.")
         return
 
     # Convert angle value to string for folder naming
@@ -593,12 +596,14 @@ def process_folder(folder_path,
 
 
 def main_fibronectin_processing(input_file_path,
-                                angle_value = 15,
-                                desired_width = 500,
-                                desired_height = 500):
+                                angle_value=15,
+                                desired_width=500,
+                                desired_height=500):
     """
     Main function: Parse command line arguments and start processing.
     """
+    # Setting up logging
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
     # Initialize ImageJ
     print("Initializing ImageJ in headless mode...")
@@ -617,8 +622,7 @@ def main_fibronectin_processing(input_file_path,
                                           "channel index (starting from 1): ").strip())
 
     # Prompt user to start processing
-    start_processing = (input("\nDo you want to start "
-                             "processing the files? (yes/no): ")
+    start_processing = (input("\nDo you want to start processing the files? (yes/no): ")
                         .strip()
                         .lower())
     if start_processing not in ('yes', 'y'):
@@ -639,6 +643,7 @@ def main_fibronectin_processing(input_file_path,
     print("Terminating ImageJ...")
     ij.context().dispose()
     print("Script execution completed.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=
