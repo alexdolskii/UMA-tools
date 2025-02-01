@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import logging
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -17,8 +17,7 @@ import pandas as pd
 import scyjava as sj
 from skimage import io
 
-from orientationpy import (computeGradient,
-                           computeOrientation,
+from orientationpy import (computeGradient, computeOrientation,
                            computeStructureDirectionality,
                            computeStructureTensor)
 
@@ -86,7 +85,7 @@ def get_folder_paths(input_file_path):
         raise ValueError("No available folders for processing.")
 
     print(f"\nFound {len(valid_folder_paths)} available "
-                 f"folders for processing.")
+          f"folders for processing.")
     return valid_folder_paths
 
 
@@ -154,7 +153,8 @@ def process_part1(folder_path,
 
     for filename in os.listdir(folder_path):
         if not filename.lower().endswith(('.tif', '.tiff', '.nd2')):
-            logging.warning(f"Skipping file '{filename}' as it is not .nd2 or .tif.")
+            logging.warning(f"Skipping file '{filename}' "
+                            f"as it is not .nd2 or .tif.")
             continue
 
         file_path = os.path.join(folder_path, filename)
@@ -166,29 +166,30 @@ def process_part1(folder_path,
         # Open the image using Bio-Formats
         imp = IJ.openImage(file_path)
         if imp is None:
-            logging.warning(f"Failed to open image '{file_path}'. Check Bio-Formats plugin.")
+            logging.warning(f"Failed to open image '{file_path}'. "
+                            f"Check Bio-Formats plugin.")
             continue
 
         # Get image dimensions
         width, height, channels, slices, frames = imp.getDimensions()
         print(f"Image dimensions for '{filename}': "
-                     f"width={width}, "
-                     f"height={height}, "
-                     f"channels={channels}, "
-                     f"slices={slices}, "
-                     f"frames={frames}")
+              f"width={width}, "
+              f"height={height}, "
+              f"channels={channels}, "
+              f"slices={slices}, "
+              f"frames={frames}")
 
         # Check if the specified channel is available
         if fibronectin_channel_index > channels:
             print(f"Specified channel exceeds "
-                         f"available channels in '{filename}'. "
-                         f"Skipping file.")
+                  f"available channels in '{filename}'. "
+                  f"Skipping file.")
             imp.close()
             continue
 
         # Process the fibronectin channel
         print(f"Processing fibronectin channel "
-                     f"({fibronectin_channel_index}) in '{filename}'.")
+              f"({fibronectin_channel_index}) in '{filename}'.")
         imp.setC(fibronectin_channel_index)
         IJ.run(imp, "Duplicate...",
                f"title=imp_fibro duplicate "
@@ -236,7 +237,7 @@ def process_part2_orientationpy(results_folder, images_folder):
     projections of the fibronectin channel.
     """
     print("\nPart 2: Applying orientationpy to "
-                 "2D projections of the fibronectin channel....")
+          "2D projections of the fibronectin channel....")
     processed_files = [f for f in os.listdir(results_folder)
                        if f.lower().endswith('_processed.tif')]
 
@@ -252,10 +253,10 @@ def process_part2_orientationpy(results_folder, images_folder):
         # Read the image into a NumPy array and convert to float
         image_gray = io.imread(file_path).astype(float)
         print(f"Image '{filename}' successfully "
-                     f"read with dimensions "
-                     f"{image_gray.shape} in grayscale, "
-                     f"with max value: {image_gray.max()}.")
-    
+              f"read with dimensions "
+              f"{image_gray.shape} in grayscale, "
+              f"with max value: {image_gray.max()}.")
+
         # Set correct anisotropy values
         anisotropy = np.array([1., 1., 1.])  # Relative pixel size for all axes
         gradient_mode = 'splines'
@@ -264,8 +265,8 @@ def process_part2_orientationpy(results_folder, images_folder):
                                     anisotropy=anisotropy)
         # Gradients computed
         print(f"Gradients for '{filename}' "
-                     f"computed using mode {gradient_mode} "
-                     f"and anisotropy {anisotropy}.")
+              f"computed using mode {gradient_mode} "
+              f"and anisotropy {anisotropy}.")
 
         # # Visualisation of Gx и Gy gradients optional
         # plt.figure(figsize=(10, 4))
@@ -281,7 +282,8 @@ def process_part2_orientationpy(results_folder, images_folder):
         # plt.colorbar(shrink=0.7)
 
         # plt.tight_layout()
-        # gradient_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_gradients.png")
+        # gradient_path = os.path.join(images_folder,
+        #                               f"{os.path.splitext(filename)[0]}_gradients.png")
         # plt.savefig(gradient_path)
         # plt.close()
         # print(f"Gradients saved in '{gradient_path}'.")
@@ -293,14 +295,18 @@ def process_part2_orientationpy(results_folder, images_folder):
         orientations = computeOrientation(structure_tensor)
 
         print(f"Structure Tensor, "
-                     f"intensity, "
-                     f"directionality, "
-                     f"and orientation computed "
-                     f"for '{filename}' with "
-                     f"sigma parameter {sigma}.")
+              f"intensity, "
+              f"directionality, "
+              f"and orientation computed "
+              f"for '{filename}' with "
+              f"sigma parameter {sigma}.")
 
         # # Check the value of direction
-        # print(f"Values of direction: min {directionality.min()},bmax {directionality.max()}, mean {directionality.mean()}, st.dev {directionality.std()}")
+        # print(f"Values of direction:
+        # min {directionality.min()},
+        # bmax {directionality.max()},
+        # mean {directionality.mean()},
+        # st.dev {directionality.std()}")
 
         # Normalize directionality for visualization
         vmin, vmax = 10, 1e8
@@ -319,30 +325,37 @@ def process_part2_orientationpy(results_folder, images_folder):
         # plt.title("Intensity Normalized")
 
         # plt.subplot(1, 2, 2)
-        # plt.imshow(directionality, norm=matplotlib.colors.LogNorm(vmin=10, vmax=1e8))
+        # plt.imshow(directionality,
+        #            norm=matplotlib.colors.LogNorm(vmin=10, vmax=1e8))
         # plt.colorbar(shrink=0.7)
         # plt.title("Directionality Normalized")
 
         # plt.tight_layout()
-        # intensity_directionality_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_intensity_directionality.png")
+        # intensity_directionality_path = os.path.join(images_folder,
+        # f"{os.path.splitext(filename)[0]}_intensity_directionality.png")
         # plt.savefig(intensity_directionality_path)
         # plt.close()
-        # print(f"Intensity and directionality images saved at '{intensity_directionality_path}'.")
+        # print(f"Intensity and directionality"
+        # f"fimages saved at '{intensity_directionality_path}'.")
 
         # # Visualization of overlaying orientations on the image
         # plt.figure(figsize=(6, 6))
         # plt.imshow(image_gray, cmap="Greys_r", vmin=0)
 
-        # plt.imshow(orientations["theta"], cmap="hsv", alpha=0.5, vmin=-90, vmax=90)
+        # plt.imshow(orientations["theta"],
+        #            cmap="hsv", alpha=0.5, vmin=-90, vmax=90)
 
         # plt.colorbar(label='Angle (degrees)')
         # plt.title(f"Overlay with Orientation for {filename}")
-        # overlay_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_orientation_overlay.png")
+        # overlay_path = os.path.join(images_folder,
+        # f"{os.path.splitext(filename)[0]}_orientation_overlay.png")
         # plt.savefig(overlay_path)
         # plt.close()
         # print(f"Orientation overlay image saved at '{overlay_path}'.")
 
-        # Optional analysis using box pixels. If used, replace in orientation_flat with orientations to orientationsBoxes
+        # Optional analysis using box pixels.
+        # If used, replace in orientation_flat
+        # with orientations to orientationsBoxes
         # boxSizePixels = 3
         # structureTensorBoxes = computeStructureTensorBoxes(
         #     [Gy, Gx],
@@ -360,19 +373,22 @@ def process_part2_orientationpy(results_folder, images_folder):
 
         print(f"Calculating orientation histogram for '{filename}'.")
         num_bins = 180  # For 1-degree bins
-        hist, bin_edges = np.histogram(orientation_flat, bins=num_bins, range=(-90, 90))
+        hist, bin_edges = np.histogram(orientation_flat,
+                                       bins=num_bins,
+                                       range=(-90, 90))
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
         # Prepare DataFrame for saving
         df = pd.DataFrame({
-            'orientation_angle': bin_centers,
-            'occurrence_value': hist
+            'ori_angle': bin_centers,
+            'occ_value': hist
         })
 
         # Save orientation distribution to CSV
         table_folder = os.path.join(results_folder, "Tables")
         os.makedirs(table_folder, exist_ok=True)
-        excel_filename = os.path.splitext(filename)[0] + '_orientation_distribution.csv'
+        excel_filename = (os.path.splitext(filename)[0]
+                          + '_orientation_distribution.csv')
         excel_path = os.path.join(table_folder, excel_filename)
         df.to_csv(excel_path, index=False)
         logging.info(f"Orientation distribution data saved at '{excel_path}'.")
@@ -380,9 +396,11 @@ def process_part2_orientationpy(results_folder, images_folder):
         # Generate orientation composition image (HSV composition)
         print(f"Generating orientation composition image for '{filename}'.")
 
-        imDisplayHSV = np.zeros((image_gray.shape[0], image_gray.shape[1], 3), dtype="f4")
+        imDisplayHSV = np.zeros((image_gray.shape[0],
+                                 image_gray.shape[1], 3),
+                                dtype="f4")
         # Hue = (angle + 90)/180 -> normalized to [0, 1]
-        imDisplayHSV[:, :, 0] = (orientations["theta"] + 90) / 180.0  
+        imDisplayHSV[:, :, 0] = (orientations["theta"] + 90) / 180.0
         # Saturation = normalized directionality
         imDisplayHSV[:, :, 1] = normalized_directionality
         # Value = original image normalized
@@ -416,9 +434,11 @@ def process_part2_orientationpy(results_folder, images_folder):
                      f"'{composition_path}'.")
 
         # Saving directionality values for debugging (optional)
-        # directionality_path = os.path.join(images_folder, f"{os.path.splitext(filename)[0]}_directionality.npy")
+        # directionality_path = os.path.join(images_folder,
+        # f"{os.path.splitext(filename)[0]}_directionality.npy")
         # np.save(directionality_path, normalized_directionality)
-        # print(f"Normalized directionality values saved for debugging at '{directionality_path}'.")
+        # print(f"Normalized directionality"
+        # f"values saved for debugging at '{directionality_path}'.")
 
 
 def process_part3(results_folder,
@@ -436,7 +456,7 @@ def process_part3(results_folder,
         Information about Z-stacks processed for each folder.
     """
     print("\nPart 3: Processing CSV files "
-                 "and generating summary of results...")
+          "and generating summary of results...")
 
     table_folder = os.path.join(results_folder, "Tables")
     if not os.path.exists(table_folder):
@@ -464,41 +484,42 @@ def process_part3(results_folder,
         read_file = pd.read_csv(file_path)
 
         # Rename columns
-        read_file.rename(columns={read_file.columns[0]: "orientation_angle",
-                                  read_file.columns[1]: "occurrence_value"},
+        read_file.rename(columns={read_file.columns[0]: "ori_angle",
+                                  read_file.columns[1]: "occ_value"},
                          inplace=True)
 
         # Find the corresponding angle
-        angle_of_max_occurrence_value = (read_file['orientation_angle'][read_file['occurrence_value'].idxmax()])
+        angle_of_max_occ_value = (read_file['ori_angle'][read_file['occ_value'].idxmax()])
 
         # Normalize angles relative to the angle of maximum value
-        read_file['angles_normalized_to_angle_of_MOV'] = (read_file['orientation_angle']
-                                                          - angle_of_max_occurrence_value)
+        read_file['angles_normalized_to_angle_of_MOV'] = (read_file['ori_angle']
+                                                          - angle_of_max_occ_value)
 
         read_file['corrected_angles'] = (read_file['angles_normalized_to_angle_of_MOV']
                                          .apply(correct_angle))
 
         # Rank corrected angles
-        read_file['rank_of_angle_occurrence_value'] = read_file['corrected_angles'].rank(method='min')
+        read_file['rank_of_angle_occ_value'] = read_file['corrected_angles'].rank(method='min')
 
-        # Sum of "occurrence_value" values
-        sum_of_occurrence_values = read_file['occurrence_value'].sum()
+        # Sum of "occ_value" values
+        sum_of_occ_values = read_file['occ_value'].sum()
 
         # Calculate percentage
-        read_file['percent_occurrence_value_to_sum_of_occurrence_value'] = (read_file['occurrence_value']
-                                                                            / sum_of_occurrence_values) * 100
+        read_file['perc_occvalue2sum_of_occvalue'] = (read_file['occ_value']
+                                                      / sum_of_occ_values) * 100
 
         # Filter rows by angle range
-        filtered_data = read_file[(read_file['corrected_angles'] >= -angle_value) & (read_file['corrected_angles'] <= angle_value)]
+        filtered_data = read_file[(read_file['corrected_angles'] >= -angle_value)
+                                  & (read_file['corrected_angles'] <= angle_value)]
 
         # Sum percentage values for filtered rows
-        percentage_of_fibers_aligned_within_angle = filtered_data['percent_occurrence_value_to_sum_of_occurrence_value'].sum()
+        percentage_of_fibers_aligned_within_angle = filtered_data['perc_occvalue2sum_of_occvalue'].sum()
 
         # Determine orientation mode
         orientation_mode = 'disorganized' if percentage_of_fibers_aligned_within_angle < 55 else 'aligned'
 
         # Sort DataFrame by rank
-        read_file_sorted = read_file.sort_values(by='rank_of_angle_occurrence_value')
+        read_file_sorted = read_file.sort_values(by='rank_of_angle_occ_value')
 
         # Generate output file name and save sorted DataFrame
         output_file_name = f'{os.path.splitext(file_name)[0]}_processed.csv'
@@ -531,7 +552,7 @@ def process_part3(results_folder,
     # Save summary data to CSV
     summary_df = pd.DataFrame(summary_data)
     summary_file_path = os.path.join(analysis_folder,
-                                     f'Alignment_Summary.csv')
+                                     'Alignment_Summary.csv')
     summary_df.to_csv(summary_file_path, index=False)
     logging.info(f"\nSummary data saved at: {summary_file_path}")
 
@@ -618,8 +639,8 @@ def main_fibronectin_processing(input_file_path,
     folder_paths = get_folder_paths(input_file_path)
 
     # Get fibronectin channel index
-    fibronectin_channel_index = int(input("Enter fibronectin "
-                                          "channel index (starting from 1): ").strip())
+    fibr_chan_index = int(input("Enter fibronectin "
+                                "channel index (starting from 1): ").strip())
 
     # Prompt user to start processing
     start_processing = (input("\nDo you want to start processing the files? (yes/no): ")
@@ -631,7 +652,7 @@ def main_fibronectin_processing(input_file_path,
     # Process each folder
     for folder_path in folder_paths:
         process_folder(folder_path,
-                       fibronectin_channel_index,
+                       fibr_chan_index,
                        angle_value,
                        desired_width,
                        desired_height,
@@ -646,8 +667,7 @@ def main_fibronectin_processing(input_file_path,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=
-                                     'Orientation analysis script')
+    parser = argparse.ArgumentParser(description='Orientation analysis script')
     parser.add_argument('-i',
                         '--input',
                         required=True,
