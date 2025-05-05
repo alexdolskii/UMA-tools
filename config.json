@@ -1,9 +1,10 @@
 {
   "folder_paths": [
-    "/Users/michaelmiano/Downloads/IMG-TEST-SET"
+    "/Users/michaelmiano/Desktop/Lab-Files/StarDist-Project/IMG-TEST-SET"
   ],
   "nuclei_channel": 1,
   "gaussian_sigma": 4.0,
   "mean_radius": 3,
-  "z_scale_factor": 32
+  "z_scale_factor": 32,
+  "model_path": "/Users/michaelmiano/Desktop/Lab-Files/StarDist-Project/UMA-tools-UMA-tools-linux/models/stardist-1024-v3"
 }
