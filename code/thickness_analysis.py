@@ -2,19 +2,20 @@
 # -*- coding: utf-8 -*-
 
 """
-This script performs thickness analysis on image files stored in specified folders.
-It initializes ImageJ, reads input parameters from a JSON file (specified via command-line arguments),
-prompts the user for file type and channel information, processes images in each folder,
-applies various filters and measurements, and saves the resulting data and images.
+This script performs thickness analysis on image files stored in specified
+folders. It initializes ImageJ, reads input parameters from a JSON file
+(specified via command-line arguments), prompts the user for file type and
+channel information, processes images in each folder, applies various filters
+and measurements, and saves the resulting data and images.
 """
 
+import argparse
 import imagej
+import json
 import os
+import pandas as pd
 import sys
 import time
-import json
-import pandas as pd
-import argparse
 from datetime import datetime
 from pathlib import Path
 from scyjava import jimport
@@ -64,7 +65,9 @@ def get_file_type_choice():
     elif choice == '2':
         return '.tiff'
     else:
-        raise ValueError("Invalid choice. Please run the script again and select 1 or 2.")
+        raise ValueError(
+            "Invalid choice. Please run the script again and select 1 or 2."
+        )
 
 
 def get_num_channels():
@@ -88,7 +91,8 @@ def get_num_channels():
 
 def get_fibronectin_channel(num_channels):
     """
-    Prompt the user for the fibronectin channel number if there are multiple channels.
+    Prompt the user for the fibronectin channel number if there are multiple
+    channels.
 
     Args:
         num_channels (int): The total number of channels.
@@ -99,13 +103,18 @@ def get_fibronectin_channel(num_channels):
     if num_channels == 1:
         return 1
     while True:
-        val = input(f"Enter the channel number (1-{num_channels}) representing fibronectin: ").strip()
+        val = input(
+            f"Enter the channel number (1-{num_channels}) representing "
+            "fibronectin: "
+        ).strip()
         if val.isdigit():
             fib_ch = int(val)
             if 1 <= fib_ch <= num_channels:
                 return fib_ch
             else:
-                print(f"Channel number must be between 1 and {num_channels}.")
+                print(
+                    f"Channel number must be between 1 and {num_channels}."
+                )
         else:
             print("Please enter an integer for the channel number.")
 
@@ -122,7 +131,8 @@ def get_folder_paths(input_file_path):
 
     Raises:
         FileNotFoundError: If the specified file does not exist.
-        ValueError: If the file does not contain folder paths or no valid folders.
+        ValueError: If the file does not contain folder paths or no valid
+            folders.
     """
     if not os.path.isfile(input_file_path):
         raise FileNotFoundError(f"File '{input_file_path}' does not exist.")
@@ -142,7 +152,9 @@ def get_folder_paths(input_file_path):
         if os.path.isdir(folder_path):
             files = os.listdir(folder_path)
             num_files = len(files)
-            file_types = set([os.path.splitext(f)[1].lower() for f in files])
+            file_types = set(
+                [os.path.splitext(f)[1].lower() for f in files]
+            )
             print(f"\nFolder: {folder_path}")
             print(f"Number of files: {num_files}")
             print(f"File types: {', '.join(file_types)}")
@@ -153,7 +165,8 @@ def get_folder_paths(input_file_path):
     if not valid_folder_paths:
         raise ValueError("No available folders for processing.")
 
-    print(f"\nFound {len(valid_folder_paths)} available folders for processing.")
+    print(f"\nFound {len(valid_folder_paths)} available folders "
+          "for processing.")
     return valid_folder_paths
 
 
@@ -168,13 +181,27 @@ def confirm_processing():
     return proceed == 'y'
 
 
-def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder, filename, fibronectin_channel, file_extension, results_folder):
+def process_single_file(
+    ij,
+    IJ,
+    WindowManager,
+    Duplicator,
+    ResultsTable,
+    folder,
+    filename,
+    fibronectin_channel,
+    file_extension,
+    results_folder
+):
     """
     Process a single image file.
 
     Args:
         ij (imagej.ImageJ): Initialized ImageJ instance.
-        IJ, WindowManager, Duplicator, ResultsTable: Java classes for processing.
+        IJ: Java class reference for ij.IJ.
+        WindowManager: Java class reference for ij.WindowManager.
+        Duplicator: Java class reference for ij.plugin.Duplicator.
+        ResultsTable: Java class reference for ij.measure.ResultsTable.
         folder (str): Path to the current folder being processed.
         filename (str): Image filename.
         fibronectin_channel (int): Fibronectin channel index.
@@ -206,7 +233,10 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
     # Extract fibronectin channel
     print("  Extracting fibronectin channel...")
     if fibronectin_channel > imp.getNChannels() or fibronectin_channel < 1:
-        print(f"  Invalid fibronectin channel ({fibronectin_channel}) for image with {imp.getNChannels()} channels.")
+        print(
+            f"  Invalid fibronectin channel ({fibronectin_channel}) for "
+            f"image with {imp.getNChannels()} channels."
+        )
         imp.close()
         IJ.run("Close All")
         return None
@@ -229,7 +259,8 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
 
     # Reslice
     print("  Performing Reslice...")
-    IJ.run(imp_fibronectin, "Reslice [/]...", "output=0.500 start=Top flip rotate avoid")
+    IJ.run(imp_fibronectin, "Reslice [/]...", "output=0.500 start=Top "
+           "flip rotate avoid")
     imp_fibronectin.close()
     time.sleep(2)
 
@@ -284,7 +315,10 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
     new_images = images_after - images_before
 
     if not new_images:
-        print(f"  Local Thickness plugin did not create a new image for '{filename}'.")
+        print(
+            f"  Local Thickness plugin did not create a new image for "
+            f"'{filename}'."
+        )
         IJ.run("Close All")
         return None
 
@@ -306,7 +340,8 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
 
     # Check that measurements were obtained
     if rt is None or rt.getCounter() == 0:
-        print("  No measurements obtained. Checking table headings and counters...")
+        print("  No measurements obtained. Checking table headings and "
+              "counters...")
         if rt is not None:
             headings = rt.getHeadings()
             print(f"  Current headings: {headings}")
@@ -322,13 +357,18 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
             mean_thickness = rt.getValue("Mean", rt.getCounter() - 1)
             min_thickness = rt.getValue("Min", rt.getCounter() - 1)
             max_thickness = rt.getValue("Max", rt.getCounter() - 1)
-            print(f"  Measurements for '{filename}': Area={area}, Mean={mean_thickness}, Min={min_thickness}, Max={max_thickness}")
+            print(f"  Measurements for '{filename}': "
+                  f"Area={area}, Mean={mean_thickness}, Min={min_thickness}, "
+                  f"Max={max_thickness}")
         except Exception as e:
             print(f"  Error reading measurements: {e}")
             area = mean_thickness = min_thickness = max_thickness = None
 
     # Save the Local Thickness image
-    local_thickness_image_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
+    local_thickness_image_path = os.path.join(
+        results_folder,
+        f"Local_Thickness_{filename}.tif"
+    )
     IJ.saveAs(local_thickness_imp, "Tiff", local_thickness_image_path)
     print(f"  Local Thickness image saved to '{local_thickness_image_path}'.")
 
@@ -344,13 +384,34 @@ def process_single_file(ij, IJ, WindowManager, Duplicator, ResultsTable, folder,
     }
 
 
-def process_single_folder(ij, IJ, WindowManager, Duplicator, ResultsTable, folder, file_extension, fibronectin_channel):
+def process_single_folder(
+    ij,
+    IJ,
+    WindowManager,
+    Duplicator,
+    ResultsTable,
+    folder,
+    file_extension,
+    fibronectin_channel
+):
     """
     Process all image files in a single folder.
+
+    Args:
+        ij (imagej.ImageJ): The ImageJ instance.
+        IJ, WindowManager, Duplicator, ResultsTable: Java class references.
+        folder (str): The folder path to process.
+        file_extension (str): The file extension to process (.nd2 or .tiff).
+        fibronectin_channel (int): The fibronectin channel index.
     """
-    image_files = [f for f in os.listdir(folder) if f.lower().endswith(file_extension)]
+    image_files = [
+        f for f in os.listdir(folder) if f.lower().endswith(file_extension)
+    ]
     if not image_files:
-        print(f"No '{file_extension}' files found in folder '{folder}'. Skipping.")
+        print(
+            f"No '{file_extension}' files found in folder '{folder}'. "
+            "Skipping."
+        )
         return
 
     print(f"\nProcessing folder: {folder}")
@@ -364,8 +425,16 @@ def process_single_folder(ij, IJ, WindowManager, Duplicator, ResultsTable, folde
     summary_data = []
     for filename in image_files:
         result = process_single_file(
-            ij, IJ, WindowManager, Duplicator, ResultsTable,
-            folder, filename, fibronectin_channel, file_extension, results_folder
+            ij,
+            IJ,
+            WindowManager,
+            Duplicator,
+            ResultsTable,
+            folder,
+            filename,
+            fibronectin_channel,
+            file_extension,
+            results_folder
         )
         if result is not None:
             summary_data.append(result)
@@ -379,14 +448,36 @@ def process_single_folder(ij, IJ, WindowManager, Duplicator, ResultsTable, folde
         print(f"No data to save in summary for folder '{folder}'.")
 
 
-def process_all_folders(ij, IJ, WindowManager, Duplicator, ResultsTable, folder_paths, file_extension, fibronectin_channel):
+def process_all_folders(
+    ij,
+    IJ,
+    WindowManager,
+    Duplicator,
+    ResultsTable,
+    folder_paths,
+    file_extension,
+    fibronectin_channel
+):
     """
     Process all provided folders.
+
+    Args:
+        ij (imagej.ImageJ): The ImageJ instance.
+        IJ, WindowManager, Duplicator, ResultsTable: Java class references.
+        folder_paths (list[str]): List of folder paths to process.
+        file_extension (str): The file extension to process (.nd2 or .tiff).
+        fibronectin_channel (int): The fibronectin channel index.
     """
     for folder in folder_paths:
         process_single_folder(
-            ij, IJ, WindowManager, Duplicator, ResultsTable, 
-            folder, file_extension, fibronectin_channel
+            ij,
+            IJ,
+            WindowManager,
+            Duplicator,
+            ResultsTable,
+            folder,
+            file_extension,
+            fibronectin_channel
         )
     print("\nAll folders have been processed.")
 
@@ -396,14 +487,26 @@ def main():
     Main execution function.
     """
     parser = argparse.ArgumentParser(description='Thickness analysis script')
-    parser.add_argument('-i', '--input', required=True, help='Path to the input JSON file containing folder paths')
+    parser.add_argument(
+        '-i',
+        '--input',
+        required=True,
+        help='Path to the input JSON file containing folder paths'
+    )
     args = parser.parse_args()
 
     print("Initializing ImageJ...")
     ij = initialize_imagej()
     print("ImageJ initialization completed.")
 
-    IJ, ImagePlus, WindowManager, ResultsTable, Duplicator, System = import_java_classes()
+    (
+        IJ,
+        ImagePlus,
+        WindowManager,
+        ResultsTable,
+        Duplicator,
+        System
+    ) = import_java_classes()
 
     folder_paths = get_folder_paths(args.input)
     file_extension = get_file_type_choice()
@@ -415,7 +518,16 @@ def main():
         ij.dispose()
         System.exit(0)
 
-    process_all_folders(ij, IJ, WindowManager, Duplicator, ResultsTable, folder_paths, file_extension, fibronectin_channel)
+    process_all_folders(
+        ij,
+        IJ,
+        WindowManager,
+        Duplicator,
+        ResultsTable,
+        folder_paths,
+        file_extension,
+        fibronectin_channel
+    )
 
     print("Disposing of ImageJ context...")
     ij.dispose()
