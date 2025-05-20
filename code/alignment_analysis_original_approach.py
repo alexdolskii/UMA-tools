@@ -37,7 +37,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
-
+import sys
 import imagej
 import pandas as pd
 import scyjava as sj
@@ -108,13 +108,15 @@ def make_result_dirs(root: str, angle_str: str) -> Tuple[str, str, str]:
 
 def init_imagej() -> "imagej.ImageJ":
     # === 1. Determine the location of the script and look for the Fiji folder in the same directory. ===
-    HERE = Path(__file__).resolve().parent          # folder with .py-file
-    FIJI_DIR = HERE / "Fiji.app"                    # expect Fiji.app inside the folder
+    SCRIPT_DIR = Path(__file__).resolve().parent          # code/
+    FIJI_DIR = (SCRIPT_DIR.parent / "Fiji.app").resolve()
+
     if not FIJI_DIR.exists():
         raise FileNotFoundError(
-            "Fiji.app не найден рядом со скриптом. "
-            "Скопируйте портативный Fiji в ту же папку."
-        )
+            f"Fiji.app not found at {FIJI_DIR}. "
+            "Place the portable Fiji.app one level above the 'code' folder "
+            "or pass --fiji <path>."
+        )   
     # Initialize ImageJ in interactive mode
     print("Initializing ImageJ...")
 
