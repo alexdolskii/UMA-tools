@@ -152,9 +152,10 @@ def get_folder_paths(input_file_path):
         if os.path.isdir(folder_path):
             files = os.listdir(folder_path)
             num_files = len(files)
-            file_types = set(
-                [os.path.splitext(f)[1].lower() for f in files]
-            )
+            file_types = set([
+                os.path.splitext(f)[1].lower()
+                for f in files if not f.startswith(".")
+                ])
             print(f"\nFolder: {folder_path}")
             print(f"Number of files: {num_files}")
             print(f"File types: {', '.join(file_types)}")
@@ -405,8 +406,10 @@ def process_single_folder(
         fibronectin_channel (int): The fibronectin channel index.
     """
     image_files = [
-        f for f in os.listdir(folder) if f.lower().endswith(file_extension)
+    f for f in os.listdir(folder)
+    if f.lower().endswith(file_extension) and not f.startswith(".")
     ]
+
     if not image_files:
         print(
             f"No '{file_extension}' files found in folder '{folder}'. "
