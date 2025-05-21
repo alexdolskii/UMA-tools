@@ -181,7 +181,6 @@ def confirm_processing():
     proceed = input("\nDo you want to start processing? (y/n): ").strip().lower()
     return proceed == 'y'
 
-
 def process_single_file(
     ij,
     IJ,
@@ -197,18 +196,6 @@ def process_single_file(
     """
     Process a single image file.
 
-    Args:
-        ij (imagej.ImageJ): Initialized ImageJ instance.
-        IJ: Java class reference for ij.IJ.
-        WindowManager: Java class reference for ij.WindowManager.
-        Duplicator: Java class reference for ij.plugin.Duplicator.
-        ResultsTable: Java class reference for ij.measure.ResultsTable.
-        folder (str): Path to the current folder being processed.
-        filename (str): Image filename.
-        fibronectin_channel (int): Fibronectin channel index.
-        file_extension (str): Chosen file extension (.nd2 or .tiff).
-        results_folder (str): Path to the results folder.
-
     Returns:
         dict: A dictionary with measurement results for this file.
     """
@@ -222,8 +209,6 @@ def process_single_file(
         print(f"  Failed to open image: {filename}")
         IJ.run("Close All")
         return None
-    else:
-        print(f"  Image '{filename}' successfully opened.")
 
     imp = ij.convert().convert(img, jimport('ij.ImagePlus'))
     if imp is None:
@@ -234,10 +219,7 @@ def process_single_file(
     # Extract fibronectin channel
     print("  Extracting fibronectin channel...")
     if fibronectin_channel > imp.getNChannels() or fibronectin_channel < 1:
-        print(
-            f"  Invalid fibronectin channel ({fibronectin_channel}) for "
-            f"image with {imp.getNChannels()} channels."
-        )
+        print(f"  Invalid fibronectin channel for image.")
         imp.close()
         IJ.run("Close All")
         return None
@@ -253,21 +235,20 @@ def process_single_file(
     )
     imp.close()
     if imp_fibronectin is None:
-        print(f"  Failed to extract fibronectin channel from '{filename}'.")
+        print(f"  Failed to extract fibronectin channel.")
         IJ.run("Close All")
         return None
     imp_fibronectin.setTitle(f"{filename}_C{fibronectin_channel}")
 
     # Reslice
     print("  Performing Reslice...")
-    IJ.run(imp_fibronectin, "Reslice [/]...", "output=0.500 start=Top "
-           "flip rotate avoid")
+    IJ.run(imp_fibronectin, "Reslice [/]...", "output=0.500 start=Top flip rotate avoid")
     imp_fibronectin.close()
     time.sleep(2)
 
     resliced_imp = IJ.getImage()
     if resliced_imp is None:
-        print(f"  Failed to perform Reslice for '{filename}'.")
+        print(f"  Failed to perform Reslice.")
         IJ.run("Close All")
         return None
     resliced_imp.setTitle(f"Reslice_of_{filename}")
@@ -280,12 +261,12 @@ def process_single_file(
 
     projected_imp = IJ.getImage()
     if projected_imp is None:
-        print(f"  Failed to perform Z projection for '{filename}'.")
+        print(f"  Failed to perform Z projection.")
         IJ.run("Close All")
         return None
     projected_imp.setTitle(f"MAX_Reslice_of_{filename}")
 
-    # Apply filters
+    # Filters and threshold
     print("  Applying Maximum filter...")
     IJ.run(projected_imp, "Maximum...", "radius=2")
 
@@ -300,78 +281,64 @@ def process_single_file(
     IJ.run("Options...", "black")
     IJ.run(projected_imp, "Convert to Mask", "")
 
-    # Save the mask image
+    # Save mask image
     mask_image_path = os.path.join(results_folder, f"Mask_{filename}.tif")
     IJ.saveAs(projected_imp, "Tiff", mask_image_path)
-    print(f"  Mask image saved to '{mask_image_path}'.")
+    print(f"  Mask saved to '{mask_image_path}'.")
 
     # Run Local Thickness
     print("  Running Local Thickness...")
     images_before = set(WindowManager.getImageTitles())
-    macro_code = 'run("Local Thickness (masked, calibrated, silent)");'
-    IJ.runMacro(macro_code)
+    IJ.runMacro('run("Local Thickness (masked, calibrated, silent)");')
     time.sleep(5)
 
     images_after = set(WindowManager.getImageTitles())
     new_images = images_after - images_before
-
     if not new_images:
-        print(
-            f"  Local Thickness plugin did not create a new image for "
-            f"'{filename}'."
-        )
+        print("  Local Thickness plugin failed.")
         IJ.run("Close All")
         return None
 
     new_image_title = new_images.pop()
     local_thickness_imp = WindowManager.getImage(new_image_title)
     if local_thickness_imp is None:
-        print(f"  Failed to get Local Thickness image for '{filename}'.")
+        print("  Could not retrieve Local Thickness image.")
         IJ.run("Close All")
         return None
     local_thickness_imp.setTitle(f"Local_Thickness_of_{filename}")
 
+    # Set measurements as in macro
+    IJ.run("Set Measurements...", "area standard min median redirect=None decimal=3")
+
     # Clear previous Results
     IJ.run("Clear Results")
 
-    # Measure thickness
+    # Measure
     print("  Measuring thickness...")
     IJ.run(local_thickness_imp, "Measure", "")
     rt = jimport('ij.measure.ResultsTable').getResultsTable()
 
-    # Check that measurements were obtained
+    # Extract results
     if rt is None or rt.getCounter() == 0:
-        print("  No measurements obtained. Checking table headings and "
-              "counters...")
-        if rt is not None:
-            headings = rt.getHeadings()
-            print(f"  Current headings: {headings}")
-            print(f"  Number of rows: {rt.getCounter()}")
-        area = None
-        mean_thickness = None
-        min_thickness = None
-        max_thickness = None
+        print("  No measurements.")
+        area = std_dev = min_thickness = median_thickness = None
     else:
-        # Attempt to get values safely
         try:
-            area = rt.getValue("Area", rt.getCounter() - 1)
-            mean_thickness = rt.getValue("Mean", rt.getCounter() - 1)
-            min_thickness = rt.getValue("Min", rt.getCounter() - 1)
-            max_thickness = rt.getValue("Max", rt.getCounter() - 1)
-            print(f"  Measurements for '{filename}': "
-                  f"Area={area}, Mean={mean_thickness}, Min={min_thickness}, "
-                  f"Max={max_thickness}")
+            row = rt.getCounter() - 1
+            area = rt.getValue("Area", row)
+            std_dev = rt.getValue("StdDev", row)
+            min_thickness = rt.getValue("Min", row)
+            median_thickness = rt.getValue("Median", row)
+            print(f"  Results - Area: {area}, StdDev: {std_dev}, "
+                  f"Min: {min_thickness}, Median: {median_thickness}")
         except Exception as e:
             print(f"  Error reading measurements: {e}")
-            area = mean_thickness = min_thickness = max_thickness = None
+            area = std_dev = min_thickness = median_thickness = None
 
-    # Save the Local Thickness image
-    local_thickness_image_path = os.path.join(
-        results_folder,
-        f"Local_Thickness_{filename}.tif"
-    )
-    IJ.saveAs(local_thickness_imp, "Tiff", local_thickness_image_path)
-    print(f"  Local Thickness image saved to '{local_thickness_image_path}'.")
+    # Save thickness image
+    thickness_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
+    IJ.saveAs(local_thickness_imp, "Tiff", thickness_path)
+    print(f"  Local Thickness image saved to '{thickness_path}'.")
 
     IJ.run("Close All")
     print("  Closed all images.\n")
@@ -379,9 +346,9 @@ def process_single_file(
     return {
         'File_Name': filename,
         'Area': area,
-        'Mean': mean_thickness,
+        'StdDev': std_dev,
         'Min': min_thickness,
-        'Max': max_thickness
+        'Median': median_thickness
     }
 
 
