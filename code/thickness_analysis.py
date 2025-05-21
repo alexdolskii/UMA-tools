@@ -328,12 +328,13 @@ def process_single_file(
             area = rt.getValue("Area", row)
             std_dev = rt.getValue("StdDev", row)
             min_thickness = rt.getValue("Min", row)
+            max_thickness = rt.getValue("Max", row)
             median_thickness = rt.getValue("Median", row)
             print(f"  Results - Area: {area}, StdDev: {std_dev}, "
-                  f"Min: {min_thickness}, Median: {median_thickness}")
+                  f"Min: {min_thickness}, Max: {max_thickness}, Median: {median_thickness}")
         except Exception as e:
             print(f"  Error reading measurements: {e}")
-            area = std_dev = min_thickness = median_thickness = None
+            area = std_dev = min_thickness = max_thickness = median_thickness = None
 
     # Save thickness image
     thickness_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
@@ -348,6 +349,7 @@ def process_single_file(
         'Area': area,
         'StdDev': std_dev,
         'Min': min_thickness,
+        'Max': max_thickness,
         'Median': median_thickness
     }
 
