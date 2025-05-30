@@ -21,6 +21,7 @@ import matplotlib
 import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy import gradient
 import pandas as pd
 import scyjava as sj
 from skimage import io
@@ -300,7 +301,7 @@ def process_part2_orientationpy(results_folder, images_folder):
         )
 
         # Compute the structure tensor
-        sigma = 1  # Standard deviation for Gaussian
+        sigma = 3  # Standard deviation for Gaussian
         structure_tensor = computeStructureTensor(gradients, sigma=sigma)
         directionality = computeStructureDirectionality(structure_tensor)
         orientations = computeOrientation(structure_tensor)
@@ -318,20 +319,39 @@ def process_part2_orientationpy(results_folder, images_folder):
         normalized_directionality /= normalized_directionality.max()
         normalized_directionality[image_gray == 0] = 0
 
-        # Create histogram of orientation distribution
-        orientation_flat = orientations["theta"].flatten()
-        orientation_flat = orientation_flat[~np.isnan(orientation_flat)]
+        ## Create histogram of orientation distribution
+        #orientation_flat = orientations["theta"].flatten()
+        #orientation_flat = orientation_flat[~np.isnan(orientation_flat)]
 
-        print(f"Calculating orientation histogram for '{filename}'.")
-        num_bins = 180  # 1-degree bins
-        hist, bin_edges = np.histogram(orientation_flat, bins=num_bins, range=(-90, 90))
+        #print(f"Calculating orientation histogram for '{filename}'.")
+        #num_bins = 180  # 1-degree bins
+        #hist, bin_edges = np.histogram(orientation_flat, bins=num_bins, range=(-90, 90))
+        #bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+        # --- расчёт гистограммы OrientationJ-совместимым способом ---
+        theta = orientations["theta"]                # grad
+        gx, gy = np.gradient(image_gray)             # gradients
+        energy = gx**2 + gy**2                       # Weight = Energy
+
+        mask = energy > 0                            # as OrientationJ
+        theta_flat  = theta[mask].ravel()
+        energy_flat = energy[mask].ravel()
+
+        num_bins = 180                               # 1°-bin
+        hist, bin_edges = np.histogram(              
+            theta_flat,
+            bins=num_bins,
+            range=(-90, 90),
+            weights=energy_flat
+        )
+
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-        # Prepare DataFrame for saving
         df = pd.DataFrame({
-            'ori_angle': bin_centers,
-            'occ_value': hist
+            "ori_angle": bin_centers,
+            "occ_value": hist
         })
+
 
         # Save orientation distribution to CSV
         table_folder = os.path.join(results_folder, "Tables")
