@@ -271,6 +271,11 @@ def process_part2_orientationpy(results_folder, images_folder):
         "\nPart 2: Applying orientationpy to 2D projections "
         "of the fibronectin channel..."
     )
+    
+    # Create subfolder for normalized images
+    normalized_images_folder = os.path.join(images_folder, "normalized_images")
+    Path(normalized_images_folder).mkdir(parents=True, exist_ok=True)
+    
     processed_files = [
         f for f in os.listdir(results_folder)
         if f.lower().endswith('_processed.tif') and not f.startswith("._") and not f.startswith(".")
@@ -401,6 +406,68 @@ def process_part2_orientationpy(results_folder, images_folder):
         plt.close(fig)
         logging.info(f"Orientation composition image saved at '{composition_path}'.")
 
+        # Calculate modal angle (dominant orientation)
+        modal_angle = bin_centers[np.argmax(hist)]
+        print(f"Modal angle for {filename}: {modal_angle:.2f}°")
+        
+        # Create HSV representation
+        im_display_hsv = np.zeros((image_gray.shape[0], image_gray.shape[1], 3), dtype="f4")
+        im_display_hsv[:, :, 0] = (orientations["theta"] + 90) / 180.0
+        im_display_hsv[:, :, 1] = normalized_directionality
+        im_display_hsv[:, :, 2] = image_gray / image_gray.max()
+
+        # Normalize Hue: shift to display modal angle as cyan (180°)
+        hue_shift = -2 * modal_angle  # Required shift in degrees
+        normalized_hue = (im_display_hsv[:, :, 0] + hue_shift/360) % 1.0
+        im_display_hsv_normalized = im_display_hsv.copy()
+        im_display_hsv_normalized[:, :, 0] = normalized_hue
+
+        # Save original orientation composition
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.imshow(matplotlib.colors.hsv_to_rgb(im_display_hsv))
+        ax.set_title(f"Image-Orientation Composition for\n{filename}")
+        sm = matplotlib.cm.ScalarMappable(
+            norm=matplotlib.colors.Normalize(vmin=-90, vmax=90),
+            cmap='hsv'
+        )
+        sm.set_array([])
+        fig.colorbar(
+            sm,
+            ax=ax,
+            orientation="vertical",
+            label="Degrees from Horizontal",
+            shrink=0.7
+        )
+        composition_path = os.path.join(
+            images_folder,
+            f"{os.path.splitext(filename)[0]}_orientation_composition.png"
+        )
+        fig.savefig(composition_path)
+        plt.close(fig)
+
+        # Save normalized orientation composition
+        fig_norm, ax_norm = plt.subplots(figsize=(6, 6))
+        ax_norm.imshow(matplotlib.colors.hsv_to_rgb(im_display_hsv_normalized))
+        ax_norm.set_title(f"Normalized Orientation for\n{filename}")
+        sm_norm = matplotlib.cm.ScalarMappable(
+            norm=matplotlib.colors.Normalize(vmin=-90, vmax=90),
+            cmap='hsv'
+        )
+        sm_norm.set_array([])
+        fig_norm.colorbar(
+            sm_norm,
+            ax=ax_norm,
+            orientation="vertical",
+            label="Deviation from Dominant Direction (°)",
+            shrink=0.7
+        )
+        normalized_path = os.path.join(
+            normalized_images_folder,
+            f"{os.path.splitext(filename)[0]}_normalized_orientation.png"
+        )
+        fig_norm.savefig(normalized_path)
+        plt.close(fig_norm)
+        logging.info(f"Normalized orientation image saved at '{normalized_path}'.")
 
 def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
     """
