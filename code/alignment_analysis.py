@@ -173,10 +173,12 @@ def process_part1(
     ZProjector = sj.jimport('ij.plugin.ZProjector')
 
     for filename in os.listdir(folder_path):
-        if not filename.lower().endswith(('.tif', '.tiff', '.nd2')):
-            logging.warning(
-                f"Skipping file '{filename}' as it is not .nd2 or .tif."
-            )
+        if (
+            filename.startswith("._") or
+            filename.startswith(".") or
+            not filename.lower().endswith(('.tif', '.tiff', '.nd2'))
+        ):
+            logging.warning(f"Skipping hidden or invalid file: '{filename}'")
             continue
 
         file_path = os.path.join(folder_path, filename)
@@ -271,7 +273,7 @@ def process_part2_orientationpy(results_folder, images_folder):
     )
     processed_files = [
         f for f in os.listdir(results_folder)
-        if f.lower().endswith('_processed.tif')
+        if f.lower().endswith('_processed.tif') and not f.startswith("._") and not f.startswith(".")
     ]
 
     if not processed_files:
@@ -420,7 +422,10 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
         )
         return
 
-    file_list = [f for f in os.listdir(table_folder) if f.endswith('.csv')]
+    file_list = [
+        f for f in os.listdir(table_folder)
+        if f.endswith('.csv') and not f.startswith("._") and not f.startswith(".")
+    ]
     if not file_list:
         logging.warning(
             f"No CSV files found in '{table_folder}'. "
