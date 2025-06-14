@@ -1,376 +1,663 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Fibronectin‐fiber alignment assay, ImageJ + OrientationJ version
----------------------------------------------------------------
-Workflow (unchanged in essence):
-
-1.  Read a JSON file that lists folders to process.
-2.  **Part 1** – open every *.tif / .tiff / .nd2 / .oif / .oib* stack,
-   extract the fibronectin channel, generate a max-intensity Z-projection,
-   resize to a standard size, and save as “…_processed.tif”.
-3.  **Part 2** – feed every processed TIFF to the *OrientationJ Analysis*
-   and *OrientationJ Distribution* plugins (inside ImageJ) and save:
-     • an HSV survey image “…_oj_analysis.tif”
-     • the distribution table “…_oj_distribution.csv”
-4.  **Part 3** – merge all CSV tables, classify each field of view
-   (‘aligned’ vs ‘disorganized’), and write both individual and summary CSVs.
-
-Folder layout created in each input folder:
-
-    Alignment_assay_results_angle_<ANGLE>_<TIMESTAMP>/
-        ├─ Images/              (survey images)
-        ├─ Tables/              (OrientationJ CSVs)
-        ├─ Analysis/            (post-processed CSVs + summary)
-        └─ log.log              (per-folder log)
-
-No image-processing logic (OrientationJ calls, etc.) has been modified.
-Only *additional* handling for *.oif/.oib* has been inserted.
-
---------------------------------------------------------------------
+This script performs fibronectin orientation analysis using ImageJ and OrientationJ.
+It processes microscopy images through three main steps:
+1) Creates 2D projections of fibronectin channels
+2) Applies orientation analysis using OrientationJ plugin
+3) Processes results and generates alignment statistics
 """
 
-import argparse
-import json
-import logging
 import os
+import sys
+import json
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
-import sys
+
 import imagej
 import pandas as pd
-import scyjava as sj
+from scyjava import jimport
 
 
-# ──────────────────────────────── Exceptions ────────────────────────────────
-
-class ImageJInitializationError(RuntimeError):
-    """Raised when ImageJ fails to initialise."""
-
-
-# ────────────────────────── Generic helper functions ─────────────────────────
-
-def correct_angle(angle: float) -> float:
-    """Map any angle into the range [-90°, +90°]."""
-    if angle < -90:
-        return angle + 180
-    if angle > 90:
-        return angle - 180
-    return angle
+class ImageJInitializationError(Exception):
+    """Exception raised for errors during ImageJ initialization."""
+    pass
 
 
-def read_folder_list(json_path: str) -> List[str]:
+class JSONValidationError(Exception):
+    """Exception raised for invalid JSON structure or content."""
+    pass
+
+
+def get_folder_paths(json_path):
     """
-    Parse *input_paths.json* and sanity-check that the folders exist.
-    The file must look like:
-        {"folder_paths": ["C:/data/groupA", "C:/data/groupB", ...]}
+    Read folder paths from JSON file and validate structure.
+    
+    Args:
+        json_path (str): Path to JSON file
+        
+    Returns:
+        list: Valid folder paths
+        
+    Raises:
+        JSONValidationError: If JSON structure is invalid
+        FileNotFoundError: If JSON file doesn't exist
     """
+    print(f"\nLooking for input_paths.json at: {json_path}")
+    
     if not os.path.isfile(json_path):
-        raise FileNotFoundError(f"File '{json_path}' does not exist.")
+        raise FileNotFoundError(f"input_paths.json not found at {json_path}")
 
-    with open(json_path, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    raw_paths = data.get("folder_paths", [])
-    if not raw_paths:
-        raise ValueError("JSON does not contain key 'folder_paths'.")
-
-    valid_paths: List[str] = []
-    for p in raw_paths:
-        if os.path.isdir(p):
-            n_files = len(os.listdir(p))
-            exts = {Path(f).suffix.lower() for f in os.listdir(p)}
-            print(f"Folder: {p}\n  files: {n_files}\n  types: {', '.join(exts)}")
-            valid_paths.append(p)
-        else:
-            logging.warning(f"Folder '{p}' does not exist – skipped.")
-    if not valid_paths:
-        raise ValueError("No existing folders to process.")
-    print(f"\nFound {len(valid_paths)} folder(s) for processing.")
-    return valid_paths
-
-
-def make_result_dirs(root: str, angle_str: str) -> Tuple[str, str, str]:
-    """Create results/, Tables/, Images/ under *root*; return their paths."""
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results = Path(root) / f"Alignment_assay_results_angle_{angle_str}_{ts}"
-    tables = results / "Tables"
-    images = results / "Images"
-    for d in (results, tables, images):
-        d.mkdir(parents=True, exist_ok=True)
-    # one log per input folder
-    logging.FileHandler(results / "log.log", mode="w")
-    print(f"Results will be written to: {results}")
-    return str(results), str(tables), str(images)
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            json_data = json.load(f)
+        
+        # Validate JSON structure
+        if "folder_paths" not in json_data:
+            raise JSONValidationError("JSON missing 'folder_paths' key")
+            
+        folder_paths = json_data["folder_paths"]
+        
+        if not isinstance(folder_paths, list):
+            raise JSONValidationError("'folder_paths' should be a list")
+            
+        if not folder_paths:
+            raise JSONValidationError("'folder_paths' list is empty")
+            
+        return folder_paths
+        
+    except Exception as e:
+        raise JSONValidationError(f"Error reading input_paths.json: {e}")
 
 
-# ───────────────────────────── ImageJ utilities ─────────────────────────────
-
-def init_imagej() -> "imagej.ImageJ":
-    # === 1. Determine the location of the script and look for the Fiji folder in the same directory. ===
-    SCRIPT_DIR = Path(__file__).resolve().parent          # code/
-    FIJI_DIR = (SCRIPT_DIR.parent / "Fiji.app").resolve()
-
-    if not FIJI_DIR.exists():
-        raise FileNotFoundError(
-            f"Fiji.app not found at {FIJI_DIR}. "
-            "Place the portable Fiji.app one level above the 'code' folder "
-            "or pass --fiji <path>."
-        )   
-    # Initialize ImageJ in interactive mode
-    print("Initializing ImageJ...")
-
-    ij = imagej.init(str(FIJI_DIR), mode='interactive')
-
-    print("ImageJ initialization completed.")
-    return ij
-
-
-def close_all_images() -> None:
-    """Utility to close every open ImageJ window."""
-    IJ = sj.jimport("ij.IJ")
-    IJ.run("Close All")
-
-
-# ───────────────────────────────── Part 1 ────────────────────────────────────
-
-def part1_z_projection(
-    ij: "imagej.ImageJ",
-    folder: str,
-    results_dir: str,
-    fn_channel: int,
-    target_w: int,
-    target_h: int,
-) -> Dict[str, Dict]:
+def get_fibronectin_channel(folder_paths):
     """
-    Generate resized max-intensity projections of the fibronectin channel.
-    Returns a dict with basic Z-stack info keyed by processed filename.
+    Prompt user for fibronectin channel configuration.
+    
+    Args:
+        folder_paths (list): List of folder paths to process
+        
+    Returns:
+        dict: Fibronectin channel indices for each folder
     """
-    IJ = sj.jimport("ij.IJ")
-    ZProjector = sj.jimport("ij.plugin.ZProjector")
-
-    z_info: Dict[str, Dict] = {}
-
-    for f in os.listdir(folder):
-        if not f.lower().endswith((".tif", ".tiff", ".nd2", ".oif", ".oib")):
-            continue
-        full_path = os.path.join(folder, f)
-        print(f"\n[Part 1] Opening: {full_path}")
-        close_all_images()
-        imp = IJ.openImage(full_path)
-        if imp is None:
-            logging.warning(f"Could not open '{f}' – skipped.")
-            continue
-
-        w, h, c, z, t = imp.getDimensions()
-        if fn_channel > c:
-            logging.warning(f"{f}: requested channel {fn_channel} > {c}")
-            imp.close(); continue
-
-        # Extract fibronectin channel (ImageJ channels are 1-based)
-        imp.setC(fn_channel)
-        IJ.run(imp, "Duplicate...", f"title=fibro channels={fn_channel}")
-        ch_img = IJ.getImage()
-
-        # Z-projection
-        zp = ZProjector(ch_img)
-        zp.setMethod(ZProjector.MAX_METHOD)
-        zp.doProjection()
-        proj = zp.getProjection()
-        proj = proj.resize(target_w, target_h, "bilinear")
-        IJ.run(proj, "8-bit", "")
-
-        out_name = Path(f).stem + "_processed.tif"
-        out_path = os.path.join(results_dir, out_name)
-        IJ.saveAs(proj, "Tiff", out_path)
-        logging.info(f"Saved projection → {out_path}")
-        proj.close(); ch_img.close(); imp.close(); close_all_images()
-
-        z_info[Path(out_name).stem] = {
-            "original_filename": f,
-            "number_of_z_stacks": z,
-            "z_stack_type": "slices" if z > 1 else "channels",
-        }
-    return z_info
-
-
-# ───────────────────────────────── Part 2 ────────────────────────────────────
-
-def part2_orientationj(results_dir: str, images_dir: str) -> None:
-    """
-    Run OrientationJ Analysis + Distribution on every *_processed.tif file.
-    Saves the HSV survey image and distribution CSV (as in the legacy script).
-    """
-    IJ = sj.jimport("ij.IJ")
-    WM = sj.jimport("ij.WindowManager")
-
-    targets = [
-        f for f in os.listdir(results_dir) if f.lower().endswith("_processed.tif")
-    ]
-    if not targets:
-        logging.warning("Part 2: no processed TIFFs found.")
-        return
-
-    for fname in targets:
-        path = os.path.join(results_dir, fname)
-        print(f"\n[Part 2] OrientationJ on: {fname}")
-        close_all_images()
-        imp = IJ.openImage(path)
-        if imp is None:
-            logging.warning(f"Could not reopen '{fname}'.")
-            continue
-        imp.show()
-
-        # Analysis
-        IJ.run(
-            "OrientationJ Analysis",
-            "tensor=3.0 gradient=4 color-survey=on "
-            "hsb=on hue=Orientation sat=Coherency bri=Original-Image radian=on",
-        )
-        IJ.wait(500)
-        survey = WM.getImage("OJ-Color-survey-1")
-        if survey:
-            survey_out = os.path.join(
-                images_dir, Path(fname).stem + "_oj_analysis.tif"
-            )
-            IJ.saveAs(survey, "Tiff", survey_out)
-            survey.close()
-            logging.info(f"Saved survey image → {survey_out}")
-
-        close_all_images()
-        # Distribution
-        imp = IJ.openImage(path); imp.show()
-        IJ.run(
-            "OrientationJ Distribution",
-            "tensor=3.0 gradient=4 radian=on histogram=on table=on "
-            "min-coherency=0.0 min-energy=0.0",
-        )
-        IJ.wait(500)
-        csv_out = os.path.join(
-            results_dir, "Tables", Path(fname).stem + "_oj_distribution.csv"
-        )
+    fibronectin_channel_indices = {}
+    
+    same_channel = input("\nDo all folders have the same fibronectin channel? (yes/no): ").strip().lower()
+    
+    if same_channel in ('yes', 'y'):
+        channel_input = input("Enter the fibronectin channel number (starting from 1): ").strip()
         try:
-            IJ.saveAs("Results", csv_out)
-            logging.info(f"Saved distribution table → {csv_out}")
-            IJ.run("Clear Results")
-        except Exception as e:
-            logging.error(f"Could not save results for '{fname}': {e}")
-        close_all_images()
+            fibronectin_channel_index = int(channel_input) - 1
+            if fibronectin_channel_index < 0:
+                print("Using default channel 1")
+                fibronectin_channel_index = 0
+        except ValueError:
+            print("Invalid input. Using default channel 1.")
+            fibronectin_channel_index = 0
+        
+        for folder in folder_paths:
+            fibronectin_channel_indices[folder] = fibronectin_channel_index
+    else:
+        for folder in folder_paths:
+            print(f"\nFolder: {folder}")
+            channel_input = input("Enter the fibronectin channel number (starting from 1): ").strip()
+            try:
+                fibronectin_channel_index = int(channel_input) - 1
+                if fibronectin_channel_index < 0:
+                    print("Using default channel 1")
+                    fibronectin_channel_index = 0
+            except ValueError:
+                print("Invalid input. Using default channel 1.")
+                fibronectin_channel_index = 0
+            fibronectin_channel_indices[folder] = fibronectin_channel_index
+    
+    return fibronectin_channel_indices
 
 
-# ───────────────────────────────── Part 3 ────────────────────────────────────
+def create_results_folders(input_folder, angle_str, timestamp):
+    """
+    Create folder structure for analysis results.
+    
+    Args:
+        input_folder (str): Path to input folder
+        angle_str (str): Formatted angle value for folder naming
+        timestamp (str): Timestamp for folder naming
+        
+    Returns:
+        tuple: Paths to (results_folder, excel_folder, images_folder)
+    """
+    results_folder_name = f"Alignment_assay_results_angle_{angle_str}_{timestamp}"
+    results_folder = os.path.join(input_folder, results_folder_name)
+    Path(results_folder).mkdir(parents=True, exist_ok=True)
+    
+    excel_folder = os.path.join(results_folder, "Excel")
+    images_folder = os.path.join(results_folder, "Images")
+    Path(excel_folder).mkdir(parents=True, exist_ok=True)
+    Path(images_folder).mkdir(parents=True, exist_ok=True)
+    
+    return results_folder, excel_folder, images_folder
 
-def part3_summarise(
-    results_dir: str,
-    analysis_dir: str,
-    angle: float,
-    z_info: Dict[str, Dict],
-) -> None:
-    """Post-process OrientationJ CSVs and produce a summary table."""
-    tables_dir = Path(results_dir) / "Tables"
-    csvs = list(tables_dir.glob("*.csv"))
-    if not csvs:
-        logging.warning("Part 3: no CSVs to process.")
-        return
 
-    analysis_dir = Path(analysis_dir)
-    analysis_dir.mkdir(exist_ok=True)
+def process_image_file(ij, file_path, fibronectin_channel_index, desired_width, desired_height):
+    """
+    Process an individual image file through projection and channel extraction.
+    
+    Args:
+        ij: ImageJ instance
+        file_path (str): Path to image file
+        fibronectin_channel_index (int): Channel index to extract
+        desired_width (int): Target output width
+        desired_height (int): Target output height
+        
+    Returns:
+        tuple: (processed_imp, z_stack_info)
+    """
+    IJ = jimport('ij.IJ')
+    ZProjector = jimport('ij.plugin.ZProjector')
+    ImagePlus = jimport('ij.ImagePlus')
+    
+    try:
+        # Open image using Bio-Formats
+        img = ij.io().open(file_path)
+        if img is None:
+            print(f"Failed to open image: {file_path}")
+            return None, None
+            
+        # Convert to ImagePlus
+        imp = ij.convert().convert(img, ImagePlus)
+        dimensions = imp.getDimensions()
+        width, height, channels, slices, frames = dimensions
+        
+        # Determine initial Z-stack info
+        initial_z_stacks = slices if slices > 1 else channels
+        z_stack_type = 'slices' if slices > 1 else 'channels'
+        
+        # Process based on file type
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext in ('.nd2', '.oif', '.oib'):
+            # Extract fibronectin channel
+            if channels > 1:
+                imp.setC(fibronectin_channel_index + 1)
+                IJ.run(imp, "Make Substack...", f"channels={fibronectin_channel_index+1} slices=1-{slices} frames=1-{frames}")
+                imp.close()
+                imp = IJ.getImage()
+                channels = imp.getNChannels()
+        
+        elif file_ext in ('.tif', '.tiff'):
+            # Project across channels if needed
+            if channels > 1:
+                imp.show()
+                IJ.run("Z Project...", "projection=[Max Intensity] all")
+                imp.close()
+                imp = IJ.getImage()
+                channels = imp.getNChannels()
+        
+        # Project along slices if needed
+        slices = imp.getNSlices()
+        if slices > 1:
+            zp = ZProjector(imp)
+            zp.setMethod(ZProjector.MAX_METHOD)
+            zp.doProjection()
+            projected_imp = zp.getProjection()
+            imp.close()
+            imp = projected_imp
+        
+        # Resize image
+        IJ.run(imp, "Size...", f"width={desired_width} height={desired_height} constrain average interpolation=Bilinear")
+        
+        return imp, {
+            'number_of_z_stacks': initial_z_stacks,
+            'z_stack_type': z_stack_type
+        }
+        
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        return None, None
 
-    summary_rows: List[Dict] = []
 
-    for csv_path in csvs:
-        df = pd.read_csv(csv_path)
-        df.columns = ["ori_angle", "occ_value"]
-        peak_angle = df.loc[df["occ_value"].idxmax(), "ori_angle"]
-
-        df["angles_norm"] = df["ori_angle"] - peak_angle
-        df["angles_corr"] = df["angles_norm"].apply(correct_angle)
-        df["rank"] = df["angles_corr"].rank(method="min")
-        df["perc"] = df["occ_value"] / df["occ_value"].sum() * 100
-
-        mask = df["angles_corr"].between(-angle, angle)
-        pct_aligned = df.loc[mask, "perc"].sum()
-        mode = "aligned" if pct_aligned >= 55 else "disorganized"
-
-        # Save per-image processed CSV
-        out_csv = analysis_dir / (csv_path.stem + "_processed.csv")
-        df.sort_values("rank").to_csv(out_csv, index=False)
-
-        stem = csv_path.stem.replace("_oj_distribution", "")
-        zrec = z_info.get(stem, {})
-        summary_rows.append(
-            {
-                "File_Name": csv_path.name,
-                "Number_of_Z_Stacks": zrec.get("number_of_z_stacks", "N/A"),
-                "Z_Stack_Type": zrec.get("z_stack_type", "N/A"),
-                f"Percentage_Aligned_within_{angle}°": pct_aligned,
-                "Orientation_Mode": mode,
-            }
+def process_part1(ij, folder_path, fibronectin_channel_index, results_folder, desired_width, desired_height):
+    """
+    Part 1: Create 2D projections of fibronectin channels.
+    
+    Args:
+        ij: ImageJ instance
+        folder_path (str): Input folder path
+        fibronectin_channel_index (int): Channel index to extract
+        results_folder (str): Output folder for results
+        desired_width (int): Target image width
+        desired_height (int): Target image height
+        
+    Returns:
+        dict: Z-stack information for processed files
+    """
+    print(f"\nProcessing folder: {folder_path}")
+    IJ = jimport('ij.IJ')
+    z_stacks_info = {}
+    
+    for filename in os.listdir(folder_path):
+        if filename.startswith('._'):
+            continue
+            
+        if not filename.lower().endswith(('.tif', '.tiff', '.nd2', '.oif', '.oib')):
+            continue
+            
+        file_path = os.path.join(folder_path, filename)
+        print(f"\nProcessing file: {file_path}")
+        
+        imp, z_stack_info = process_image_file(
+            ij, 
+            file_path, 
+            fibronectin_channel_index, 
+            desired_width, 
+            desired_height
         )
-        logging.info(f"Processed CSV → {out_csv}")
+        
+        if imp is None:
+            continue
+            
+        # Save processed image
+        output_filename = os.path.splitext(filename)[0] + '_processed.tif'
+        output_path = os.path.join(results_folder, output_filename)
+        IJ.saveAs(imp, "Tiff", output_path)
+        imp.close()
+        
+        # Store Z-stack info using ORIGINAL base name as key
+        original_base_name = os.path.splitext(filename)[0]
+        z_stacks_info[original_base_name] = {
+            'original_filename': filename,
+            'number_of_z_stacks': z_stack_info['number_of_z_stacks'],
+            'z_stack_type': z_stack_info['z_stack_type']
+        }
+        
+    print(f"Part 1 completed for folder {folder_path}")
+    return z_stacks_info
 
-    pd.DataFrame(summary_rows).to_csv(analysis_dir / "Alignment_Summary.csv", index=False)
-    logging.info("Summary table written.")
+def process_part2(ij, results_folder, images_folder):
+    """
+    Part 2: Apply OrientationJ analysis to processed images.
+    
+    Args:
+        ij: ImageJ instance
+        results_folder (str): Folder with processed images
+        images_folder (str): Output folder for analysis images
+    """
+    print("\nStarting Part 2: Applying OrientationJ Plugin...")
+    IJ = jimport('ij.IJ')
+    WindowManager = jimport('ij.WindowManager')
+    
+    processed_files = [f for f in os.listdir(results_folder) 
+                      if f.endswith('_processed.tif') and not f.startswith('._')]
+    
+    for filename in processed_files:
+        file_path = os.path.join(results_folder, filename)
+        print(f"\nProcessing file: {file_path}")
+        
+        try:
+            # Open image
+            imp = IJ.openImage(file_path)
+            if imp is None:
+                continue
+                
+            # OrientationJ Analysis
+            imp.show()
+            IJ.run("OrientationJ Analysis", "tensor=3.0 gradient=4 color-survey=on hsb=on hue=Orientation sat=Coherency bri=Original-Image radian=on")
+            time.sleep(0.5)
+            
+            # Save analysis image
+            analysis_title = "OJ-Color-survey-1"
+            analysis_imp = WindowManager.getImage(analysis_title)
+            if analysis_imp:
+                analysis_filename = filename.replace('_processed.tif', '_oj_analysis.tif')
+                analysis_path = os.path.join(images_folder, analysis_filename)
+                IJ.saveAs(analysis_imp, "Tiff", analysis_path)
+                analysis_imp.close()
+                
+            # Close all and reopen for distribution
+            IJ.run("Close All")
+            imp = IJ.openImage(file_path)
+            imp.show()
+            
+            # OrientationJ Distribution
+            IJ.run("OrientationJ Distribution", "tensor=3.0 gradient=4 radian=on histogram=on table=on min-coherency=0.0 min-energy=0.0")
+            time.sleep(0.5)
+            
+            # Save results table
+            excel_filename = filename.replace('_processed.tif', '_oj_distribution.csv')
+            excel_path = os.path.join(os.path.dirname(images_folder), "Excel", excel_filename)
+            IJ.saveAs("Results", excel_path)
+            IJ.run("Clear Results")
+            
+            # Clean up
+            IJ.run("Close All")
+            
+        except Exception as e:
+            print(f"Error during OrientationJ processing: {e}")
+            IJ.run("Close All")
 
 
-# ────────────────────────────── Folder driver ────────────────────────────────
-
-def process_one_folder(
-    ij: "imagej.ImageJ",
-    folder: str,
-    fn_channel: int,
-    angle: float,
-    width: int,
-    height: int,
-) -> None:
-    """Run Parts 1–3 for a single data folder."""
-    angle_str = str(angle).replace(".", "_")
-    res_dir, tbl_dir, img_dir = make_result_dirs(folder, angle_str)
-
-    z_record = part1_z_projection(
-        ij, folder, res_dir, fn_channel, width, height
+def process_csv_file(file_path, angle_value):
+    """
+    Process an OrientationJ CSV result file.
+    
+    Args:
+        file_path (str): Path to CSV file
+        angle_value (float): Alignment angle threshold
+        
+    Returns:
+        tuple: (processed_df, alignment_percentage, orientation_mode)
+    """
+    df = pd.read_csv(file_path)
+    
+    # Rename columns
+    df.columns = ['orientation_angle', 'occurrence_value']
+    
+    # Find peak angle
+    max_occurrence_idx = df['occurrence_value'].idxmax()
+    angle_of_max = df.loc[max_occurrence_idx, 'orientation_angle']
+    
+    # Normalize angles
+    df['angles_normalized_to_angle_of_MOV'] = df['orientation_angle'] - angle_of_max
+    df['corrected_angles'] = df['angles_normalized_to_angle_of_MOV'].apply(
+        lambda x: x + 180 if x < -90 else (x - 180 if x > 90 else x)
     )
-    part2_orientationj(res_dir, img_dir)
+    
+    # Calculate statistics
+    total_occurrence = df['occurrence_value'].sum()
+    df['percent_occurrence'] = (df['occurrence_value'] / total_occurrence) * 100
+    
+    # Calculate alignment percentage
+    aligned_mask = (df['corrected_angles'] >= -angle_value) & (df['corrected_angles'] <= angle_value)
+    alignment_percentage = df.loc[aligned_mask, 'percent_occurrence'].sum()
+    
+    # Determine orientation mode
+    orientation_mode = 'aligned' if alignment_percentage >= 55 else 'disorganized'
+    
+    return df, alignment_percentage, orientation_mode
 
-    analysis_dir = Path(res_dir) / "Analysis"
-    analysis_dir.mkdir(exist_ok=True)
-    part3_summarise(res_dir, str(analysis_dir), angle, z_record)
 
+def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info, timestamp):
+    """
+    Part 3: Process OrientationJ results and generate summary.
+    
+    Args:
+        results_folder (str): Folder with analysis results
+        analysis_folder (str): Output folder for processed data
+        angle_value (float): Alignment angle threshold
+        z_stacks_info (dict): Z-stack information from Part 1
+        timestamp (str): Timestamp for file naming
+    """
+    print("\nStarting Part 3: Processing Excel Files...")
+    excel_folder = os.path.join(results_folder, "Excel")
+    
+    if not os.path.exists(excel_folder):
+        print("Excel folder not found. Skipping Part 3.")
+        return
+        
+    csv_files = [f for f in os.listdir(excel_folder) 
+                if f.endswith('.csv') and not f.startswith('._')]
+    
+    summary_data = []
+    
+    for csv_file in csv_files:
+        csv_path = os.path.join(excel_folder, csv_file)
+        print(f"\nProcessing: {csv_file}")
+        
+        try:
+            # Process CSV file
+            df, alignment_percentage, orientation_mode = process_csv_file(csv_path, angle_value)
+            
+            # Save processed data
+            output_filename = csv_file.replace('.csv', f'_processed_{timestamp}.xlsx')
+            output_path = os.path.join(analysis_folder, output_filename)
+            df.to_excel(output_path, index=False)
+            
+            # Get ORIGINAL base name from CSV filename
+            # Example: 'experiment1_oj_distribution.csv' -> 'experiment1'
+            base_name = csv_file.replace('_oj_distribution.csv', '')
+            base_name = base_name.replace('_processed', '')  # Remove processed suffix
+            
+            # Get Z-stack info using original base name
+            z_info = z_stacks_info.get(base_name, {})
+            
+            # Add to summary
+            summary_data.append({
+                'File_Name': csv_file,
+                'Number_of_Z_Stacks': z_info.get('number_of_z_stacks', 'N/A'),
+                'Z_Stack_Type': z_info.get('z_stack_type', 'N/A'),
+                f'Percentage_Fibers_Aligned_Within_{angle_value}_Degree': alignment_percentage,
+                'Orientation_Mode': orientation_mode
+            })
+            
+        except Exception as e:
+            print(f"Error processing {csv_file}: {e}")
+    
+    # Save summary
+    if summary_data:
+        summary_df = pd.DataFrame(summary_data)
+        summary_path = os.path.join(analysis_folder, f'Alignment_Summary_{timestamp}.xlsx')
+        summary_df.to_excel(summary_path, index=False)
+        print(f"\nSummary saved to: {summary_path}")
 
-# ─────────────────────────────────── Main ────────────────────────────────────
-
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Fibronectin alignment assay")
-    ap.add_argument(
-        "-i",
-        "--input",
-        required=True,
-        help="Path to input_paths.json that lists folders to analyse",
+def process_folder(
+    ij, 
+    folder_path, 
+    fibronectin_channel_index, 
+    angle_value, 
+    desired_width, 
+    desired_height
+):
+    """
+    Process a single folder through all analysis steps.
+    
+    Args:
+        ij: ImageJ instance
+        folder_path (str): Path to folder to process
+        fibronectin_channel_index (int): Fibronectin channel index
+        angle_value (float): Alignment angle threshold
+        desired_width (int): Target image width
+        desired_height (int): Target image height
+    """
+    # Create results folders
+    angle_str = f"{angle_value}".replace('.', '_')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_folder, excel_folder, images_folder = create_results_folders(
+        folder_path, angle_str, timestamp
     )
-    ap.add_argument("-a", "--angle", type=float, default=15.0, help="Angle threshold (°)")
-    ap.add_argument("-w", "--width", type=int, default=500, help="Resize width (px)")
-    ap.add_argument("-H", "--height", type=int, default=500, help="Resize height (px)")
-    args = ap.parse_args()
+    
+    # Part 1: Create 2D projections
+    z_stacks_info = process_part1(
+        ij, 
+        folder_path, 
+        fibronectin_channel_index, 
+        results_folder, 
+        desired_width, 
+        desired_height
+    )
+    
+    # Part 2: OrientationJ analysis
+    process_part2(ij, results_folder, images_folder)
+    
+    # Part 3: Process results
+    analysis_folder = os.path.join(results_folder, 'Analysis')
+    os.makedirs(analysis_folder, exist_ok=True)
+    
+    process_part3(
+        results_folder,
+        analysis_folder,
+        angle_value,
+        z_stacks_info,
+        timestamp
+    )
+    
+    normalize_saved_images(results_folder)
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    print(f"\nProcessing completed for folder: {folder_path}")
+    print(f"Results saved in: {results_folder}")
 
-    ij = init_imagej()
-    folders = read_folder_list(args.input)
 
-    # channel index (1-based, as in ImageJ GUI)
-    fn_ch = int(input("Enter fibronectin channel index (starting from 1): ").strip())
+def main():
+    """Main function to execute the fibronectin analysis workflow."""
+    try:
+        # Initialize ImageJ
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(script_dir)
+        fiji_path = os.path.join(parent_dir, "Fiji.app")
+        
+        if not os.path.exists(fiji_path):
+            raise FileNotFoundError(f"Fiji.app not found at {fiji_path}")
+        
+        print(f"Initializing ImageJ from: {fiji_path}")
+        ij = imagej.init(fiji_path, mode='interactive')
+        print("ImageJ initialization completed.")
+        
+        # Get folder paths
+        json_path = os.path.join(parent_dir, "input_paths.json")
+        folder_paths = get_folder_paths(json_path)
+        print(f"Found {len(folder_paths)} folders to process")
+        
+        # Get angle value
+        angle_input = input("\nEnter analysis angle (default 15): ").strip()
+        angle_value = float(angle_input) if angle_input else 15.0
+        angle_str = f"{angle_value}".replace('.', '_')
+        
+        # Get fibronectin channels
+        fibronectin_channel_indices = get_fibronectin_channel(folder_paths)
+        
+        # Confirm processing
+        start_processing = input("\nStart processing? (yes/no): ").strip().lower()
+        if start_processing not in ('yes', 'y'):
+            print("Processing canceled by user.")
+            return
+            
+        # Process each folder
+        desired_width, desired_height = 500, 500
+        for folder_path in folder_paths:
+            process_folder(
+                ij,
+                folder_path,
+                fibronectin_channel_indices[folder_path],
+                angle_value,
+                desired_width,
+                desired_height
+            )
+            
+        print("\nAll folders processed successfully.")
+        
+    except Exception as e:
+        print(f"\nError: {e}")
+        sys.exit(1)
+        
+    finally:
+        # Clean up ImageJ
+        if 'ij' in locals():
+            print("Disposing ImageJ context...")
+            ij.dispose()
+        print("Script execution completed.")
 
-    ok = input("\nStart processing? (y/n): ").strip().lower()
-    if ok not in ("y", "yes"):
-        print("Cancelled by user."); return
+import numpy as np
+import matplotlib.colors
+from skimage import io, img_as_ubyte
+import matplotlib.pyplot as plt
 
-    for fld in folders:
-        process_one_folder(ij, fld, fn_ch, args.angle, args.width, args.height)
-
-    print("\nAll folders processed. Disposing ImageJ…")
-    ij.context().dispose()
-    print("Done.")
-
+def normalize_saved_images(results_folder):
+    """
+    Part 4: Normalize saved orientation images using angle data from CSV files.
+    
+    Args:
+        results_folder (str): Main results folder containing Excel and Images subfolders
+    """
+    print("\nStarting Part 4: Normalizing saved orientation images...")
+    
+    # Create normalized images subfolder
+    images_folder = os.path.join(results_folder, "Images")
+    normalized_folder = os.path.join(images_folder, "normalized_images")
+    Path(normalized_folder).mkdir(parents=True, exist_ok=True)
+    
+    excel_folder = os.path.join(results_folder, "Excel")
+    
+    # Get all distribution CSV files
+    csv_files = [f for f in os.listdir(excel_folder) 
+                if f.endswith('_oj_distribution.csv') and not f.startswith('._')]
+    
+    if not csv_files:
+        print(f"No distribution CSV files found in {excel_folder}")
+        return
+    
+    for csv_file in csv_files:
+        try:
+            print(f"\nProcessing {csv_file}")
+            
+            # Extract base filename from CSV name
+            base_name = csv_file.replace('_oj_distribution.csv', '')
+            image_filename = base_name + '_oj_analysis.tif'
+            image_path = os.path.join(images_folder, image_filename)
+            
+            print(f"Looking for image: {image_path}")
+            
+            if not os.path.exists(image_path):
+                print(f"Image not found: {image_path}")
+                continue
+                
+            # Read CSV file
+            csv_path = os.path.join(excel_folder, csv_file)
+            df = pd.read_csv(csv_path)
+            
+            # Find modal angle (max occurrence)
+            max_occurrence_idx = df.iloc[:, 1].idxmax()
+            modal_angle_deg = df.iloc[max_occurrence_idx, 0]
+            print(f"Modal angle: {modal_angle_deg:.2f}°")
+            
+            # Load the orientation image
+            img = io.imread(image_path)
+            
+            # If image is RGBA, convert to RGB
+            if img.shape[-1] == 4:
+                img = img[..., :3]
+            
+            # Convert to float and normalize to [0, 1]
+            img_float = img.astype(np.float32) / 255.0
+            
+            # Create HSV representation
+            hsv_img = matplotlib.colors.rgb_to_hsv(img_float)
+            
+            # Calculate hue shift: -2 * modal_angle_deg
+            hue_shift = -2 * modal_angle_deg
+            print(f"Applying hue shift: {hue_shift:.2f}°")
+            
+            # Apply hue shift (convert to [0, 1] range)
+            hsv_img[..., 0] = (hsv_img[..., 0] + (hue_shift / 360)) % 1.0
+            
+            # Convert back to RGB
+            normalized_rgb = matplotlib.colors.hsv_to_rgb(hsv_img)
+            
+            # Create figure for saving
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.imshow(normalized_rgb)
+            ax.axis('off')
+            
+            # Add colorbar
+            sm = plt.cm.ScalarMappable(
+                cmap='hsv',
+                norm=plt.Normalize(vmin=-90, vmax=90))
+            sm.set_array([])
+            
+            cbar = fig.colorbar(sm, ax=ax, orientation='vertical', shrink=0.7)
+            cbar.set_label("Deviation from Dominant Direction (°)")
+            
+            # Save normalized image
+            normalized_filename = base_name + '_oj_analysis_normalized.png'
+            normalized_path = os.path.join(normalized_folder, normalized_filename)
+            plt.savefig(normalized_path, bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+            
+            print(f"Saved normalized image: {normalized_path}")
+            
+        except Exception as e:
+            print(f"Error processing {csv_file}: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     main()
