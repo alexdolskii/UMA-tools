@@ -110,7 +110,7 @@ def extract_and_resize_nuclei(input_dir, output_dir, nuclei_channel=1, target_si
     print(f"Using nuclei channel = {nuclei_channel}")
 
     for file in os.listdir(input_dir):
-        if not file.lower().endswith('.nd2'):
+        if not file.lower().endswith('.nd2') or file.startswith(('.', '_')):
             continue
 
         file_path = os.path.join(input_dir, file)
@@ -179,7 +179,9 @@ def run_stardist_segmentation(folders, model):
         masks_dir = os.path.join(folder, "masks")
         os.makedirs(masks_dir, exist_ok=True)
 
-        tiff_files = [f for f in os.listdir(processed_dir) if f.lower().endswith(('.tif', '.tiff'))]
+        tiff_files = [f for f in os.listdir(processed_dir) 
+              if f.lower().endswith(('.tif', '.tiff')) 
+              and not f.startswith(('.', '_'))]
         if not tiff_files:
             print(f"No TIFF files in {processed_dir}.")
             continue
@@ -578,7 +580,7 @@ def main():
             masks_dir = os.path.join(folder, "masks")
 
             for file in os.listdir(masks_dir):
-                if file.endswith('_mask.tif'):
+                if file.endswith('_mask.tif') and not file.startswith(('.', '_')):
                     mask_path = os.path.join(masks_dir, file)
                     csv_name = file.replace('_mask.tif', '_analysis.csv')
                     csv_path = os.path.join(analysis_dir, csv_name)
