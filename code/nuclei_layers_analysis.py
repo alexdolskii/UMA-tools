@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-3D Nuclei Analysis Pipeline – native resolution (full)   Updated: 29 Jun 2025
+3D Nuclei Analysis Pipeline – native resolution (full)   Updated: 29 Jun 2025
 ------------------------------------------------------------------------------
- • Three execution modes (auto‑detected if previous results exist)
+ • Three execution modes (auto-detected if previous results exist)
       1) Full analysis from scratch
-      2) StarDist segmentation only (skip Fiji pre‑processing)
-      3) Post‑processing only (quantification + clustering)
- • Fiji‑based nuclei‑channel extraction & 3D filtering (no resizing)
- • Tile‑aware StarDist 3D segmentation (multi‑CPU)
- • Per‑image quantification  → CSV
- • QC plots (mid‑Z mask overlay + 3‑view colour projections & centroids)
- • HDBSCAN 3‑D clustering into nuclear “layers”  → per‑image + summary CSV
+      2) StarDist segmentation only (skip Fiji pre-processing)
+      3) Post-processing only (quantification + clustering)
+ • Fiji-based nuclei-channel extraction & 3D filtering (no resizing)
+ • Tile-aware StarDist 3D segmentation (multi-CPU)
+ • Per-image quantification → CSV
+ • QC plots (mid-Z mask overlay + 3-view colour projections & centroids)
+ • HDBSCAN 3-D clustering into nuclear "layers" → per-image + summary CSV
  • Robust cleanup of ImageJ JVM & TensorFlow sessions (script always exits)
 """
 
-import os, sys, json, argparse, logging, shutil, signal
+import os
+import sys
+import json
+import argparse
+import logging
+import shutil
+import signal
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from collections import Counter
@@ -31,26 +38,35 @@ from csbdeep.utils import normalize
 from stardist.models import StarDist3D
 from sklearn.cluster import HDBSCAN
 from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import NearestNeighbors
 
 # ----- logging ---------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("nuclei_analysis.log"),
-              logging.StreamHandler(sys.stdout)]
+    handlers=[
+        logging.FileHandler("nuclei_analysis.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 np.random.seed(6)
 
+
 # ----- CLI -------------------------------------------------------------------
 def parse_args():
+    """Parse command line arguments."""
     ap = argparse.ArgumentParser(description="3D Nuclei Analysis Pipeline")
-    ap.add_argument("-i", "--input", default="input_paths.json",
-                    help="Path to JSON config file")
+    ap.add_argument(
+        "-i", "--input", default="input_paths.json",
+        help="Path to JSON config file"
+    )
+    # Add hidden argument for Fiji-only mode
+    ap.add_argument("--fiji-only", help=argparse.SUPPRESS)
     return ap.parse_args()
+
 
 # ----- configuration ---------------------------------------------------------
 def load_config(path: str) -> dict:
+    """Load configuration from JSON file."""
     if not os.path.isfile(path):
         raise FileNotFoundError(path)
     with open(path, encoding="utf-8") as fh:
@@ -61,23 +77,22 @@ def load_config(path: str) -> dict:
         raise ValueError("'folder_paths' must list existing directories")
 
     return {
-        "folders"        : folders,
-        "nuclei_channel" : int(raw.get("nuclei_channel", 1)),
-        "gaussian_sigma" : float(raw.get("gaussian_sigma", 4.0)),
-        "mean_radius"    : int(raw.get("mean_radius", 3)),
-        "z_scale_factor" : int(raw.get("z_scale_factor", 32)),
-        "n_tiles"        : raw.get("n_tiles", [1, 1, 1]),
-        "model_path"     : raw.get("model_path"),
+        "folders": folders,
+        "nuclei_channel": int(raw.get("nuclei_channel", 1)),
+        "gaussian_sigma": float(raw.get("gaussian_sigma", 4.0)),
+        "mean_radius": int(raw.get("mean_radius", 3)),
+        "z_scale_factor": int(raw.get("z_scale_factor", 32)),
+        "n_tiles": raw.get("n_tiles", [1, 1, 1]),
+        "model_path": raw.get("model_path"),
     }
 
-# ----- execution‑mode selector ----------------------------------------------
+
+# ----- execution-mode selector -----------------------------------------------
 def choose_execution_mode(folders):
-    """
-    Return user‑chosen mode (1,2,3). If no outputs exist, defaults to 1.
-    """
+    """Return user-chosen mode (1,2,3). Defaults to 1 if no outputs exist."""
     outputs_exist = any(
-        any((Path(f)/d).exists()
-            for d in ("processed","masks","analysis","clustering"))
+        any((Path(f) / d).exists()
+        for d in ("processed", "masks", "analysis", "clustering"))
         for f in folders
     )
     if not outputs_exist:
@@ -85,156 +100,217 @@ def choose_execution_mode(folders):
 
     print("\nDetected existing output folders. Choose execution mode:")
     print("  1 – Full analysis from scratch (clears previous results)")
-    print("  2 – Start with StarDist segmentation (skip Fiji pre‑processing)")
-    print("  3 – Post‑processing only (quantification + clustering)\n")
+    print("  2 – Start with StarDist segmentation (skip Fiji pre-processing)")
+    print("  3 – Post-processing only (quantification + clustering)\n")
     while True:
         choice = input("Enter 1, 2 or 3 ➔ ").strip()
         if choice in ("1", "2", "3"):
             return int(choice)
         print("Invalid – please enter 1, 2 or 3.")
 
-# ----- Fiji channel extraction ----------------------------------------------
-def extract_channel_and_filter(in_dir:str, out_dir:str,
-                               ch:int, gsig:float, mr:int):
-    """
-    Headless ImageJ: extract nuclei channel & apply Gaussian+Mean 3‑D filters.
-    """
-    import imagej, scyjava, jpype
+
+# ----- Fiji channel extraction -----------------------------------------------
+def extract_channel_and_filter(
+    in_dir: str, out_dir: str, ch: int, gsig: float, mr: int
+):
+    """Headless ImageJ: extract nuclei channel & apply 3D filters."""
+    import imagej
+    import scyjava
+    import jpype
+
     ij = imagej.init("sc.fiji:fiji", mode="headless")
     IJ = scyjava.jimport("ij.IJ")
     WM = scyjava.jimport("ij.WindowManager")
 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     for fname in sorted(os.listdir(in_dir)):
-        if fname.startswith(('.', '_')) or            not fname.lower().endswith(('.nd2', '.tif', '.tiff')):
+        if (fname.startswith(('.', '_')) or
+                not fname.lower().endswith(('.nd2', '.tif', '.tiff'))):
             continue
         src = os.path.join(in_dir, fname)
         dst = os.path.join(out_dir, f"{Path(fname).stem}_nuclei.tif")
         try:
             imp = IJ.openImage(src)
             if imp is None:
-                logging.warning(f"Unreadable: {src}"); continue
+                logging.warning(f"Unreadable: {src}")
+                continue
             if imp.getNChannels() < ch:
-                logging.error(f"{fname}: channel {ch} out of range"); imp.close(); continue
+                logging.error(f"{fname}: channel {ch} out of range")
+                imp.close()
+                continue
 
-            # duplicate specified channel
+            # Duplicate specified channel
             IJ.run(imp, "Duplicate...", f"title=temp duplicate channels={ch}")
-            imp_ch = IJ.getImage(); imp.close()
+            imp_ch = IJ.getImage()
+            imp.close()
 
             IJ.run(imp_ch, "8-bit", "")
             IJ.run(imp_ch, "Gaussian Blur 3D...", f"x={gsig} y={gsig} z={gsig}")
-            IJ.run(imp_ch, "Mean 3D...",     f"x={mr}   y={mr}   z={mr}")
-            IJ.saveAs(imp_ch, "Tiff", dst); imp_ch.close()
+            IJ.run(imp_ch, "Mean 3D...", f"x={mr} y={mr} z={mr}")
+            IJ.saveAs(imp_ch, "Tiff", dst)
+            imp_ch.close()
             logging.info(f"Saved {dst}")
 
         except Exception:
             logging.exception(f"Error on {fname}")
-            # close any orphaned ImageJ windows
+            # Close any orphaned ImageJ windows
             for wid in WM.getIDList() or []:
                 win = WM.getImage(wid)
-                if win: win.close()
+                if win:
+                    win.close()
 
-    # tidy up JVM to avoid lingering threads
+    # Tidy up JVM to avoid lingering threads
     try:
         jpype.shutdownJVM()
     except Exception:
         pass
 
+
 # ----- StarDist segmentation -------------------------------------------------
-def stardist_segment(img, model:StarDist3D, n_tiles):
+def stardist_segment(img, model: StarDist3D, n_tiles):
+    """Perform StarDist segmentation on image."""
     labels, _ = model.predict_instances(img, n_tiles=n_tiles)
     return labels.astype(np.uint16)
 
-def run_segmentation(folder:str, model:StarDist3D, n_tiles):
-    proc  = Path(folder, "processed")
-    masks = Path(folder, "masks"); masks.mkdir(exist_ok=True)
-    for tif in sorted(p for p in proc.iterdir() if p.suffix.lower() in (".tif",".tiff")):
+
+def run_segmentation(folder: str, model: StarDist3D, n_tiles):
+    """Run segmentation on all images in folder."""
+    proc = Path(folder, "processed")
+    masks = Path(folder, "masks")
+    masks.mkdir(exist_ok=True)
+    
+    # Convert n_tiles to tuple if it's a list
+    if isinstance(n_tiles, list):
+        n_tiles = tuple(n_tiles)
+    
+    logging.info(f"Starting segmentation with n_tiles: {n_tiles}")
+    
+    for tif in sorted(
+        p for p in proc.iterdir() if p.suffix.lower() in (".tif", ".tiff")
+    ):
         try:
+            logging.info(f"Processing {tif.name}")
             img = imread(tif)
             img_norm = normalize(img, 1, 99.8, axis=None)
+            
             if img_norm.ndim == 2:
                 img_norm = img_norm[np.newaxis, ...]
+            
+            logging.info(f"Image shape: {img_norm.shape}")
             labels = stardist_segment(img_norm, model, n_tiles)
             base = tif.stem
-            imwrite(masks / f"{base}_mask.tif", labels)
+            mask_path = masks / f"{base}_mask.tif"
+            imwrite(mask_path, labels)
+            logging.info(f"Saved mask: {mask_path} with {labels.max()} nuclei")
 
-            # quick QC: mid‑Z slice with overlay
-            mid = labels.shape[0]//2
-            plt.figure(figsize=(10,5))
-            plt.subplot(121); plt.imshow(img_norm[mid], cmap="gray"); plt.axis("off")
-            plt.subplot(122); plt.imshow(img_norm[mid], cmap="gray")
-            plt.imshow(labels[mid], cmap="jet", alpha=0.45); plt.axis("off")
+            # Quick QC: mid-Z slice with overlay
+            mid = labels.shape[0] // 2
+            plt.figure(figsize=(10, 5))
+            plt.subplot(121)
+            plt.imshow(img_norm[mid], cmap="gray")
+            plt.axis("off")
+            plt.subplot(122)
+            plt.imshow(img_norm[mid], cmap="gray")
+            plt.imshow(labels[mid], cmap="jet", alpha=0.45)
+            plt.axis("off")
             plt.suptitle(f"{base}: {labels.max()} nuclei")
             plt.tight_layout()
             plt.savefig(masks / f"{base}_QC.png", dpi=120, bbox_inches="tight")
             plt.close()
-            logging.info(f"Segmented {tif.name}: {labels.max()} nuclei")
+            
+        except Exception as e:
+            logging.exception(f"Segmentation failed for {tif.name}: {str(e)}")
 
-        except Exception:
-            logging.exception(f"Segmentation failed for {tif.name}")
 
-# ----- quantification + QC projections --------------------------------------
+# ----- quantification + QC projections ---------------------------------------
 def generate_qc_projections(mask_arr, df, out_png):
     """
-    Colour projections (XY,XZ,YZ) & centroid scatter – helpful for debugging.
+    Create color projections (XY,XZ,YZ) and centroid scatter plots for QC.
     """
     lbl_max = mask_arr.max()
-    if lbl_max == 0: return
+    if lbl_max == 0:
+        return
     rng = np.random.RandomState(42)
-    cmap = rng.rand(lbl_max+1, 3); cmap[0] = 0  # background → black
+    cmap = rng.rand(lbl_max + 1, 3)
+    cmap[0] = 0  # Background → black
 
-    z,y,x = mask_arr.shape
-    rgb = np.zeros((z,y,x,3), dtype=np.float32)
-    for lbl in range(1,lbl_max+1):
-        rgb[mask_arr==lbl] = cmap[lbl]
+    z, y, x = mask_arr.shape
+    rgb = np.zeros((z, y, x, 3), dtype=np.float32)
+    for lbl in range(1, lbl_max + 1):
+        rgb[mask_arr == lbl] = cmap[lbl]
 
     xy = rgb.max(axis=0)
     xz = np.flipud(rgb.max(axis=1))
     yz = np.flipud(rgb.max(axis=2))
 
-    plt.figure(figsize=(18,10))
-    plt.subplot(231); plt.imshow(xy); plt.title("XY projection"); plt.axis("off")
-    plt.subplot(232); plt.imshow(xz); plt.title("XZ projection"); plt.axis("off")
-    plt.subplot(233); plt.imshow(yz); plt.title("YZ projection"); plt.axis("off")
-
-    # centroid scatter in XY
-    plt.subplot(234); plt.imshow(xy); plt.axis("off")
-    plt.scatter(df["x"], df["y"], s=12, c="white", linewidths=0.3, edgecolors="k")
+    plt.figure(figsize=(18, 10))
+    # XY projection
+    plt.subplot(231)
+    plt.imshow(xy)
+    plt.title("XY projection")
+    plt.axis("off")
+    # XZ projection
+    plt.subplot(232)
+    plt.imshow(xz)
+    plt.title("XZ projection")
+    plt.axis("off")
+    # YZ projection
+    plt.subplot(233)
+    plt.imshow(yz)
+    plt.title("YZ projection")
+    plt.axis("off")
+    # Centroids XY
+    plt.subplot(234)
+    plt.imshow(xy)
+    plt.axis("off")
+    plt.scatter(
+        df["x"], df["y"], s=12, c="white", linewidths=0.3, edgecolors="k"
+    )
     plt.title("Centroids (XY)")
-
-    # centroid scatter in XZ
+    # Centroids XZ
     plt.subplot(235)
-    plt.imshow(xz); plt.axis("off")
-    plt.scatter(df["x"], z-df["z"], s=12, c="white", linewidths=0.3, edgecolors="k")
+    plt.imshow(xz)
+    plt.axis("off")
+    plt.scatter(
+        df["x"], z - df["z"], s=12, c="white", linewidths=0.3, edgecolors="k"
+    )
     plt.title("Centroids (XZ)")
-
-    # centroid scatter in YZ
+    # Centroids YZ
     plt.subplot(236)
-    plt.imshow(yz); plt.axis("off")
-    plt.scatter(df["y"], z-df["z"], s=12, c="white", linewidths=0.3, edgecolors="k")
+    plt.imshow(yz)
+    plt.axis("off")
+    plt.scatter(
+        df["y"], z - df["z"], s=12, c="white", linewidths=0.3, edgecolors="k"
+    )
     plt.title("Centroids (YZ)")
 
     plt.tight_layout()
     plt.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close()
 
-def quantify(mask_path:Path, csv_out:Path, qc_png:Path, min_vox:int=10):
+
+def quantify(
+    mask_path: Path, csv_out: Path, qc_png: Path, min_vox: int = 10
+) -> pd.DataFrame:
+    """Quantify nuclei properties and generate CSV + QC plot."""
     labels = imread(mask_path)
     props = regionprops_table(
         labels,
-        properties=("label","area","centroid","equivalent_diameter_area")
+        properties=("label", "area", "centroid", "equivalent_diameter_area")
     )
-    df = ( pd.DataFrame(props)
-             .rename(columns={"label":"nucleus_id",
-                              "area":"vol_vox",
-                              "centroid-0":"z",
-                              "centroid-1":"y",
-                              "centroid-2":"x",
-                              "equivalent_diameter_area":"diam_px"}) )
-    df = df[df["vol_vox"]>=min_vox]
+    df = (pd.DataFrame(props)
+          .rename(columns={
+              "label": "nucleus_id",
+              "area": "vol_vox",
+              "centroid-0": "z",
+              "centroid-1": "y",
+              "centroid-2": "x",
+              "equivalent_diameter_area": "diam_px"
+          }))
+    df = df[df["vol_vox"] >= min_vox]
     df.to_csv(csv_out, index=False)
 
-    # QC plots
+    # Generate QC plots
     try:
         generate_qc_projections(labels, df, qc_png)
     except Exception:
@@ -242,9 +318,13 @@ def quantify(mask_path:Path, csv_out:Path, qc_png:Path, min_vox:int=10):
 
     return df
 
-def process_all_images(input_dir: Path, output_dir: Path, z_scale: int = 10, point_size: int = 60):
+
+def process_all_images(
+    input_dir: Path, output_dir: Path, z_scale: int = 10, point_size: int = 60
+):
     """
-    Process all CSV files in input_dir and create a summary CSV
+    Process all CSV files in input_dir and create a summary CSV.
+    Uses cluster() for processing and create_summary_dataframe() for reporting.
     """
     summary_data = []
     
@@ -265,10 +345,9 @@ def process_all_images(input_dir: Path, output_dir: Path, z_scale: int = 10, poi
         summary_df.to_csv(summary_csv, index=False)
         logging.info(f"Saved comprehensive summary to {summary_csv}")
 
+
 def create_summary_dataframe(summary_data: list) -> pd.DataFrame:
-    """
-    Create a detailed summary dataframe from all image processing results
-    """
+    """Create detailed summary DataFrame from image processing results."""
     rows = []
     
     for image_data in summary_data:
@@ -297,6 +376,7 @@ def create_summary_dataframe(summary_data: list) -> pd.DataFrame:
     
     return pd.DataFrame(rows)
 
+
 def cluster(
     csv_path: Path,
     out_dir: Path,
@@ -310,14 +390,15 @@ def cluster(
     epsilon: float = 4.0,
     min_nuclei: int = 10,
     normalize: bool = True,
-    point_size: int = 60  # Новый параметр для размера точек
-):
+    point_size: int = 60
+) -> dict:
     """
-    Cluster nuclei with 4 precisely ordered projections:
-    1. Top-left: X Z (clustered)
-    2. Top-right: X Y (colors from top-left clustering)
-    3. Bottom-left: Y Z (clustered separately)
-    4. Bottom-right: X Y (colors from bottom-left clustering)
+    Cluster nuclei with 4 projections:
+    1. Top-left: XZ (clustered)
+    2. Top-right: XY (colors from XZ clustering)
+    3. Bottom-left: YZ (clustered)
+    4. Bottom-right: XY (colors from YZ clustering)
+    Returns image statistics dictionary.
     """
     # Load and validate data
     df = pd.read_csv(csv_path)
@@ -331,10 +412,6 @@ def cluster(
     # Store original coordinates for visualization
     original_coords = df[["x", "y", "z"]].copy()
     
-    # 1. Filter outliers (same as before)
-    z = df["z"].to_numpy()
-    # ... [keep existing filtering code] ...
-    
     # Prepare scaled coordinates for clustering
     coords = df[["x", "y", "z"]].to_numpy()
     if normalize:
@@ -342,7 +419,7 @@ def cluster(
     coords_scaled = coords.copy()
     coords_scaled[:, 2] *= z_scale  # Scale Z-axis only
 
-    # 2. TOP-LEFT CLUSTERING (X Z)
+    # XZ clustering (Top-left)
     xz_coords = coords_scaled[:, [0, 2]]  # X and Z
     xz_clusterer = HDBSCAN(
         min_cluster_size=min_cluster_size,
@@ -352,7 +429,7 @@ def cluster(
     ).fit(xz_coords)
     df["cluster_xz"] = xz_clusterer.labels_
     
-    # 3. BOTTOM-LEFT CLUSTERING (Y Z)
+    # YZ clustering (Bottom-left)
     yz_coords = coords_scaled[:, [1, 2]]  # Y and Z
     yz_clusterer = HDBSCAN(
         min_cluster_size=min_cluster_size,
@@ -390,7 +467,7 @@ def cluster(
     xz_colors = plt.cm.viridis(np.linspace(0, 1, len(xz_clusters)))
     yz_colors = plt.cm.plasma(np.linspace(0, 1, len(yz_clusters)))
     
-    # 1. TOP-LEFT: X Z projection (clustered)
+    # 1. Top-left: XZ projection (clustered)
     ax1 = plt.subplot(2, 2, 1)
     for cluster, color in zip(xz_clusters, xz_colors):
         mask = df["cluster_xz"] == cluster
@@ -398,11 +475,11 @@ def cluster(
             original_coords.loc[mask, "x"],
             original_coords.loc[mask, "z"],
             c=[color],
-            s=point_size,  # Используем параметр point_size
+            s=point_size,
             label=f'XZ Cluster {cluster}'
         )
     
-    # 2. TOP-RIGHT: X Y projection (colors from XZ clustering)
+    # 2. Top-right: XY projection (colors from XZ clustering)
     ax2 = plt.subplot(2, 2, 2)
     for cluster, color in zip(xz_clusters, xz_colors):
         mask = df["cluster_xz"] == cluster
@@ -410,11 +487,11 @@ def cluster(
             original_coords.loc[mask, "x"],
             original_coords.loc[mask, "y"],
             c=[color],
-            s=point_size,  # Тот же размер
+            s=point_size,
             label=f'XZ Cluster {cluster}'
         )
     
-    # 3. BOTTOM-LEFT: Y Z projection (clustered)
+    # 3. Bottom-left: YZ projection (clustered)
     ax3 = plt.subplot(2, 2, 3)
     for cluster, color in zip(yz_clusters, yz_colors):
         mask = df["cluster_yz"] == cluster
@@ -422,11 +499,11 @@ def cluster(
             original_coords.loc[mask, "y"],
             original_coords.loc[mask, "z"],
             c=[color],
-            s=point_size,  # Тот же размер
+            s=point_size,
             label=f'YZ Cluster {cluster}'
         )
     
-    # 4. BOTTOM-RIGHT: X Y projection (colors from YZ clustering)
+    # 4. Bottom-right: XY projection (colors from YZ clustering)
     ax4 = plt.subplot(2, 2, 4)
     for cluster, color in zip(yz_clusters, yz_colors):
         mask = df["cluster_yz"] == cluster
@@ -434,7 +511,7 @@ def cluster(
             original_coords.loc[mask, "x"],
             original_coords.loc[mask, "y"],
             c=[color],
-            s=point_size,  # Тот же размер
+            s=point_size,
             label=f'YZ Cluster {cluster}'
         )
 
@@ -448,38 +525,86 @@ def cluster(
     # Save results
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir / f"{csv_path.stem}_clusters.csv", index=False)
-    plt.savefig(out_dir / f"{csv_path.stem}_cluster_4proj.png", dpi=150, bbox_inches="tight")
+    plt.savefig(
+        out_dir / f"{csv_path.stem}_cluster_4proj.png", 
+        dpi=150, 
+        bbox_inches="tight"
+    )
     plt.close()
 
     return image_stats
 
+
+# ----- Fiji-only processing mode ---------------------------------------------
+def run_fiji_processing(folder: str, cfg: dict):
+    """Run Fiji processing in isolation with forced resource cleanup."""
+    try:
+        logging.info(f"Starting Fiji processing for {folder}")
+        extract_channel_and_filter(
+            folder, 
+            os.path.join(folder, "processed"),
+            cfg["nuclei_channel"],
+            cfg["gaussian_sigma"],
+            cfg["mean_radius"]
+        )
+    finally:
+        # Force cleanup of all resources
+        import gc
+        gc.collect()
+        
+        # Special handling for JVM
+        try:
+            import jpype
+            if jpype.isJVMStarted():
+                jpype.shutdownJVM()
+        except Exception:
+            pass
+        
+        # Cleanup multiprocessing resources
+        try:
+            import multiprocessing
+            multiprocessing.active_children()
+        except Exception:
+            pass
+    print("Fiji subprocess about to exit!", flush=True)
+    sys.exit(0)
+
 # ----- emergency shutdown ----------------------------------------------------
 def force_terminate():
+    """Forcefully terminate processes and exit."""
     try:
         import jpype
         if jpype.isJVMStarted():
             jpype.shutdownJVM()
     except Exception:
         pass
+    try:
+        import tensorflow as tf
+        tf.keras.backend.clear_session()
+    except Exception:
+        pass
     os._exit(0)
 
-# ----- main ------------------------------------------------------------------
-# [Previous imports and function definitions remain exactly the same until main()]
 
+# ----- main ------------------------------------------------------------------
 def main():
     logging.info("=== 3D Nuclei Analysis Pipeline ===")
     logging.info(f"Start: {datetime.now():%Y-%m-%d %H:%M:%S}")
     args = parse_args()
-    cfg = load_config(args.input)
 
+    # Загружаем конфиг
+    cfg = load_config(args.input)
     mode = choose_execution_mode(cfg["folders"])
     logging.info(f"Execution mode: { {1:'full',2:'stardist',3:'post'}[mode] }")
 
     signal.signal(signal.SIGTERM, lambda *a: force_terminate())
 
     try:
+        summaries = []
         model = None
-        if mode in (1,2):
+
+        # Загружаем модель для StarDist, если нужна
+        if mode in (1, 2):
             if cfg["model_path"]:
                 mdir = Path(cfg["model_path"]).resolve()
                 model = StarDist3D(None, name=mdir.name, basedir=str(mdir.parent))
@@ -488,60 +613,53 @@ def main():
                 model = StarDist3D.from_pretrained("3D_demo")
                 logging.info("Using built-in 3D_demo model")
 
-        summaries = []
-
         for fld in cfg["folders"]:
             fld = Path(fld)
-            proc = fld/"processed"; masks=fld/"masks"
-            anal = fld/"analysis"; clus = fld/"clustering"
+            proc = fld / "processed"
+            masks = fld / "masks"
+            anal = fld / "analysis"
+            clus = fld / "clustering"
 
-            for d in (proc, masks, anal, clus):
-                if mode == 1 and d.exists():
-                    shutil.rmtree(d)
-                d.mkdir(parents=True, exist_ok=True)
-
+            # Режим 1: с нуля — чистим папки и запускаем Fiji/ImageJ
             if mode == 1:
-                extract_channel_and_filter(
-                    str(fld), str(proc),
-                    cfg["nuclei_channel"],
-                    cfg["gaussian_sigma"],
-                    cfg["mean_radius"]
-                )
+                for d in (proc, masks, anal, clus):
+                    if d.exists():
+                        shutil.rmtree(d)
+                for d in (proc, masks, anal, clus):
+                    d.mkdir(parents=True, exist_ok=True)
+                logging.info(f"Running Fiji processing in main process for {fld}")
+                run_fiji_processing(str(fld), cfg)
+                logging.info(f"Fiji processing completed for {fld}")
+
+            # В режимах 1 и 2 — запускаем StarDist
+            if mode in (1, 2):
+                logging.info(f"Starting segmentation with n_tiles: {cfg['n_tiles']}")
                 run_segmentation(str(fld), model, cfg["n_tiles"])
 
-            elif mode == 2:
-                run_segmentation(str(fld), model, cfg["n_tiles"])
-
+            # Квантификация и кластеризация
             for msk in masks.glob("*_mask.tif"):
                 csv_out = anal / msk.name.replace("_mask.tif", "_analysis.csv")
                 qc_png = anal / msk.name.replace("_mask.tif", "_3D_QC.png")
-
-                if not csv_out.exists() or mode in (1,2):
+                if not csv_out.exists() or mode in (1, 2):
                     quantify(msk, csv_out, qc_png)
-
                 cluster(csv_out, clus, cfg["z_scale_factor"], summaries)
 
-            # Process all images after completing each folder
+            # Финальная обработка всех изображений в папке
             process_all_images(clus, clus, cfg["z_scale_factor"])
 
-        # Final summary after processing all folders
+        # Итоговая сводка по всем папкам
         if summaries:
             logging.info(f"Collected data for {len(summaries)} images")
-            for item in summaries:
-                logging.info(f"Image: {item['Image']}, XZ clusters: {item['XZ_Clusters']}")
-            
             summary_df = create_summary_dataframe(summaries)
-            
-            # Сохраняем summary в папку clustering первого обработанного каталога
             if cfg["folders"]:
                 first_folder = Path(cfg["folders"][0])
                 clus_dir = first_folder / "clustering"
-                summary_path = clus_dir / "clustering_summary_all_images.csv"
+                summary_path = clus_dir / "clustering_summary.csv"
                 summary_df.to_csv(summary_path, index=False)
-                logging.info(f"Saved comprehensive clustering summary to {summary_path}")
+                logging.info(f"Saved final summary to {summary_path}")
             else:
-                summary_df.to_csv("clustering_summary_all_images.csv", index=False)
-                logging.info("Saved comprehensive clustering summary to current directory")
+                summary_df.to_csv("clustering_summary.csv", index=False)
+                logging.info("Saved final summary to current directory")
 
         logging.info("=== Processing Complete ===")
         logging.info(f"End: {datetime.now():%Y-%m-%d %H:%M:%S}")
@@ -549,13 +667,10 @@ def main():
     except Exception as e:
         logging.exception(f"Pipeline failed: {e}")
     finally:
-        try:
-            import tensorflow as tf
-            tf.keras.backend.clear_session()
-        except Exception:
-            pass
         force_terminate()
 
+
+# Handle Fiji-only subprocess mode
 if __name__ == "__main__":
     try:
         main()
