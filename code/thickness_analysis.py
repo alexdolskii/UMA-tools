@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import logging
 import json
 import os
 import time
@@ -71,7 +72,6 @@ def get_num_channels():
     Returns:
         int: The number of channels.
     """
-    # Katya while True to remove
     try:
         val = int(input("Enter the number of channels in the files: ").strip())
     except ValueError:
@@ -167,9 +167,8 @@ def process_single_file(
         folder,
         filename,
         fibronectin_channel,
-        file_extension,
         results_folder
-):
+) -> dict:
     """
     Process a single image file.
 
@@ -183,25 +182,23 @@ def process_single_file(
     print("  Opening image...")
     img = ij.io().open(file_path)
     if img is None:
-        # Katya Add to logs?
-        print(f"  Failed to open image: {filename}")
+        logging.warning(f"Failed to open image: {filename}")
         IJ.run("Close All")
-        # Katya return None? Do we need to write them?
-        return None
+        return
 
     imp = ij.convert().convert(img, jimport('ij.ImagePlus'))
     if imp is None:
-        print(f"  Failed to convert image '{filename}' to ImagePlus.")
+        logging.warning(f"Failed to convert image '{filename}' to ImagePlus.")
         IJ.run("Close All")
-        return None
+        return
 
     # Extract fibronectin channel
     print("  Extracting fibronectin channel...")
     if fibronectin_channel > imp.getNChannels() or fibronectin_channel < 1:
-        print(f"  Invalid fibronectin channel for image.")
+        logging.warning(f"Invalid fibronectin channel for image.")
         imp.close()
         IJ.run("Close All")
-        return None
+        return
 
     imp_fibronectin = Duplicator().run(
         imp,
@@ -213,10 +210,12 @@ def process_single_file(
         imp.getNFrames()
     )
     imp.close()
+
     if imp_fibronectin is None:
-        print(f"  Failed to extract fibronectin channel.")
+        logging.warning(f"Failed to extract fibronectin channel.")
         IJ.run("Close All")
-        return None
+        return
+
     imp_fibronectin.setTitle(f"{filename}_C{fibronectin_channel}")
 
     # Reslice
@@ -227,9 +226,9 @@ def process_single_file(
 
     resliced_imp = IJ.getImage()
     if resliced_imp is None:
-        print(f"  Failed to perform Reslice.")
+        logging.warning(f"  Failed to perform Reslice.")
         IJ.run("Close All")
-        return None
+        return
     resliced_imp.setTitle(f"Reslice_of_{filename}")
 
     # Z Project
@@ -240,9 +239,9 @@ def process_single_file(
 
     projected_imp = IJ.getImage()
     if projected_imp is None:
-        print(f"  Failed to perform Z projection.")
+        logging.warning(f"Failed to perform Z projection.")
         IJ.run("Close All")
-        return None
+        return
     projected_imp.setTitle(f"MAX_Reslice_of_{filename}")
 
     # Filters and threshold
@@ -263,7 +262,7 @@ def process_single_file(
     # Save mask image
     mask_image_path = os.path.join(results_folder, f"Mask_{filename}.tif")
     IJ.saveAs(projected_imp, "Tiff", mask_image_path)
-    print(f"  Mask saved to '{mask_image_path}'.")
+    logging.info(f"Mask saved to '{mask_image_path}'.")
 
     # Run Local Thickness
     print("  Running Local Thickness...")
@@ -273,17 +272,20 @@ def process_single_file(
 
     images_after = set(WindowManager.getImageTitles())
     new_images = images_after - images_before
+
     if not new_images:
-        print("  Local Thickness plugin failed.")
+        logging.warning("Local Thickness plugin failed.")
         IJ.run("Close All")
-        return None
+        return
 
     new_image_title = new_images.pop()
     local_thickness_imp = WindowManager.getImage(new_image_title)
+
     if local_thickness_imp is None:
-        print("  Could not retrieve Local Thickness image.")
+        logging.warning("  Could not retrieve Local Thickness image.")
         IJ.run("Close All")
-        return None
+        return
+
     local_thickness_imp.setTitle(f"Local_Thickness_of_{filename}")
 
     # Set measurements as in macro
@@ -299,7 +301,7 @@ def process_single_file(
 
     # Extract results
     if rt is None or rt.getCounter() == 0:
-        print("  No measurements.")
+        logging.warning("No measurements.")
         area = std_dev = min_thickness = median_thickness = None
     else:
         try:
@@ -309,16 +311,16 @@ def process_single_file(
             min_thickness = rt.getValue("Min", row)
             max_thickness = rt.getValue("Max", row)
             median_thickness = rt.getValue("Median", row)
-            print(f"  Results - Area: {area}, StdDev: {std_dev}, "
-                  f"Min: {min_thickness}, Max: {max_thickness}, Median: {median_thickness}")
+            logging.info(f"  Results - Area: {area}, StdDev: {std_dev}, "
+                         f"Min: {min_thickness}, Max: {max_thickness}, Median: {median_thickness}")
         except Exception as e:
-            print(f"  Error reading measurements: {e}")
+            logging.error(f"Error reading measurements: {e}")
             area = std_dev = min_thickness = max_thickness = median_thickness = None
 
     # Save thickness image
     thickness_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
     IJ.saveAs(local_thickness_imp, "Tiff", thickness_path)
-    print(f"  Local Thickness image saved to '{thickness_path}'.")
+    logging.info(f"Local Thickness image saved to '{thickness_path}'.")
 
     IJ.run("Close All")
     print("  Closed all images.\n")
@@ -358,20 +360,32 @@ def process_single_folder(
     if f.lower().endswith(file_extension) and not f.startswith(".")
     ]
 
-    if not image_files:
+    if len(image_files) == 0:
         print(
             f"No '{file_extension}' files found in folder '{folder}'. "
             "Skipping."
         )
         return
 
-    print(f"\nProcessing folder: {folder}")
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
     results_folder_name = f"Thickness_assay_results_{timestamp}"
     results_folder = os.path.join(folder, results_folder_name)
     Path(results_folder).mkdir(parents=True, exist_ok=True)
-    print(f"Results will be saved in: {results_folder}")
+
+    # Set up logging
+    file_handler = logging.FileHandler(os.path.join(results_folder,
+                                                    'log.log'),
+                                       mode='w')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(
+        logging.Formatter('%(asctime)s '
+                          '- %(levelname)s '
+                          '- %(message)s'))
+    logging.getLogger('').addHandler(file_handler)
+
+    logging.info(f"\nProcessing folder: {folder}")
+    logging.info(f"Results will be saved in: {results_folder}")
 
     summary_data = []
     for filename in image_files:
@@ -384,7 +398,6 @@ def process_single_folder(
             folder,
             filename,
             fibronectin_channel,
-            file_extension,
             results_folder
         )
         if result is not None:
@@ -394,9 +407,9 @@ def process_single_folder(
         summary_df = pd.DataFrame(summary_data)
         summary_file_path = os.path.join(results_folder, 'Thickness_Summary.csv')
         summary_df.to_csv(summary_file_path, index=False)
-        print(f"Folder analysis complete. Data saved to '{summary_file_path}'.")
+        logging.info(f"Folder analysis complete. Data saved to '{summary_file_path}'.")
     else:
-        print(f"No data to save in summary for folder '{folder}'.")
+        logging.warning(f"No data to save in summary for folder '{folder}'.")
 
 
 def process_all_folders(
@@ -420,6 +433,7 @@ def process_all_folders(
         fibronectin_channel (int): The fibronectin channel index.
     """
     for folder in folder_paths:
+        # Run analysis
         process_single_folder(
             ij,
             IJ,
@@ -444,6 +458,10 @@ def main(input_json_path: str) -> None:
     Args:
         input_json_path: path to a json file
     """
+    # Setting up logging
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
+
     ij = initialize_imagej()
 
     (IJ,
