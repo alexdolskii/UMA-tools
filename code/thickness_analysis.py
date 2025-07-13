@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-This script performs thickness analysis on image files stored in specified
-folders. It initializes ImageJ, reads input parameters from a JSON file
-(specified via command-line arguments), prompts the user for file type and
-channel information, processes images in each folder, applies various filters
-and measurements, and saves the resulting data and images.
-"""
-
 import argparse
 import json
 import os
@@ -29,7 +21,9 @@ def initialize_imagej():
         ij (imagej.ImageJ): The initialized ImageJ instance.
     """
     # Attempt to initialize ImageJ headless mode
+    print("Initializing ImageJ...")
     ij = imagej.init('sc.fiji:fiji', mode='headless')
+    print("ImageJ initialization completed.")
     return ij
 
 
@@ -163,16 +157,6 @@ def get_folder_paths(input_file_path):
           "for processing.")
     return valid_folder_paths
 
-# Katya Do we need the fuction?
-def confirm_processing():
-    """
-    Ask the user if they want to proceed with processing.
-
-    Returns:
-        bool: True if user wants to proceed, False otherwise.
-    """
-    proceed = input("\nDo you want to start processing? (y/n): ").strip().lower()
-    return proceed == 'y'
 
 def process_single_file(
         ij,
@@ -448,42 +432,38 @@ def process_all_folders(
         )
     print("\nAll folders have been processed.")
 
-# Katya Restructure. Parser should be tosses aside
-def main():
-    """
-    Main execution function.
-    """
-    parser = argparse.ArgumentParser(description='Thickness analysis script')
-    parser.add_argument(
-        '-i',
-        '--input',
-        required=True,
-        help='Path to the input JSON file containing folder paths'
-    )
-    args = parser.parse_args()
 
-    print("Initializing ImageJ...")
+def main(input_json_path: str) -> None:
+    """
+    The main function to perform thickness analysis on image files stored in specified
+    folders. It initializes ImageJ, reads input parameters from a JSON file
+    (specified via command-line arguments), prompts the user for file type and
+    channel information, processes images in each folder, applies various filters
+    and measurements, and saves the resulting data and images.
+
+    Args:
+        input_json_path: path to a json file
+    """
     ij = initialize_imagej()
-    print("ImageJ initialization completed.")
 
-    (
-        IJ,
-        ImagePlus,
-        WindowManager,
-        ResultsTable,
-        Duplicator,
-        System
-    ) = import_java_classes()
+    (IJ,
+     ImagePlus,
+     WindowManager,
+     ResultsTable,
+     Duplicator,
+     System) = import_java_classes()
 
-    folder_paths = get_folder_paths(args.input)
+    folder_paths = get_folder_paths(input_json_path)
     file_extension = get_file_type_choice()
     num_channels = get_num_channels()
     fibronectin_channel = get_fibronectin_channel(num_channels)
 
-    if not confirm_processing():
-        print("Processing aborted by user.")
+    start_analysis = input("\nDo you want to start processing? (y/n): ").strip().lower()
+    if start_analysis in ('no', 'n'):
         ij.dispose()
-        System.exit(0)
+        raise ValueError("Analysis canceled by user.")
+    elif start_analysis not in ('yes', 'y', 'no', 'n'):
+        raise ValueError("Incorrect input. Please enter y/n or yes/no")
 
     process_all_folders(
         ij,
@@ -498,9 +478,17 @@ def main():
 
     print("Disposing of ImageJ context...")
     ij.dispose()
-    print("Exiting the program.")
+    print("Thickness analysis is successfully completed.")
     System.exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Thickness analysis script')
+    parser.add_argument(
+        '-i',
+        '--input',
+        required=True,
+        help='Path to the input JSON file containing folder paths'
+    )
+    args = parser.parse_args()
+    main(args.input)
