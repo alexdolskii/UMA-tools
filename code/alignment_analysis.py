@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+# Katya - rename logging to print before initialization of handler
 """
 This script performs orientation-based analysis on fibronectin images. It:
 1) Reads folder paths from a JSON file.
@@ -100,7 +100,7 @@ def get_folder_paths(input_file_path):
             print(f"File types: {', '.join(file_types)}")
             valid_folder_paths.append(folder_path)
         else:
-            logging.warning(f"Folder '{folder_path}' does not exist.")
+            raise ValueError(f"Folder '{folder_path}' does not exist.")
 
     if not valid_folder_paths:
         raise ValueError("No available folders for processing.")
@@ -126,13 +126,19 @@ def create_results_folders(folder_path, angle_value_str, timestamp):
     )
     results_folder = os.path.join(folder_path, results_folder_name)
     Path(results_folder).mkdir(parents=True, exist_ok=True)
-    logging.info(f"Results will be saved in: {results_folder}")
 
     # Add logging
-    log_file = os.path.join(results_folder, 'log.log')
-    file_handler = logging.FileHandler(log_file, mode='w')
-    file_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    file_handler = logging.FileHandler(os.path.join(results_folder,
+                                                    'log.log'),
+                                       mode='w')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(
+        logging.Formatter('%(asctime)s '
+                          '- %(levelname)s '
+                          '- %(message)s'))
     logging.getLogger('').addHandler(file_handler)
+
+    logging.info(f"Results will be saved in: {results_folder}")
 
     table_folder = os.path.join(results_folder, "Tables")
     images_folder = os.path.join(results_folder, "Images")
@@ -619,7 +625,7 @@ def process_folder(
         ij: ImageJ context.
     """
     if not os.path.exists(folder_path):
-        logging.warning(
+        print(
             f"Folder '{folder_path}' does not exist. Skipping this folder."
         )
         return
@@ -699,12 +705,13 @@ def main_fibronectin_processing(
     )
 
     # Prompt user to start processing
-    start_processing = input(
-        "\nDo you want to start processing the files? (yes/no): "
-    ).strip().lower()
-
-    if start_processing not in ('yes', 'y'):
-        raise ValueError("File processing canceled by user.")
+    start_analysis = (input("\nDo you want to start processing? (y/n): ")
+                      .strip().lower())
+    if start_analysis in ('no', 'n'):
+        ij.dispose()
+        raise ValueError("Analysis canceled by user.")
+    elif start_analysis not in ('yes', 'y', 'no', 'n'):
+        raise ValueError("Incorrect input. Please enter y/n or yes/no")
 
     # Process each folder
     for folder_path in folder_paths:
