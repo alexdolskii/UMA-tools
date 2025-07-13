@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Katya - rename logging to print before initialization of handler
-"""
-This script performs orientation-based analysis on fibronectin images. It:
-1) Reads folder paths from a JSON file.
-2) Creates 2D projections of fibronectin channels (Part 1).
-3) Applies orientation analysis using orientationpy (Part 2).
-4) Processes the resulting CSV files and generates a summary (Part 3).
-"""
-
 import argparse
 import json
 import logging
@@ -39,6 +30,24 @@ class ImageJInitializationError(Exception):
     Exception raised for unsuccessful initialization of ImageJ.
     """
     pass
+
+
+def initialize_imagej():
+    """
+    Initialize ImageJ in headless mode.
+
+    Returns:
+        ij (imagej.ImageJ): The initialized ImageJ instance.
+    """
+    # Attempt to initialize ImageJ headless mode
+    print("Initializing ImageJ...")
+    try:
+        ij = imagej.init('sc.fiji:fiji', mode='headless')
+    except Exception as e:
+        raise ImageJInitializationError(
+            f"Failed to initialize ImageJ: {e}")
+    print("ImageJ initialization completed.")
+    return ij
 
 
 def correct_angle(x):
@@ -675,8 +684,16 @@ def main_fibronectin_processing(
     desired_height=500
 ):
     """
-    Main function: Initialize ImageJ, read folders from JSON,
-    and process each folder.
+    Main function to perform orientation-based
+    analysis on fibronectin images.
+    It:
+    1) Reads folder paths from a JSON file.
+    2) Creates 2D projections of fibronectin
+    channels (Part 1).
+    3) Applies orientation analysis using
+    orientationpy (Part 2).
+    4) Processes the resulting CSV files and
+    generates a summary (Part 3).
 
     Args:
         input_file_path (str): Path to the JSON file with folder paths.
@@ -684,17 +701,11 @@ def main_fibronectin_processing(
         desired_width (int): Desired width of the 2D projected images.
         desired_height (int): Desired height of the 2D projected images.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO,
+                        format='%(levelname)s: %(message)s')
 
     # Initialize ImageJ
-    print("Initializing ImageJ in headless mode...")
-    try:
-        ij = imagej.init('sc.fiji:fiji', mode='headless')
-    except Exception as e:
-        raise ImageJInitializationError(
-            f"Failed to initialize ImageJ: {e}"
-        )
-    print("ImageJ successfully initialized.")
+    ij = initialize_imagej()
 
     # Get folder paths
     folder_paths = get_folder_paths(input_file_path)
