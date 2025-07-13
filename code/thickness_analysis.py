@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import logging
 import json
+import logging
 import os
 import time
 from datetime import datetime
@@ -102,7 +102,8 @@ def get_fibronectin_channel(num_channels):
     except ValueError:
         raise ValueError("Please enter an integer for the number of channels")
     if val not in range(1, num_channels + 1):
-        raise ValueError(f"Channel number must be between 1 and {num_channels}.")
+        raise ValueError(f"Channel number must "
+                         f"be between 1 and {num_channels}.")
     return val
 
 
@@ -176,7 +177,7 @@ def process_single_file(
         dict: A dictionary with measurement results for this file.
     """
     file_path = os.path.join(folder, filename)
-    print(f"Processing file: {filename}")
+    logging.info(f"Processing file: {filename}")
 
     # Open image
     print("  Opening image...")
@@ -195,7 +196,7 @@ def process_single_file(
     # Extract fibronectin channel
     print("  Extracting fibronectin channel...")
     if fibronectin_channel > imp.getNChannels() or fibronectin_channel < 1:
-        logging.warning(f"Invalid fibronectin channel for image.")
+        logging.warning(f"Invalid fibronectin channel for image {filename}")
         imp.close()
         IJ.run("Close All")
         return
@@ -212,7 +213,8 @@ def process_single_file(
     imp.close()
 
     if imp_fibronectin is None:
-        logging.warning(f"Failed to extract fibronectin channel.")
+        logging.warning(f"Failed to extract "
+                        f"fibronectin channel in {filename}.")
         IJ.run("Close All")
         return
 
@@ -220,13 +222,14 @@ def process_single_file(
 
     # Reslice
     print("  Performing Reslice...")
-    IJ.run(imp_fibronectin, "Reslice [/]...", "output=0.500 start=Top flip rotate avoid")
+    IJ.run(imp_fibronectin,
+           "Reslice [/]...", "output=0.500 start=Top flip rotate avoid")
     imp_fibronectin.close()
     time.sleep(2)
 
     resliced_imp = IJ.getImage()
     if resliced_imp is None:
-        logging.warning(f"  Failed to perform Reslice.")
+        logging.warning(f"Failed to perform Reslice for {filename}")
         IJ.run("Close All")
         return
     resliced_imp.setTitle(f"Reslice_of_{filename}")
@@ -239,7 +242,7 @@ def process_single_file(
 
     projected_imp = IJ.getImage()
     if projected_imp is None:
-        logging.warning(f"Failed to perform Z projection.")
+        logging.warning(f"Failed to perform Z projection for {filename}")
         IJ.run("Close All")
         return
     projected_imp.setTitle(f"MAX_Reslice_of_{filename}")
@@ -289,7 +292,8 @@ def process_single_file(
     local_thickness_imp.setTitle(f"Local_Thickness_of_{filename}")
 
     # Set measurements as in macro
-    IJ.run("Set Measurements...", "area standard min median redirect=None decimal=3")
+    IJ.run("Set Measurements...",
+           "area standard min median redirect=None decimal=3")
 
     # Clear previous Results
     IJ.run("Clear Results")
@@ -312,13 +316,19 @@ def process_single_file(
             max_thickness = rt.getValue("Max", row)
             median_thickness = rt.getValue("Median", row)
             logging.info(f"  Results - Area: {area}, StdDev: {std_dev}, "
-                         f"Min: {min_thickness}, Max: {max_thickness}, Median: {median_thickness}")
+                         f"Min: {min_thickness}, Max: {max_thickness}, "
+                         f"Median: {median_thickness}")
         except Exception as e:
             logging.error(f"Error reading measurements: {e}")
-            area = std_dev = min_thickness = max_thickness = median_thickness = None
+            area = None
+            std_dev = None
+            min_thickness = None
+            max_thickness = None
+            median_thickness = None
 
     # Save thickness image
-    thickness_path = os.path.join(results_folder, f"Local_Thickness_{filename}.tif")
+    thickness_path = os.path.join(results_folder,
+                                  f"Local_Thickness_{filename}.tif")
     IJ.saveAs(local_thickness_imp, "Tiff", thickness_path)
     logging.info(f"Local Thickness image saved to '{thickness_path}'.")
 
@@ -356,8 +366,8 @@ def process_single_folder(
         fibronectin_channel (int): The fibronectin channel index.
     """
     image_files = [
-    f for f in os.listdir(folder)
-    if f.lower().endswith(file_extension) and not f.startswith(".")
+        f for f in os.listdir(folder)
+        if f.lower().endswith(file_extension) and not f.startswith(".")
     ]
 
     if len(image_files) == 0:
@@ -405,9 +415,11 @@ def process_single_folder(
 
     if summary_data:
         summary_df = pd.DataFrame(summary_data)
-        summary_file_path = os.path.join(results_folder, 'Thickness_Summary.csv')
+        summary_file_path = os.path.join(results_folder,
+                                         'Thickness_Summary.csv')
         summary_df.to_csv(summary_file_path, index=False)
-        logging.info(f"Folder analysis complete. Data saved to '{summary_file_path}'.")
+        logging.info(f"Folder analysis complete. "
+                     f"Data saved to '{summary_file_path}'.")
     else:
         logging.warning(f"No data to save in summary for folder '{folder}'.")
 
@@ -449,11 +461,13 @@ def process_all_folders(
 
 def main(input_json_path: str) -> None:
     """
-    The main function to perform thickness analysis on image files stored in specified
-    folders. It initializes ImageJ, reads input parameters from a JSON file
-    (specified via command-line arguments), prompts the user for file type and
-    channel information, processes images in each folder, applies various filters
-    and measurements, and saves the resulting data and images.
+    The main function to perform thickness analysis on
+    image files stored in specified folders. It initializes ImageJ,
+    reads input parameters from a JSON file (specified
+    via command-line arguments), prompts the user for file type and
+    channel information, processes images in each folder,
+    applies various filters and measurements,
+    and saves the resulting data and images.
 
     Args:
         input_json_path: path to a json file
@@ -476,7 +490,8 @@ def main(input_json_path: str) -> None:
     num_channels = get_num_channels()
     fibronectin_channel = get_fibronectin_channel(num_channels)
 
-    start_analysis = input("\nDo you want to start processing? (y/n): ").strip().lower()
+    start_analysis = (input("\nDo you want to start processing? (y/n): ")
+                      .strip().lower())
     if start_analysis in ('no', 'n'):
         ij.dispose()
         raise ValueError("Analysis canceled by user.")
