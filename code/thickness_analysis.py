@@ -306,7 +306,10 @@ def process_single_file(
     # Extract results
     if rt is None or rt.getCounter() == 0:
         logging.warning("No measurements.")
-        area = std_dev = min_thickness = median_thickness = None
+        area = None
+        std_dev = None
+        min_thickness = None
+        median_thickness = None
     else:
         try:
             row = rt.getCounter() - 1
