@@ -14,6 +14,13 @@ import pandas as pd
 from scyjava import jimport
 
 
+class ImageJInitializationError(Exception):
+    """
+    Exception raised for unsuccessful initialization of ImageJ.
+    """
+    pass
+
+
 def initialize_imagej():
     """
     Initialize ImageJ in headless mode.
@@ -23,7 +30,11 @@ def initialize_imagej():
     """
     # Attempt to initialize ImageJ headless mode
     print("Initializing ImageJ...")
-    ij = imagej.init('sc.fiji:fiji', mode='headless')
+    try:
+        ij = imagej.init('sc.fiji:fiji', mode='headless')
+    except Exception as e:
+        raise ImageJInitializationError(
+            f"Failed to initialize ImageJ: {e}")
     print("ImageJ initialization completed.")
     return ij
 
