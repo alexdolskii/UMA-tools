@@ -10,14 +10,14 @@ and measurements, and saves the resulting data and images.
 """
 
 import argparse
-import imagej
 import json
 import os
-import pandas as pd
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+import imagej
+import pandas as pd
 from scyjava import jimport
 
 
@@ -77,16 +77,14 @@ def get_num_channels():
     Returns:
         int: The number of channels.
     """
-    while True:
-        val = input("Enter the number of channels in the files: ").strip()
-        if val.isdigit():
-            num = int(val)
-            if num < 1:
-                print("The number of channels must be at least 1.")
-            else:
-                return num
-        else:
-            print("Please enter an integer for the number of channels.")
+    # Katya while True to remove
+    try:
+        val = int(input("Enter the number of channels in the files: ").strip())
+    except ValueError:
+        raise ValueError("Please enter an integer for the number of channels")
+    if val < 1:
+        raise ValueError("The number of channels must be at least 1.")
+    return val
 
 
 def get_fibronectin_channel(num_channels):
@@ -102,21 +100,16 @@ def get_fibronectin_channel(num_channels):
     """
     if num_channels == 1:
         return 1
-    while True:
-        val = input(
+    try:
+        val = int(input(
             f"Enter the channel number (1-{num_channels}) representing "
             "fibronectin: "
-        ).strip()
-        if val.isdigit():
-            fib_ch = int(val)
-            if 1 <= fib_ch <= num_channels:
-                return fib_ch
-            else:
-                print(
-                    f"Channel number must be between 1 and {num_channels}."
-                )
-        else:
-            print("Please enter an integer for the channel number.")
+        ).strip())
+    except ValueError:
+        raise ValueError("Please enter an integer for the number of channels")
+    if val not in range(1, num_channels + 1):
+        raise ValueError(f"Channel number must be between 1 and {num_channels}.")
+    return val
 
 
 def get_folder_paths(input_file_path):
@@ -170,7 +163,7 @@ def get_folder_paths(input_file_path):
           "for processing.")
     return valid_folder_paths
 
-
+# Katya Do we need the fuction?
 def confirm_processing():
     """
     Ask the user if they want to proceed with processing.
@@ -182,16 +175,16 @@ def confirm_processing():
     return proceed == 'y'
 
 def process_single_file(
-    ij,
-    IJ,
-    WindowManager,
-    Duplicator,
-    ResultsTable,
-    folder,
-    filename,
-    fibronectin_channel,
-    file_extension,
-    results_folder
+        ij,
+        IJ,
+        WindowManager,
+        Duplicator,
+        ResultsTable,
+        folder,
+        filename,
+        fibronectin_channel,
+        file_extension,
+        results_folder
 ):
     """
     Process a single image file.
@@ -206,8 +199,10 @@ def process_single_file(
     print("  Opening image...")
     img = ij.io().open(file_path)
     if img is None:
+        # Katya Add to logs?
         print(f"  Failed to open image: {filename}")
         IJ.run("Close All")
+        # Katya return None? Do we need to write them?
         return None
 
     imp = ij.convert().convert(img, jimport('ij.ImagePlus'))
@@ -453,7 +448,7 @@ def process_all_folders(
         )
     print("\nAll folders have been processed.")
 
-
+# Katya Restructure. Parser should be tosses aside
 def main():
     """
     Main execution function.
