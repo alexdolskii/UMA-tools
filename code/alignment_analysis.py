@@ -12,17 +12,12 @@ import matplotlib
 import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
-from numpy import gradient
 import pandas as pd
 import scyjava as sj
+from orientationpy import (computeGradient, computeOrientation,
+                           computeStructureDirectionality,
+                           computeStructureTensor)
 from skimage import io
-
-from orientationpy import (
-    computeGradient,
-    computeOrientation,
-    computeStructureDirectionality,
-    computeStructureTensor
-)
 
 
 class ImageJInitializationError(Exception):
@@ -114,7 +109,8 @@ def get_folder_paths(input_file_path):
     if not valid_folder_paths:
         raise ValueError("No available folders for processing.")
 
-    print(f"\nFound {len(valid_folder_paths)} available folders for processing.")
+    print(f"\nFound {len(valid_folder_paths)} "
+          f"available folders for processing.")
     return valid_folder_paths
 
 
@@ -291,13 +287,12 @@ def process_part2_orientationpy(results_folder,
         "\nPart 2: Applying orientationpy to 2D projections "
         "of the fibronectin channel..."
     )
-    
+
     # Create subfolder for normalized images
     normalized_images_folder = os.path.join(images_folder,
                                             "normalized_images")
     Path(normalized_images_folder).mkdir(parents=True,
                                          exist_ok=True)
-    
     processed_files = [
         f for f in os.listdir(results_folder)
         if (f.lower().endswith('_processed.tif')
@@ -356,26 +351,27 @@ def process_part2_orientationpy(results_folder,
         normalized_directionality /= normalized_directionality.max()
         normalized_directionality[image_gray == 0] = 0
 
-        ## Create histogram of orientation distribution
-        #orientation_flat = orientations["theta"].flatten()
-        #orientation_flat = orientation_flat[~np.isnan(orientation_flat)]
+        # Create histogram of orientation distribution
+        # orientation_flat = orientations["theta"].flatten()
+        # orientation_flat = orientation_flat[~np.isnan(orientation_flat)]
 
-        #print(f"Calculating orientation histogram for '{filename}'.")
-        #num_bins = 180  # 1-degree bins
-        #hist, bin_edges = np.histogram(orientation_flat, bins=num_bins, range=(-90, 90))
-        #bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        # print(f"Calculating orientation histogram for '{filename}'.")
+        # num_bins = 180  # 1-degree bins
+        # hist, bin_edges = np.histogram(orientation_flat,
+        # bins=num_bins, range=(-90, 90))
+        # bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-        # Calculate the histogramm in OrientationJ-compatible way
-        theta = orientations["theta"]                # grad
-        gx, gy = np.gradient(image_gray)             # gradients
-        energy = gx**2 + gy**2                       # Weight = Energy
+        # Calculate the histogram in OrientationJ-compatible way
+        theta = orientations["theta"]  # grad
+        gx, gy = np.gradient(image_gray)  # gradients
+        energy = gx**2 + gy**2  # Weight = Energy
 
-        mask = energy > 0                            # as OrientationJ
-        theta_flat  = theta[mask].ravel()
+        mask = energy > 0  # as OrientationJ
+        theta_flat = theta[mask].ravel()
         energy_flat = energy[mask].ravel()
 
-        num_bins = 180                               # 1°-bin
-        hist, bin_edges = np.histogram(              
+        num_bins = 180  # 1°-bin
+        hist, bin_edges = np.histogram(
             theta_flat,
             bins=num_bins,
             range=(-90, 90),
@@ -389,18 +385,21 @@ def process_part2_orientationpy(results_folder,
             "occ_value": hist
         })
 
-
         # Save orientation distribution to CSV
         table_folder = os.path.join(results_folder, "Tables")
         os.makedirs(table_folder, exist_ok=True)
-        excel_filename = f"{os.path.splitext(filename)[0]}_orientation_distribution.csv"
+        excel_filename = (f"{os.path.splitext(filename)[0]}"
+                          f"_orientation_distribution.csv")
         excel_path = os.path.join(table_folder, excel_filename)
         df.to_csv(excel_path, index=False)
         logging.info(f"Orientation distribution data saved at '{excel_path}'.")
 
         # Generate orientation composition image (HSV)
-        logging.info(f"Generating orientation composition image for '{filename}'.")
-        im_display_hsv = np.zeros((image_gray.shape[0], image_gray.shape[1], 3), dtype="f4")
+        logging.info(f"Generating orientation "
+                     f"composition image for '{filename}'.")
+        im_display_hsv = np.zeros((image_gray.shape[0],
+                                   image_gray.shape[1], 3),
+                                  dtype="f4")
 
         # Hue: (angle + 90)/180 -> normalized to [0, 1]
         im_display_hsv[:, :, 0] = (orientations["theta"] + 90) / 180.0
@@ -434,14 +433,17 @@ def process_part2_orientationpy(results_folder,
         )
         fig.savefig(composition_path)
         plt.close(fig)
-        logging.info(f"Orientation composition image saved at '{composition_path}'.")
+        logging.info(f"Orientation composition image "
+                     f"saved at '{composition_path}'.")
 
         # Calculate modal angle (dominant orientation)
         modal_angle = bin_centers[np.argmax(hist)]
         logging.info(f"Modal angle for {filename}: {modal_angle:.2f}°")
-        
+
         # Create HSV representation
-        im_display_hsv = np.zeros((image_gray.shape[0], image_gray.shape[1], 3), dtype="f4")
+        im_display_hsv = np.zeros((image_gray.shape[0],
+                                   image_gray.shape[1], 3),
+                                  dtype="f4")
         im_display_hsv[:, :, 0] = (orientations["theta"] + 90) / 180.0
         im_display_hsv[:, :, 1] = normalized_directionality
         im_display_hsv[:, :, 2] = image_gray / image_gray.max()
@@ -497,7 +499,8 @@ def process_part2_orientationpy(results_folder,
         )
         fig_norm.savefig(normalized_path)
         plt.close(fig_norm)
-        logging.info(f"Normalized orientation image saved at '{normalized_path}'.")
+        logging.info(f"Normalized orientation image "
+                     f"saved at '{normalized_path}'.")
 
 
 def process_part3(results_folder,
