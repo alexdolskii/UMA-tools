@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-This script performs fibronectin orientation analysis using ImageJ and OrientationJ.
-It processes microscopy images through three main steps:
-1) Creates 2D projections of fibronectin channels
-2) Applies orientation analysis using OrientationJ plugin
-3) Processes results and generates alignment statistics
-"""
-
+import json
 import os
 import sys
-import json
 import time
 from datetime import datetime
 from pathlib import Path
 
 import imagej
+import matplotlib.colors
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from scyjava import jimport
+from skimage import img_as_ubyte, io
 
 
 class ImageJInitializationError(Exception):
@@ -58,7 +54,8 @@ def get_folder_paths(json_path):
             raise JSONValidationError("JSON missing 'folder_paths' key")
             
         folder_paths = json_data["folder_paths"]
-        
+
+        # Katya Strange struction with JSONValidationError
         if not isinstance(folder_paths, list):
             raise JSONValidationError("'folder_paths' should be a list")
             
@@ -139,7 +136,11 @@ def create_results_folders(input_folder, angle_str, timestamp):
     return results_folder, excel_folder, images_folder
 
 
-def process_image_file(ij, file_path, fibronectin_channel_index, desired_width, desired_height):
+def process_image_file(ij,
+                       file_path,
+                       fibronectin_channel_index,
+                       desired_width,
+                       desired_height):
     """
     Process an individual image file through projection and channel extraction.
     
@@ -162,6 +163,7 @@ def process_image_file(ij, file_path, fibronectin_channel_index, desired_width, 
         img = ij.io().open(file_path)
         if img is None:
             print(f"Failed to open image: {file_path}")
+            # Katya - смущает два None
             return None, None
             
         # Convert to ImagePlus
@@ -180,7 +182,9 @@ def process_image_file(ij, file_path, fibronectin_channel_index, desired_width, 
             # Extract fibronectin channel
             if channels > 1:
                 imp.setC(fibronectin_channel_index + 1)
-                IJ.run(imp, "Make Substack...", f"channels={fibronectin_channel_index+1} slices=1-{slices} frames=1-{frames}")
+                IJ.run(imp, "Make Substack...",
+                       f"channels={fibronectin_channel_index+1} "
+                       f"slices=1-{slices} frames=1-{frames}")
                 imp.close()
                 imp = IJ.getImage()
                 channels = imp.getNChannels()
@@ -205,13 +209,16 @@ def process_image_file(ij, file_path, fibronectin_channel_index, desired_width, 
             imp = projected_imp
         
         # Resize image
-        IJ.run(imp, "Size...", f"width={desired_width} height={desired_height} constrain average interpolation=Bilinear")
+        IJ.run(imp, "Size...",
+               f"width={desired_width} height={desired_height} "
+               f"constrain average interpolation=Bilinear")
         
         return imp, {
             'number_of_z_stacks': initial_z_stacks,
             'z_stack_type': z_stack_type
         }
-        
+
+    # Katya. Do we need Exception?
     except Exception as e:
         print(f"Error processing image: {e}")
         return None, None
@@ -274,7 +281,10 @@ def process_part1(ij, folder_path, fibronectin_channel_index, results_folder, de
     print(f"Part 1 completed for folder {folder_path}")
     return z_stacks_info
 
-def process_part2(ij, results_folder, images_folder):
+
+def process_part2(ij,
+                  results_folder,
+                  images_folder):
     """
     Part 2: Apply OrientationJ analysis to processed images.
     
@@ -302,14 +312,17 @@ def process_part2(ij, results_folder, images_folder):
                 
             # OrientationJ Analysis
             imp.show()
-            IJ.run("OrientationJ Analysis", "tensor=3.0 gradient=4 color-survey=on hsb=on hue=Orientation sat=Coherency bri=Original-Image radian=on")
+            IJ.run("OrientationJ Analysis",
+                   "tensor=3.0 gradient=4 color-survey=on hsb=on "
+                   "hue=Orientation sat=Coherency bri=Original-Image radian=on")
             time.sleep(0.5)
             
             # Save analysis image
             analysis_title = "OJ-Color-survey-1"
             analysis_imp = WindowManager.getImage(analysis_title)
             if analysis_imp:
-                analysis_filename = filename.replace('_processed.tif', '_oj_analysis.tif')
+                analysis_filename = filename.replace('_processed.tif',
+                                                     '_oj_analysis.tif')
                 analysis_path = os.path.join(images_folder, analysis_filename)
                 IJ.saveAs(analysis_imp, "Tiff", analysis_path)
                 analysis_imp.close()
@@ -320,12 +333,17 @@ def process_part2(ij, results_folder, images_folder):
             imp.show()
             
             # OrientationJ Distribution
-            IJ.run("OrientationJ Distribution", "tensor=3.0 gradient=4 radian=on histogram=on table=on min-coherency=0.0 min-energy=0.0")
+            IJ.run("OrientationJ Distribution",
+                   "tensor=3.0 gradient=4 radian=on histogram=on "
+                   "table=on min-coherency=0.0 min-energy=0.0")
             time.sleep(0.5)
             
             # Save results table
-            excel_filename = filename.replace('_processed.tif', '_oj_distribution.csv')
-            excel_path = os.path.join(os.path.dirname(images_folder), "Excel", excel_filename)
+            excel_filename = filename.replace('_processed.tif',
+                                              '_oj_distribution.csv')
+            excel_path = os.path.join(os.path.dirname(images_folder),
+                                      "Excel",
+                                      excel_filename)
             IJ.saveAs("Results", excel_path)
             IJ.run("Clear Results")
             
@@ -377,7 +395,11 @@ def process_csv_file(file_path, angle_value):
     return df, alignment_percentage, orientation_mode
 
 
-def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info, timestamp):
+def process_part3(results_folder,
+                  analysis_folder,
+                  angle_value,
+                  z_stacks_info,
+                  timestamp):
     """
     Part 3: Process OrientationJ results and generate summary.
     
@@ -436,9 +458,110 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info, t
     # Save summary
     if summary_data:
         summary_df = pd.DataFrame(summary_data)
-        summary_path = os.path.join(analysis_folder, f'Alignment_Summary_{timestamp}.xlsx')
+        summary_path = os.path.join(analysis_folder,
+                                    f'Alignment_Summary_{timestamp}.xlsx')
         summary_df.to_excel(summary_path, index=False)
         print(f"\nSummary saved to: {summary_path}")
+
+
+def normalize_saved_images(results_folder):
+    """
+    Part 4: Normalize saved orientation images using angle data from CSV files.
+
+    Args:
+        results_folder (str): Main results folder containing Excel and Images subfolders
+    """
+    print("\nStarting Part 4: Normalizing saved orientation images...")
+
+    # Create normalized images subfolder
+    images_folder = os.path.join(results_folder, "Images")
+    normalized_folder = os.path.join(images_folder, "normalized_images")
+    Path(normalized_folder).mkdir(parents=True, exist_ok=True)
+
+    excel_folder = os.path.join(results_folder, "Excel")
+
+    # Get all distribution CSV files
+    csv_files = [f for f in os.listdir(excel_folder)
+                 if f.endswith('_oj_distribution.csv') and not f.startswith('._')]
+
+    if not csv_files:
+        print(f"No distribution CSV files found in {excel_folder}")
+        return
+
+    for csv_file in csv_files:
+        try:
+            print(f"\nProcessing {csv_file}")
+
+            # Extract base filename from CSV name
+            base_name = csv_file.replace('_oj_distribution.csv', '')
+            image_filename = base_name + '_oj_analysis.tif'
+            image_path = os.path.join(images_folder, image_filename)
+
+            print(f"Looking for image: {image_path}")
+
+            if not os.path.exists(image_path):
+                print(f"Image not found: {image_path}")
+                continue
+
+            # Read CSV file
+            csv_path = os.path.join(excel_folder, csv_file)
+            df = pd.read_csv(csv_path)
+
+            # Find modal angle (max occurrence)
+            max_occurrence_idx = df.iloc[:, 1].idxmax()
+            modal_angle_deg = df.iloc[max_occurrence_idx, 0]
+            print(f"Modal angle: {modal_angle_deg:.2f}°")
+
+            # Load the orientation image
+            img = io.imread(image_path)
+
+            # If image is RGBA, convert to RGB
+            if img.shape[-1] == 4:
+                img = img[..., :3]
+
+            # Convert to float and normalize to [0, 1]
+            img_float = img.astype(np.float32) / 255.0
+
+            # Create HSV representation
+            hsv_img = matplotlib.colors.rgb_to_hsv(img_float)
+
+            # Calculate hue shift: -2 * modal_angle_deg
+            hue_shift = -2 * modal_angle_deg
+            print(f"Applying hue shift: {hue_shift:.2f}°")
+
+            # Apply hue shift (convert to [0, 1] range)
+            hsv_img[..., 0] = (hsv_img[..., 0] + (hue_shift / 360)) % 1.0
+
+            # Convert back to RGB
+            normalized_rgb = matplotlib.colors.hsv_to_rgb(hsv_img)
+
+            # Create figure for saving
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.imshow(normalized_rgb)
+            ax.axis('off')
+
+            # Add colorbar
+            sm = plt.cm.ScalarMappable(
+                cmap='hsv',
+                norm=plt.Normalize(vmin=-90, vmax=90))
+            sm.set_array([])
+
+            cbar = fig.colorbar(sm, ax=ax, orientation='vertical', shrink=0.7)
+            cbar.set_label("Deviation from Dominant Direction (°)")
+
+            # Save normalized image
+            normalized_filename = base_name + '_oj_analysis_normalized.png'
+            normalized_path = os.path.join(normalized_folder, normalized_filename)
+            plt.savefig(normalized_path, bbox_inches='tight', pad_inches=0)
+            plt.close(fig)
+
+            print(f"Saved normalized image: {normalized_path}")
+
+        except Exception as e:
+            print(f"Error processing {csv_file}: {e}")
+            import traceback
+            traceback.print_exc()
+
 
 def process_folder(
     ij, 
@@ -498,7 +621,13 @@ def process_folder(
 
 
 def main():
-    """Main function to execute the fibronectin analysis workflow."""
+    """
+    This script performs fibronectin orientation analysis using ImageJ and OrientationJ.
+    It processes microscopy images through three main steps:
+    1) Creates 2D projections of fibronectin channels
+    2) Applies orientation analysis using OrientationJ plugin
+    3) Processes results and generates alignment statistics
+    """
     try:
         # Initialize ImageJ
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -556,108 +685,6 @@ def main():
             ij.dispose()
         print("Script execution completed.")
 
-import numpy as np
-import matplotlib.colors
-from skimage import io, img_as_ubyte
-import matplotlib.pyplot as plt
-
-def normalize_saved_images(results_folder):
-    """
-    Part 4: Normalize saved orientation images using angle data from CSV files.
-    
-    Args:
-        results_folder (str): Main results folder containing Excel and Images subfolders
-    """
-    print("\nStarting Part 4: Normalizing saved orientation images...")
-    
-    # Create normalized images subfolder
-    images_folder = os.path.join(results_folder, "Images")
-    normalized_folder = os.path.join(images_folder, "normalized_images")
-    Path(normalized_folder).mkdir(parents=True, exist_ok=True)
-    
-    excel_folder = os.path.join(results_folder, "Excel")
-    
-    # Get all distribution CSV files
-    csv_files = [f for f in os.listdir(excel_folder) 
-                if f.endswith('_oj_distribution.csv') and not f.startswith('._')]
-    
-    if not csv_files:
-        print(f"No distribution CSV files found in {excel_folder}")
-        return
-    
-    for csv_file in csv_files:
-        try:
-            print(f"\nProcessing {csv_file}")
-            
-            # Extract base filename from CSV name
-            base_name = csv_file.replace('_oj_distribution.csv', '')
-            image_filename = base_name + '_oj_analysis.tif'
-            image_path = os.path.join(images_folder, image_filename)
-            
-            print(f"Looking for image: {image_path}")
-            
-            if not os.path.exists(image_path):
-                print(f"Image not found: {image_path}")
-                continue
-                
-            # Read CSV file
-            csv_path = os.path.join(excel_folder, csv_file)
-            df = pd.read_csv(csv_path)
-            
-            # Find modal angle (max occurrence)
-            max_occurrence_idx = df.iloc[:, 1].idxmax()
-            modal_angle_deg = df.iloc[max_occurrence_idx, 0]
-            print(f"Modal angle: {modal_angle_deg:.2f}°")
-            
-            # Load the orientation image
-            img = io.imread(image_path)
-            
-            # If image is RGBA, convert to RGB
-            if img.shape[-1] == 4:
-                img = img[..., :3]
-            
-            # Convert to float and normalize to [0, 1]
-            img_float = img.astype(np.float32) / 255.0
-            
-            # Create HSV representation
-            hsv_img = matplotlib.colors.rgb_to_hsv(img_float)
-            
-            # Calculate hue shift: -2 * modal_angle_deg
-            hue_shift = -2 * modal_angle_deg
-            print(f"Applying hue shift: {hue_shift:.2f}°")
-            
-            # Apply hue shift (convert to [0, 1] range)
-            hsv_img[..., 0] = (hsv_img[..., 0] + (hue_shift / 360)) % 1.0
-            
-            # Convert back to RGB
-            normalized_rgb = matplotlib.colors.hsv_to_rgb(hsv_img)
-            
-            # Create figure for saving
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.imshow(normalized_rgb)
-            ax.axis('off')
-            
-            # Add colorbar
-            sm = plt.cm.ScalarMappable(
-                cmap='hsv',
-                norm=plt.Normalize(vmin=-90, vmax=90))
-            sm.set_array([])
-            
-            cbar = fig.colorbar(sm, ax=ax, orientation='vertical', shrink=0.7)
-            cbar.set_label("Deviation from Dominant Direction (°)")
-            
-            # Save normalized image
-            normalized_filename = base_name + '_oj_analysis_normalized.png'
-            normalized_path = os.path.join(normalized_folder, normalized_filename)
-            plt.savefig(normalized_path, bbox_inches='tight', pad_inches=0)
-            plt.close(fig)
-            
-            print(f"Saved normalized image: {normalized_path}")
-            
-        except Exception as e:
-            print(f"Error processing {csv_file}: {e}")
-            import traceback
-            traceback.print_exc()
 
 if __name__ == "__main__":
     main()
