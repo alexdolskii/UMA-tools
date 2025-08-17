@@ -28,17 +28,6 @@ from sklearn.preprocessing import StandardScaler
 from stardist.models import StarDist3D
 from tifffile import imread, imwrite
 
-# ----- logging ---------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("nuclei_analysis.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-np.random.seed(6)
-
 
 # ----- CLI -------------------------------------------------------------------
 def parse_args():
@@ -364,20 +353,19 @@ def create_summary_dataframe(summary_data: list) -> pd.DataFrame:
 
 
 def cluster(
-    csv_path: Path,
-    out_dir: Path,
-    z_scale: int = 10,
-    summary: list = None,
-    *,
-    trim_method: str = "MAD",
-    k: float | tuple = 2.5,
-    min_cluster_size: int = 5,
-    min_samples: int = 3,
-    epsilon: float = 4.0,
-    min_nuclei: int = 10,
-    normalize: bool = True,
-    point_size: int = 60
-) -> dict:
+        csv_path: Path,
+        out_dir: Path,
+        z_scale: int = 10,
+        summary: list = None,
+        *,
+        trim_method: str = "MAD",
+        k: float | tuple = 2.5,
+        min_cluster_size: int = 5,
+        min_samples: int = 3,
+        epsilon: float = 4.0,
+        min_nuclei: int = 10,
+        normalize: bool = True,
+        point_size: int = 60) -> dict:
     """
     Cluster nuclei with 4 projections:
     1. Top-left: XZ (clustered)
@@ -589,6 +577,16 @@ def main():
      • HDBSCAN 3-D clustering into nuclear "layers" → per-image + summary CSV
      • Robust cleanup of ImageJ JVM & TensorFlow sessions (script always exits)
     """
+    np.random.seed(6)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler("nuclei_analysis.log"),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
     logging.info("=== 3D Nuclei Analysis Pipeline ===")
     logging.info(f"Start: {datetime.now():%Y-%m-%d %H:%M:%S}")
     args = parse_args()
