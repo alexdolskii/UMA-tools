@@ -1,43 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-3D Nuclei Analysis Pipeline – native resolution (full)   Updated: 29 Jun 2025
-------------------------------------------------------------------------------
- • Three execution modes (auto-detected if previous results exist)
-      1) Full analysis from scratch
-      2) StarDist segmentation only (skip Fiji pre-processing)
-      3) Post-processing only (quantification + clustering)
- • Fiji-based nuclei-channel extraction & 3D filtering (no resizing)
- • Tile-aware StarDist 3D segmentation (multi-CPU)
- • Per-image quantification → CSV
- • QC plots (mid-Z mask overlay + 3-view colour projections & centroids)
- • HDBSCAN 3-D clustering into nuclear "layers" → per-image + summary CSV
- • Robust cleanup of ImageJ JVM & TensorFlow sessions (script always exits)
-"""
-
-import os
-import sys
-import json
 import argparse
+import json
 import logging
+import os
 import shutil
 import signal
 import subprocess
+import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from collections import Counter
 
-import numpy as np
+import imagej
+import jpype
 import matplotlib
+import numpy as np
+import scyjava
+
 matplotlib.rcParams["image.interpolation"] = "none"
 import matplotlib.pyplot as plt
 import pandas as pd
-from tifffile import imread, imwrite
-from skimage.measure import regionprops_table
 from csbdeep.utils import normalize
-from stardist.models import StarDist3D
+from skimage.measure import regionprops_table
 from sklearn.cluster import HDBSCAN
 from sklearn.preprocessing import StandardScaler
+from stardist.models import StarDist3D
+from tifffile import imread, imwrite
 
 # ----- logging ---------------------------------------------------------------
 logging.basicConfig(
@@ -114,9 +103,6 @@ def extract_channel_and_filter(
     in_dir: str, out_dir: str, ch: int, gsig: float, mr: int
 ):
     """Headless ImageJ: extract nuclei channel & apply 3D filters."""
-    import imagej
-    import scyjava
-    import jpype
 
     ij = imagej.init("sc.fiji:fiji", mode="headless")
     IJ = scyjava.jimport("ij.IJ")
@@ -569,8 +555,10 @@ def run_fiji_processing(folder: str, cfg: dict):
     print("Fiji subprocess about to exit!", flush=True)
     sys.exit(0)
 
+
 # ----- emergency shutdown ----------------------------------------------------
 def force_terminate():
+    # Katya What is that?
     """Forcefully terminate processes and exit."""
     try:
         import jpype
@@ -586,8 +574,21 @@ def force_terminate():
     os._exit(0)
 
 
-# ----- main ------------------------------------------------------------------
 def main():
+    """
+    3D Nuclei Analysis Pipeline – native resolution (full)   Updated: 29 Jun 2025
+    ------------------------------------------------------------------------------
+     • Three execution modes (auto-detected if previous results exist)
+          1) Full analysis from scratch
+          2) StarDist segmentation only (skip Fiji pre-processing)
+          3) Post-processing only (quantification + clustering)
+     • Fiji-based nuclei-channel extraction & 3D filtering (no resizing)
+     • Tile-aware StarDist 3D segmentation (multi-CPU)
+     • Per-image quantification → CSV
+     • QC plots (mid-Z mask overlay + 3-view colour projections & centroids)
+     • HDBSCAN 3-D clustering into nuclear "layers" → per-image + summary CSV
+     • Robust cleanup of ImageJ JVM & TensorFlow sessions (script always exits)
+    """
     logging.info("=== 3D Nuclei Analysis Pipeline ===")
     logging.info(f"Start: {datetime.now():%Y-%m-%d %H:%M:%S}")
     args = parse_args()
