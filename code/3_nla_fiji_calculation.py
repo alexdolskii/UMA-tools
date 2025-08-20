@@ -139,6 +139,7 @@ def cluster(
     3. Bottom-left: YZ (clustered)
     4. Bottom-right: XY (colors from YZ clustering)
     Returns image statistics dictionary.
+    Always plot all points; unclustered (-1) are gray.
     """
     # Load and validate data
     df = pd.read_csv(csv_path)
@@ -168,7 +169,7 @@ def cluster(
         n_jobs=-1
     ).fit(xz_coords)
     df["cluster_xz"] = xz_clusterer.labels_
-
+    
     # YZ clustering (Bottom-left)
     yz_coords = coords_scaled[:, [1, 2]]  # Y and Z
     yz_clusterer = HDBSCAN(
@@ -193,9 +194,7 @@ def cluster(
         'XZ_Cluster_Counts': dict(xz_counts),
         'YZ_Cluster_Counts': dict(yz_counts)
     }
-
-    if summary is not None:
-        summary.append(image_stats)
+    summary.append(image_stats)
 
     # Create figure
     fig = plt.figure(figsize=(20, 20))
@@ -204,72 +203,95 @@ def cluster(
     xz_clusters = sorted([l for l in set(xz_clusterer.labels_) if l != -1])
     yz_clusters = sorted([l for l in set(yz_clusterer.labels_) if l != -1])
 
-    xz_colors = plt.cm.viridis(np.linspace(0, 1, len(xz_clusters)))
-    yz_colors = plt.cm.plasma(np.linspace(0, 1, len(yz_clusters)))
+    xz_colors = plt.cm.viridis(np.linspace(0, 1, max(1, len(xz_clusters))))[:len(xz_clusters)]
+    yz_colors = plt.cm.plasma(np.linspace(0, 1, max(1, len(yz_clusters))))[:len(yz_clusters)]
+
+    # masks for noise
+    xz_noise = (df["cluster_xz"] == -1)
+    yz_noise = (df["cluster_yz"] == -1)
 
     # 1. Top-left: XZ projection (clustered)
     ax1 = plt.subplot(2, 2, 1)
-    for cluster, color in zip(xz_clusters, xz_colors):
-        mask = df["cluster_xz"] == cluster
+    if xz_noise.any():
         ax1.scatter(
-            original_coords.loc[mask, "x"],
-            original_coords.loc[mask, "z"],
-            c=[color],
-            s=point_size,
-            label=f'XZ Cluster {cluster}'
+            original_coords.loc[xz_noise, "x"],
+            original_coords.loc[xz_noise, "z"],
+            c="0.8", s=point_size, label="Unclustered", zorder=1
         )
+    for cluster, color in zip(xz_clusters, xz_colors):
+        m = (df["cluster_xz"] == cluster)
+        ax1.scatter(
+            original_coords.loc[m, "x"],
+            original_coords.loc[m, "z"],
+            c=[color], s=point_size, label=f'XZ Cluster {cluster}', zorder=2
+        )
+    ax1.set_title("XZ (HDBSCAN)")
+    ax1.set_xlabel("X"); ax1.set_ylabel("Z")
 
     # 2. Top-right: XY projection (colors from XZ clustering)
     ax2 = plt.subplot(2, 2, 2)
-    for cluster, color in zip(xz_clusters, xz_colors):
-        mask = df["cluster_xz"] == cluster
+    if xz_noise.any():
         ax2.scatter(
-            original_coords.loc[mask, "x"],
-            original_coords.loc[mask, "y"],
-            c=[color],
-            s=point_size,
-            label=f'XZ Cluster {cluster}'
+            original_coords.loc[xz_noise, "x"],
+            original_coords.loc[xz_noise, "y"],
+            c="0.8", s=point_size, label="Unclustered", zorder=1
         )
+    for cluster, color in zip(xz_clusters, xz_colors):
+        m = (df["cluster_xz"] == cluster)
+        ax2.scatter(
+            original_coords.loc[m, "x"],
+            original_coords.loc[m, "y"],
+            c=[color], s=point_size, label=f'XZ Cluster {cluster}', zorder=2
+        )
+    ax2.set_title("XY (colored by XZ)")
+    ax2.set_xlabel("X"); ax2.set_ylabel("Y")
 
     # 3. Bottom-left: YZ projection (clustered)
     ax3 = plt.subplot(2, 2, 3)
-    for cluster, color in zip(yz_clusters, yz_colors):
-        mask = df["cluster_yz"] == cluster
+    if yz_noise.any():
         ax3.scatter(
-            original_coords.loc[mask, "y"],
-            original_coords.loc[mask, "z"],
-            c=[color],
-            s=point_size,
-            label=f'YZ Cluster {cluster}'
+            original_coords.loc[yz_noise, "y"],
+            original_coords.loc[yz_noise, "z"],
+            c="0.8", s=point_size, label="Unclustered", zorder=1
         )
+    for cluster, color in zip(yz_clusters, yz_colors):
+        m = (df["cluster_yz"] == cluster)
+        ax3.scatter(
+            original_coords.loc[m, "y"],
+            original_coords.loc[m, "z"],
+            c=[color], s=point_size, label=f'YZ Cluster {cluster}', zorder=2
+        )
+    ax3.set_title("YZ (HDBSCAN)")
+    ax3.set_xlabel("Y"); ax3.set_ylabel("Z")
 
     # 4. Bottom-right: XY projection (colors from YZ clustering)
     ax4 = plt.subplot(2, 2, 4)
-    for cluster, color in zip(yz_clusters, yz_colors):
-        mask = df["cluster_yz"] == cluster
+    if yz_noise.any():
         ax4.scatter(
-            original_coords.loc[mask, "x"],
-            original_coords.loc[mask, "y"],
-            c=[color],
-            s=point_size,
-            label=f'YZ Cluster {cluster}'
+            original_coords.loc[yz_noise, "x"],
+            original_coords.loc[yz_noise, "y"],
+            c="0.8", s=point_size, label="Unclustered", zorder=1
         )
+    for cluster, color in zip(yz_clusters, yz_colors):
+        m = (df["cluster_yz"] == cluster)
+        ax4.scatter(
+            original_coords.loc[m, "x"],
+            original_coords.loc[m, "y"],
+            c=[color], s=point_size, label=f'YZ Cluster {cluster}', zorder=2
+        )
+    ax4.set_title("XY (colored by YZ)")
+    ax4.set_xlabel("X"); ax4.set_ylabel("Y")
 
     plt.suptitle(
         f"Nuclei Clustering: {csv_path.stem}\n"
         f"XZ Clusters: {len(xz_clusters)}, YZ Clusters: {len(yz_clusters)}",
         fontsize=16
     )
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
 
-    # Save results
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir / f"{csv_path.stem}_clusters.csv", index=False)
-    plt.savefig(
-        out_dir / f"{csv_path.stem}_cluster_4proj.png",
-        dpi=150,
-        bbox_inches="tight"
-    )
+    plt.savefig(out_dir / f"{csv_path.stem}_cluster_4proj.png", dpi=150, bbox_inches="tight")
     plt.close()
 
     return image_stats
