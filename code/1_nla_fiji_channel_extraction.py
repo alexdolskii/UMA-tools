@@ -9,36 +9,13 @@ import logging
 import os
 from pathlib import Path
 import argparse
-import json
 import shutil
-import sys
 from datetime import datetime
 import numpy as np
 
 import imagej
 import scyjava
-
-
-def load_config(path: str) -> dict:
-    """Load configuration from JSON file."""
-    if not os.path.isfile(path):
-        raise FileNotFoundError(path)
-    with open(path, encoding="utf-8") as fh:
-        raw = json.load(fh)
-
-    folders = [p for p in raw.get("folder_paths", []) if os.path.isdir(p)]
-    if not folders:
-        raise ValueError("'folder_paths' must list existing directories")
-
-    return {
-        "folders": folders,
-        "nuclei_channel": int(raw.get("nuclei_channel", 1)),
-        "gaussian_sigma": float(raw.get("gaussian_sigma", 4.0)),
-        "mean_radius": int(raw.get("mean_radius", 3)),
-        "z_scale_factor": int(raw.get("z_scale_factor", 32)),
-        "n_tiles": raw.get("n_tiles", [1, 1, 1]),
-        "model_path": raw.get("model_path"),
-    }
+from nla_config_loader import load_config
 
 
 def extract_channel_and_filter(
@@ -66,7 +43,7 @@ def extract_channel_and_filter(
             src = os.path.join(in_dir, fname)
             dst = os.path.join(out_dir,
                                f"{Path(fname).stem}_nuclei.tif")
-                               
+
             imp = IJ.openImage(src)
             if imp is None:
                 logging.warning(f"Unreadable: {src}")
@@ -114,18 +91,13 @@ def main_fiji_processing(input_file_path):
 
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler("nuclei_analysis.log"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    logging.info("=== 3D Nuclei Analysis Pipeline ===")
-    logging.info(f"Start: {datetime.now():%Y-%m-%d %H:%M:%S}")
+        format="%(asctime)s - %(levelname)s - %(message)s")
+
+    print("=== 3D Nuclei Analysis Pipeline ===")
+    print("1 - Fiji pre-processing")
+    print(f"Start: {datetime.now():%Y-%m-%d %H:%M:%S}")
 
     cfg = load_config(input_file_path)
-
-    logging.info("Execution mode: 'Fiji pre-processing'")
 
     for fld in cfg["folders"]:
         fld = Path(fld)
@@ -133,6 +105,11 @@ def main_fiji_processing(input_file_path):
         masks = fld / "masks"
         anal = fld / "analysis"
         clus = fld / "clustering"
+
+        fh = logging.FileHandler(os.path.join(fld,
+                                              "nuclei_analysis1.log"), mode='w')
+        fh.setLevel(logging.INFO)
+        logging.getLogger('').addHandler(fh)
 
         outputs_exist = any(
             any((Path(f) / d).exists()
