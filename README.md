@@ -70,7 +70,11 @@ chmod +x code/thickness_analysis.py
 -   Nuclei Counts & Layer Prediction (3D)
 ```bash
 chmod +x code/1_nla_fiji_channel_extraction.py
+```
+```bash
 chmod +x code/2_nla_stardist_prediction.py
+```
+```bash
 chmod +x code/3_nla_fiji_calculation.py
 ```
 
