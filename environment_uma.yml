@@ -1,0 +1,22 @@
+name: uma_tools
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10.*
+  - numpy=1.24
+  - pandas
+  - matplotlib
+  - scikit-image
+  - openjdk=17 
+  - pip
+  - pip:
+    - imagej
+    - scyjava
+    - pyimagej==1.5.0
+    - "tensorflow>=2.10,<2.15"
+    - stardist
+    - scikit-learn
+    - tqdm
+    - hdbscan
+    - nd2reader
