@@ -3,7 +3,7 @@ UMA-tools streamlines confocal analysis of 3D fibroblast/ECM units—turning tim
 
 The project was developed in the [Edna (Eti) Cukierman lab](https://www.foxchase.org/edna-cukierman).
 
-For fibroblast/ECM units workflow optimisation also see (fia-tools)[https://github.com/alexdolskii/FIA-tools]
+For fibroblast/ECM units workflow optimisation also see [fia-tools](https://github.com/alexdolskii/FIA-tools).
 
 For a complete guide to script usage, visit protocols.io.
 
