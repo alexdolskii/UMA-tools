@@ -137,9 +137,12 @@ This program utilizes the following tools:
 
 ## Contributors
 
-- [Aleksandr Dolskii](aleksandr.dolskii@fccc.edu)
+- [Aleksandr Dolskii](mailto:aleksandr.dolskii@fccc.edu)
 
-- [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com) 
+- [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com)
+
+- Michael Miano
+
 
 Enjoy your use 💫
 
