@@ -5,11 +5,11 @@ The project was developed in the [Edna (Eti) Cukierman lab](https://www.foxchase
 
 For a complete guide to script usage, visit protocols.io.
 
-## Aplication
+# Aplication
 Automated image-analysis utilities for 3D fibroblast/ECM (“unit”) assays in confocal microscopy. The toolbox focuses on fibronectin layer thickness, fibronectin fiber alignment, and 3D nuclei counting/layering. All workflows support batch, headless processing with ImageJ/FIJI and take a simple JSON manifest of input folders.
 
-###
-**3D Unit Thickness Assay (fibronectin)**
+
+##**3D Unit Thickness Assay (fibronectin)**
 - Quantitatively measures the thickness of the fibronectin layer in 3D fibroblastic units.
 - Pipeline: channel selection → XZ reslice from 3D stacks → Max-Intensity Z-Projection → denoise (max filter + Gaussian) → background subtraction → Otsu threshold → Local Thickness (ImageJ plugin) → stats export.
 - Outputs: per-image TIFF masks and thickness maps; CSV with area, mean/SD, min/median/max local thickness.
