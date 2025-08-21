@@ -33,8 +33,8 @@ Using standard ImageJ/FIJI operations, we treat the fibronectin layer as a true 
 
 ## 4. Nuclei Counts & Layer Prediction (3D)
 Because fibroblast/ECM 3D units often exhibit strong background and debris that confound classical ImageJ thresholding, we perform StarDist 3D segmentation to robustly detect nuclei and extract their XYZ coordinates. We then apply scikit-learn spatial clustering to approximate nuclear “layers,” reporting both the layer count and per-nucleus membership. Note: for new cell types or staining conditions, you will likely need to train a custom StarDist model and point the script to it; step-by-step training and integration instructions are available on protocols.io.
-Pipeline: nuclei channel isolation → 3D denoising (Gaussian/mean) → StarDist 3D model (pre-trained models for fibroblastic lines; you may need to train your own) → QC overlays & tri-view projections → HDBSCAN clustering in 3D to infer layer-like groupings.
-Outputs: per-nucleus metrics (volume, centroid, equivalent diameter), image-level summaries, and study-level CSVs; QC figures for rapid validation.
+- Pipeline: nuclei channel isolation → 3D denoising (Gaussian/mean) → StarDist 3D model (pre-trained models for fibroblastic lines; you may need to train your own) → QC overlays & tri-view projections → HDBSCAN clustering in 3D to infer layer-like groupings.
+- Outputs: per-nucleus metrics (volume, centroid, equivalent diameter), image-level summaries, and study-level CSVs; QC figures for rapid validation.
 
 ## Common features
 - Headless batch processing across many folders/conditions listed in a single JSON file.
