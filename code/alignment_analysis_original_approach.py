@@ -49,13 +49,11 @@ def get_folder_paths(json_path):
         with open(json_path, 'r', encoding='utf-8') as f:
             json_data = json.load(f)
         
-        # Validate JSON structure
         if "folder_paths" not in json_data:
             raise JSONValidationError("JSON missing 'folder_paths' key")
             
         folder_paths = json_data["folder_paths"]
 
-        # Katya Strange struction with JSONValidationError
         if not isinstance(folder_paths, list):
             raise JSONValidationError("'folder_paths' should be a list")
             
@@ -80,10 +78,14 @@ def get_fibronectin_channel(folder_paths):
     """
     fibronectin_channel_indices = {}
     
-    same_channel = input("\nDo all folders have the same fibronectin channel? (yes/no): ").strip().lower()
+    same_channel = input(
+        "\nDo all folders have the same fibronectin channel? (yes/no): "
+    ).strip().lower()
     
     if same_channel in ('yes', 'y'):
-        channel_input = input("Enter the fibronectin channel number (starting from 1): ").strip()
+        channel_input = input(
+            "Enter the fibronectin channel number (starting from 1): "
+        ).strip()
         try:
             fibronectin_channel_index = int(channel_input) - 1
             if fibronectin_channel_index < 0:
@@ -98,7 +100,9 @@ def get_fibronectin_channel(folder_paths):
     else:
         for folder in folder_paths:
             print(f"\nFolder: {folder}")
-            channel_input = input("Enter the fibronectin channel number (starting from 1): ").strip()
+            channel_input = input(
+                "Enter the fibronectin channel number (starting from 1): "
+            ).strip()
             try:
                 fibronectin_channel_index = int(channel_input) - 1
                 if fibronectin_channel_index < 0:
@@ -124,7 +128,9 @@ def create_results_folders(input_folder, angle_str, timestamp):
     Returns:
         tuple: Paths to (results_folder, excel_folder, images_folder)
     """
-    results_folder_name = f"Alignment_assay_results_angle_{angle_str}_{timestamp}"
+    results_folder_name = (
+        f"Alignment_assay_results_angle_{angle_str}_{timestamp}"
+    )
     results_folder = os.path.join(input_folder, results_folder_name)
     Path(results_folder).mkdir(parents=True, exist_ok=True)
     
@@ -137,10 +143,10 @@ def create_results_folders(input_folder, angle_str, timestamp):
 
 
 def process_image_file(ij,
-                       file_path,
-                       fibronectin_channel_index,
-                       desired_width,
-                       desired_height):
+                      file_path,
+                      fibronectin_channel_index,
+                      desired_width,
+                      desired_height):
     """
     Process an individual image file through projection and channel extraction.
     
@@ -163,7 +169,6 @@ def process_image_file(ij,
         img = ij.io().open(file_path)
         if img is None:
             print(f"Failed to open image: {file_path}")
-            # Katya - смущает два None
             return None, None
             
         # Convert to ImagePlus
@@ -218,13 +223,13 @@ def process_image_file(ij,
             'z_stack_type': z_stack_type
         }
 
-    # Katya. Do we need Exception?
     except Exception as e:
         print(f"Error processing image: {e}")
         return None, None
 
 
-def process_part1(ij, folder_path, fibronectin_channel_index, results_folder, desired_width, desired_height):
+def process_part1(ij, folder_path, fibronectin_channel_index, results_folder,
+                 desired_width, desired_height):
     """
     Part 1: Create 2D projections of fibronectin channels.
     
@@ -247,7 +252,9 @@ def process_part1(ij, folder_path, fibronectin_channel_index, results_folder, de
         if filename.startswith('._'):
             continue
             
-        if not filename.lower().endswith(('.tif', '.tiff', '.nd2', '.oif', '.oib')):
+        if not filename.lower().endswith(
+            ('.tif', '.tiff', '.nd2', '.oif', '.oib')
+        ):
             continue
             
         file_path = os.path.join(folder_path, filename)
@@ -282,9 +289,7 @@ def process_part1(ij, folder_path, fibronectin_channel_index, results_folder, de
     return z_stacks_info
 
 
-def process_part2(ij,
-                  results_folder,
-                  images_folder):
+def process_part2(ij, results_folder, images_folder):
     """
     Part 2: Apply OrientationJ analysis to processed images.
     
@@ -297,8 +302,10 @@ def process_part2(ij,
     IJ = jimport('ij.IJ')
     WindowManager = jimport('ij.WindowManager')
     
-    processed_files = [f for f in os.listdir(results_folder) 
-                      if f.endswith('_processed.tif') and not f.startswith('._')]
+    processed_files = [
+        f for f in os.listdir(results_folder) 
+        if f.endswith('_processed.tif') and not f.startswith('._')
+    ]
     
     for filename in processed_files:
         file_path = os.path.join(results_folder, filename)
@@ -321,8 +328,9 @@ def process_part2(ij,
             analysis_title = "OJ-Color-survey-1"
             analysis_imp = WindowManager.getImage(analysis_title)
             if analysis_imp:
-                analysis_filename = filename.replace('_processed.tif',
-                                                     '_oj_analysis.tif')
+                analysis_filename = filename.replace(
+                    '_processed.tif', '_oj_analysis.tif'
+                )
                 analysis_path = os.path.join(images_folder, analysis_filename)
                 IJ.saveAs(analysis_imp, "Tiff", analysis_path)
                 analysis_imp.close()
@@ -339,11 +347,12 @@ def process_part2(ij,
             time.sleep(0.5)
             
             # Save results table
-            excel_filename = filename.replace('_processed.tif',
-                                              '_oj_distribution.csv')
-            excel_path = os.path.join(os.path.dirname(images_folder),
-                                      "Excel",
-                                      excel_filename)
+            excel_filename = filename.replace(
+                '_processed.tif', '_oj_distribution.csv'
+            )
+            excel_path = os.path.join(
+                os.path.dirname(images_folder), "Excel", excel_filename
+            )
             IJ.saveAs("Results", excel_path)
             IJ.run("Clear Results")
             
@@ -376,30 +385,36 @@ def process_csv_file(file_path, angle_value):
     angle_of_max = df.loc[max_occurrence_idx, 'orientation_angle']
     
     # Normalize angles
-    df['angles_normalized_to_angle_of_MOV'] = df['orientation_angle'] - angle_of_max
+    df['angles_normalized_to_angle_of_MOV'] = (
+        df['orientation_angle'] - angle_of_max
+    )
     df['corrected_angles'] = df['angles_normalized_to_angle_of_MOV'].apply(
         lambda x: x + 180 if x < -90 else (x - 180 if x > 90 else x)
     )
     
     # Calculate statistics
     total_occurrence = df['occurrence_value'].sum()
-    df['percent_occurrence'] = (df['occurrence_value'] / total_occurrence) * 100
+    df['percent_occurrence'] = (
+        (df['occurrence_value'] / total_occurrence) * 100
+    )
     
     # Calculate alignment percentage
-    aligned_mask = (df['corrected_angles'] >= -angle_value) & (df['corrected_angles'] <= angle_value)
+    aligned_mask = (
+        (df['corrected_angles'] >= -angle_value) & 
+        (df['corrected_angles'] <= angle_value)
+    )
     alignment_percentage = df.loc[aligned_mask, 'percent_occurrence'].sum()
     
     # Determine orientation mode
-    orientation_mode = 'aligned' if alignment_percentage >= 55 else 'disorganized'
+    orientation_mode = (
+        'aligned' if alignment_percentage >= 55 else 'disorganized'
+    )
     
     return df, alignment_percentage, orientation_mode
 
 
-def process_part3(results_folder,
-                  analysis_folder,
-                  angle_value,
-                  z_stacks_info,
-                  timestamp):
+def process_part3(results_folder, analysis_folder, angle_value,
+                 z_stacks_info, timestamp):
     """
     Part 3: Process OrientationJ results and generate summary.
     
@@ -417,8 +432,10 @@ def process_part3(results_folder,
         print("Excel folder not found. Skipping Part 3.")
         return
         
-    csv_files = [f for f in os.listdir(excel_folder) 
-                if f.endswith('.csv') and not f.startswith('._')]
+    csv_files = [
+        f for f in os.listdir(excel_folder) 
+        if f.endswith('.csv') and not f.startswith('._')
+    ]
     
     summary_data = []
     
@@ -428,10 +445,14 @@ def process_part3(results_folder,
         
         try:
             # Process CSV file
-            df, alignment_percentage, orientation_mode = process_csv_file(csv_path, angle_value)
+            df, alignment_percentage, orientation_mode = process_csv_file(
+                csv_path, angle_value
+            )
             
             # Save processed data
-            output_filename = csv_file.replace('.csv', f'_processed_{timestamp}.xlsx')
+            output_filename = csv_file.replace(
+                '.csv', f'_processed_{timestamp}.xlsx'
+            )
             output_path = os.path.join(analysis_folder, output_filename)
             df.to_excel(output_path, index=False)
             
@@ -448,7 +469,9 @@ def process_part3(results_folder,
                 'File_Name': csv_file,
                 'Number_of_Z_Stacks': z_info.get('number_of_z_stacks', 'N/A'),
                 'Z_Stack_Type': z_info.get('z_stack_type', 'N/A'),
-                f'Percentage_Fibers_Aligned_Within_{angle_value}_Degree': alignment_percentage,
+                f'Percentage_Fibers_Aligned_Within_{angle_value}_Degree': (
+                    alignment_percentage
+                ),
                 'Orientation_Mode': orientation_mode
             })
             
@@ -458,8 +481,9 @@ def process_part3(results_folder,
     # Save summary
     if summary_data:
         summary_df = pd.DataFrame(summary_data)
-        summary_path = os.path.join(analysis_folder,
-                                    f'Alignment_Summary_{timestamp}.xlsx')
+        summary_path = os.path.join(
+            analysis_folder, f'Alignment_Summary_{timestamp}.xlsx'
+        )
         summary_df.to_excel(summary_path, index=False)
         print(f"\nSummary saved to: {summary_path}")
 
@@ -481,8 +505,10 @@ def normalize_saved_images(results_folder):
     excel_folder = os.path.join(results_folder, "Excel")
 
     # Get all distribution CSV files
-    csv_files = [f for f in os.listdir(excel_folder)
-                 if f.endswith('_oj_distribution.csv') and not f.startswith('._')]
+    csv_files = [
+        f for f in os.listdir(excel_folder)
+        if f.endswith('_oj_distribution.csv') and not f.startswith('._')
+    ]
 
     if not csv_files:
         print(f"No distribution CSV files found in {excel_folder}")
@@ -542,8 +568,8 @@ def normalize_saved_images(results_folder):
 
             # Add colorbar
             sm = plt.cm.ScalarMappable(
-                cmap='hsv',
-                norm=plt.Normalize(vmin=-90, vmax=90))
+                cmap='hsv', norm=plt.Normalize(vmin=-90, vmax=90)
+            )
             sm.set_array([])
 
             cbar = fig.colorbar(sm, ax=ax, orientation='vertical', shrink=0.7)
@@ -563,14 +589,8 @@ def normalize_saved_images(results_folder):
             traceback.print_exc()
 
 
-def process_folder(
-    ij, 
-    folder_path, 
-    fibronectin_channel_index, 
-    angle_value, 
-    desired_width, 
-    desired_height
-):
+def process_folder(ij, folder_path, fibronectin_channel_index, angle_value,
+                  desired_width, desired_height):
     """
     Process a single folder through all analysis steps.
     
