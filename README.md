@@ -1,4 +1,4 @@
-# UMA-tools Setup Guide
+# UMA-tools
 
 
 The program can be run on Linux or macOS machines. If you are using Windows, you will need to install WSL (Windows Subsystem for Linux).
@@ -6,56 +6,15 @@ The program can be run on Linux or macOS machines. If you are using Windows, you
 For the code to function properly, specific package versions are required. Therefore, it is essential to work within a designated environment. As an example, commands for working with Miniconda are provided, but you are free to use any environment management tool that you find convenient. For macOS users, skip the WSL installation and work directly in the terminal.
 ## For Windows Users
 
-### Step 1: Install WSL (Windows Subsystem for Linux)
+The project is developed in the [Edna (Eti) Cukierman lab](https://www.foxchase.org/edna-cukierman).
 
-1. Open Powerell with administrator privileges:
-    Press the Windows key, type "Powerell," right-click on it, and select "Run as administrator".
-2. Run the following command to install WSL:
-    - wsl --install
-3. After the installation, restart your computer.
-4. Once WSL is installed, open your WSL terminal and run:
-    - sudo apt update
-    - sudo apt upgrade -y
 
-### Step 2: Clone a GitHub Repository on WSL
-1. Check if Git is installed:
-   - git --version
-   - sudo apt update
-   - sudo apt install git
-2. Choose the Directory for Cloning
-   - cd ~
-   Or create another folder if preferred:
-   - mkdir projects
-   - cd projects
-3. Clone the Specific Branch of the Repository:
-   - git clone -b UMA-tools-linux https://github.com/alexdolskii/UMA-tools.git
-4. Verify the Result:
-   - cd UMA-tools
-   - git branch (You will see a list of branches, and an asterisk (`*`) will appear next to `UMA-tools-linux`, confirming you are on the correct branch.)
-   - git pull (This will fetch all new changes from the remote repository in the `UMA-tools-linux` branch.)
-   
+## Installation 
+To download and install *git* please visit [Git Download page](https://git-scm.com/downloads).
 
-### Step 3: Install Miniconda
-1. You can find instructions for lunux:
-    https://docs.anaconda.com/miniconda/install/#quick-command-line-install
+To download and install *conda* please visit [Miniforge github](https://github.com/conda-forge/miniforge)
 
-### Step 4: Create Environment for UMA Tools
-1. Create the environment:
-    - conda env create -f uma_environment.yml -n uma_environment
-    
-    To check conda environments:
-    - conda info --envs
-    To delete conda envioment:
-    - conda remove --name <environment_name> --all
-
-2. Activate the environment:
-    - conda activate uma_environment
-3. Make the main script executable:
-    - chmod +x code/alignment_analysis.py
-    - chmod +x code/thickness_analysis.py
-
-### Step 5: Installing OrientationPy (v3+)
-The program requires a version higher than the one available via pip. Therefore, it needs to be installed via git (version 0.3.0 is used here). The official website is: https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html 
+Installing OrientationPy (v3+) The program requires a version higher than the one available via pip. Therefore, it needs to be installed via git (version 0.3.0 is used here). The official website is: https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html 
 
 1. Clone the Repository. Download the  code for OrientationPy:
     - git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
@@ -66,7 +25,7 @@ The program requires a version higher than the one available via pip. Therefore,
 4. Return to the UMA-tools directory:
     - cd ..
 
-### Step 6:  Running the UMA Tools Script
+## Usage
 1. Before running the program, you need to modify a `input_paths.json` file. This file should contain a list of folders with .nd2 images, and you can include as many folders as needed.
 
 Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application FiJi (https://imagej.net/software/fiji/downloads).
@@ -94,8 +53,33 @@ This program utilizes the following tools:
    - Repository: [Fiji](https://github.com/fiji/fiji)  
    - License: [GPL License](https://imagej.net/licensing/)
 
-## Usage
 
-- **OrientationPy**: Used for calculating the alignment of fibronectin fibers in the processed images. This helps quantify structural organization and provides insights into [specific biological context, e.g., "tumor microenvironment"].
-- **Fiji**: Serves as the preprocessing tool to optimize the images.
+## References
+
+This program utilizes the following tools:
+
+1. **Fiji** 
+    This project used Fiji for preprocessing into preprocess image stacks as contrast enhancement, filtering, and particle analysis.
+
+    [Fiji](https://fiji.sc/) is an open-source distribution of ImageJ focusing on image analysis. 
+    
+    - Repository: [Fiji](https://github.com/fiji/fiji)  
+    - License: [GPL License](https://imagej.net/licensing/)
+
+2. **StarDist**
+    In this project, the standard StarDist model was employed to generate high-quality nuclei masks from image data, significantly improving segmentation accuracy and reducing background noise issues commonly encountered in immunofluorescence (IF) image analysis.
+    
+    [StarDist](https://stardist.net/)
+
+    - Repository: [StarDist](https://github.com/stardist/stardist)  
+    - License: [BSD 3-Clause License](https://github.com/stardist/stardist/blob/main/LICENSE.txt)
+
+
+## Contributors
+
+- [Aleksandr Dolskii](aleksandr.dolskii@fccc.edu)
+
+- [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com) 
+
+Enjoy your use 💫
 
