@@ -6,28 +6,31 @@ The project was developed in the [Edna (Eti) Cukierman lab](https://www.foxchase
 For a complete guide to script usage, visit protocols.io.
 
 # Aplication
-Automated image-analysis utilities for 3D fibroblast/ECM (“unit”) assays in confocal microscopy. The toolbox focuses on fibronectin layer thickness, fibronectin fiber alignment, and 3D nuclei counting/layering. All workflows support batch, headless processing with ImageJ/FIJI and take a simple JSON manifest of input folders.
+Automated image-analysis utilities for 3D fibroblast/ECM units assays in confocal microscopy.
+For detailed description of 3D fibroblast/ECM units please refer [1](https://pubmed.ncbi.nlm.nih.gov/32222216/) and [2](https://pubmed.ncbi.nlm.nih.gov/27245425/).
 
+In fibroblast/ECM 3D units, three readouts are especially informative: **fibronectin layer thickness**, **fibronectin fiber alignment**, and **nuclei counts/layering**. Together, these features function as rigorous quality-control metrics for unit maturation and as sensitive endpoints to quantify how compounds or genetic perturbations reshape the unit’s physiology (matrix organization, mechanics, and cellular architecture).
 
-## 3D Unit Thickness Assay (fibronectin)
+**Input** is a directory of .nd2 or .tif/.tiff confocal images representing Z-stacks with multiple detection channels (DAPI, fibronectin). To ensure correct channel mapping, keep the same channel order across every image.
+
+## 1. Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin (original protocol, Windows only)
+- The original fibronectin alignment protocol using the OrientationJ plugin was developed from the methods described in [this study](https://pubmed.ncbi.nlm.nih.gov/32222216/) and due to plugin constraints can be run only in ImageJ for Windows in GUI mode (headless mode is not supported).
+- Pipeline: channel selection → 2D Max-Intensity Projection (XY) → resize/standardize → OrientationJ direction & coherence maps → orientation histograms and metrics.
+- Outputs: color-coded orientation images, per-sample histograms, summary tables/Excel; % fibers within user-defined angle mode range.
+
+## 2. 3D Unit Thickness Assay (fibronectin)
 - Quantitatively measures the thickness of the fibronectin layer in 3D fibroblastic units.
 - Pipeline: channel selection → XZ reslice from 3D stacks → Max-Intensity Z-Projection → denoise (max filter + Gaussian) → background subtraction → Otsu threshold → Local Thickness (ImageJ plugin) → stats export.
 - Outputs: per-image TIFF masks and thickness maps; CSV with area, mean/SD, min/median/max local thickness.
 - Notes: assumes a consistent channel order across all images in a run.
 
-## Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin (original protocol, Windows only)
-- Reproduces the original OrientationJ-based alignment analysis (OrientationJ is unreliable in headless mode cross-platform; use Windows).
-Pipeline: channel selection → 2D Max-Intensity Projection (XY) → resize/standardize → OrientationJ direction & coherence maps → orientation histograms and metrics.
-- Outputs: color-coded orientation images, per-sample histograms, summary tables/Excel; % fibers within user-defined angular windows (aligned vs disorganized categories).
-- Platforms: Linux, macOS.
-
-## Fibronectin Fiber Alignment — orientationpy library (cross-platform)
+## 3. Fibronectin Fiber Alignment — orientationpy library (cross-platform)
 Drop-in alternative to OrientationJ using a Python implementation (e.g., structure-tensor/gradient methods).
 - Pipeline: projection & standardization → structure-tensor orientation + coherence → HSV orientation maps → orientation histograms/CSV.
 - Outputs: identical report structure to the original protocol; small numeric differences may occur but group-level trends are consistent.
 - Platforms: Linux, macOS.
 
-## Nuclei Counts & Layer Prediction (3D)
+## 4. Nuclei Counts & Layer Prediction (3D)
 AI-assisted 3D nuclei segmentation and spatial clustering to approximate “layers”.
 Pipeline: nuclei channel isolation → 3D denoising (Gaussian/mean) → StarDist 3D segmentation (pre-trained models for fibroblastic lines; you may need to train your own) → QC overlays & tri-view projections → HDBSCAN clustering in 3D to infer layer-like groupings.
 Outputs: per-nucleus metrics (volume, centroid, equivalent diameter), image-level summaries, and study-level CSVs; QC figures for rapid validation.
@@ -43,11 +46,14 @@ For reliable automation, keep fluorescence channel order identical across all im
 If applying the nuclei pipeline to new cell types, plan to train a StarDist 3D model for best results.
 
 ## Installation 
-To download and install *git* please visit [Git Download page](https://git-scm.com/downloads).
+For *2. Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin* only:
+- To download and install *OrientationJ plugin* please visit [OrientationJ](https://bigwww.epfl.ch/demo/orientation/)
 
-To download and install *conda* please visit [Miniforge github](https://github.com/conda-forge/miniforge)
+For UMA-tools:
+- To download and install *git* please visit [Git Download page](https://git-scm.com/downloads).
+- To download and install *conda* please visit [Miniforge github](https://github.com/conda-forge/miniforge)
+- To download and install *OrientationPy* please visit [Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)] (version 0.3.0 is required)
 
-Installing OrientationPy (v3+) The program requires a version higher than the one available via pip. Therefore, it needs to be installed via git (version 0.3.0 is used here). The official website is: https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html 
 
 1. Clone the Repository. Download the  code for OrientationPy:
     - git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
@@ -74,11 +80,7 @@ Additionally, before starting the program, make sure you know how many fluoresce
 
 This program utilizes the following tools:
 
-1. **OrientationPy**  
-   [OrientationPy](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html) is a Python-based plugin used in this project for calculating the **alignment of fibronectin fibers**.
 
-   - Repository: [OrientationPy](https://gitlab.com/epfl-center-for-imaging/orientationpy/)  
-   - License: [The GNU General Public License, Version 3, 29 June 2007 (GPLv3)](https://gitlab.com/epfl-center-for-imaging/orientationpy/-/blob/main/LICENSE.md?ref_type=heads)
 
 2. **Fiji**  
    [Fiji](https://fiji.sc/) (Fiji Is Just ImageJ) is an open-source distribution of ImageJ with a focus on image analysis. In this project, Fiji was used for **preprocessing image stacks**, including tasks such as contrast enhancement, filtering, and segmentation, to ensure the data is optimized for analysis in OrientationPy.
@@ -108,8 +110,17 @@ This program utilizes the following tools:
     - License: [BSD 3-Clause License](https://github.com/stardist/stardist/blob/main/LICENSE.txt)
   
 3. **OrientationPy**
-   - Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)
-   - Repository: [OrientationPy](https://gitlab.com/epfl-center-for-imaging/orientationpy/)
+   [OrientationPy](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html) is a Python-based plugin used in this project for calculating the **alignment of fibronectin fibers**.
+
+   - Repository: [OrientationPy](https://gitlab.com/epfl-center-for-imaging/orientationpy/)  
+   - License: [The GNU General Public License, Version 3, 29 June 2007 (GPLv3)](https://gitlab.com/epfl-center-for-imaging/orientationpy/-/blob/main/LICENSE.md?ref_type=heads)
+
+4. **OrientationJ plugin for ImageJ**:
+   - [Site]:(https://bigwww.epfl.ch/demo/orientation/)
+   - [Repository]:(https://github.com/Biomedical-Imaging-Group/OrientationJ)
+
+5. **Skit-learn**
+   - [Site]:(https://scikit-learn.org/stable/)
 
 
 ## Contributors
