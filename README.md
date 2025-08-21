@@ -122,11 +122,11 @@ This program utilizes the following tools:
    - License: [The GNU General Public License, Version 3, 29 June 2007 (GPLv3)](https://gitlab.com/epfl-center-for-imaging/orientationpy/-/blob/main/LICENSE.md?ref_type=heads)
 
 4. **OrientationJ plugin for ImageJ**:
-   - Official page [Site]:(https://bigwww.epfl.ch/demo/orientation/)
-   - Repository [Repository]:(https://github.com/Biomedical-Imaging-Group/OrientationJ)
+   - Official page [OrientationJ](https://bigwww.epfl.ch/demo/orientation/)
+   - Repository [Repository](https://github.com/Biomedical-Imaging-Group/OrientationJ)
 
 5. **Skit-learn**
-   - Official page [Site]:(https://scikit-learn.org/stable/)
+   - Official page [Skit-learn](https://scikit-learn.org/stable/)
 
 
 ## Contributors
