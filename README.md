@@ -61,37 +61,37 @@ chmod +x code/alignment_analysis_original_approach.py
 ```
 - Fibronectin Fiber Alignment - orientationpy library (cross-platform)
 ```bash
-   chmod +x code/alignment_analysis.py
+chmod +x code/alignment_analysis.py
 ```
 -   3D Unit Thickness Assay (fibronectin)
 ```bash
-  chmod +x code/thickness_analysis.py
+chmod +x code/thickness_analysis.py
 ```
 -   Nuclei Counts & Layer Prediction (3D)
 ```bash
-   chmod +x code/1_nla_fiji_channel_extraction.py
-   chmod +x code/2_nla_stardist_prediction.py
-   chmod +x code/3_nla_fiji_calculation.py
+chmod +x code/1_nla_fiji_channel_extraction.py
+chmod +x code/2_nla_stardist_prediction.py
+chmod +x code/3_nla_fiji_calculation.py
 ```
 
 4. Run the main analysis script:
 ```bash
-   - python code/alignment_analysis_original_approach.py -i input_paths.json
+python code/alignment_analysis_original_approach.py -i input_paths.json
 ```
 ```bash
-   - python code/alignment_analysis.py -i input_paths.json
+python code/alignment_analysis.py -i input_paths.json
 ```
 ```bash
-   - python ccode/thickness_analysis.py -i input_paths.json
+python ccode/thickness_analysis.py -i input_paths.json
 ```
 ```bash
-   - python code/1_nla_fiji_channel_extraction.py -i nuclei_layers.json
+python code/1_nla_fiji_channel_extraction.py -i nuclei_layers.json
 ```
 ```bash
-   - python code/2_nla_stardist_prediction.py -i nuclei_layers.json
+python code/2_nla_stardist_prediction.py -i nuclei_layers.json
 ```
 ```bash
-   - python code/3_nla_fiji_calculation.py -i nuclei_layers.json
+python code/3_nla_fiji_calculation.py -i nuclei_layers.json
 ```
 
 
