@@ -146,6 +146,10 @@ def cluster(
     if df.empty:
         logging.warning(f"{csv_path.name}: empty file")
         return
+        
+    if len(df) < 3:
+        logging.warning(f"{csv_path.name}: Only {len(df)} nuclei found. Clustering requires at least 3 nuclei.")
+        # Still proceed but will skip clustering
 
     if summary is None:
         summary = []
@@ -162,26 +166,52 @@ def cluster(
 
     # XZ clustering (Top-left)
     xz_coords = coords_scaled[:, [0, 2]]  # X and Z
-    xz_clusterer = HDBSCAN(
-        min_cluster_size=min_cluster_size,
-        min_samples=min_samples,
-        cluster_selection_epsilon=epsilon,
-        n_jobs=-1
-    ).fit(xz_coords)
-    df["cluster_xz"] = xz_clusterer.labels_
+    
+    # Adjust clustering parameters based on data size
+    actual_min_samples = min(min_samples, len(xz_coords))
+    actual_min_cluster_size = min(min_cluster_size, len(xz_coords))
+    
+    if len(xz_coords) < 3:
+        # Not enough data for clustering, assign all to noise
+        logging.warning(f"{csv_path.name}: Only {len(xz_coords)} nuclei found, skipping XZ clustering")
+        df["cluster_xz"] = [-1] * len(df)
+        xz_clusterer = None
+    else:
+        xz_clusterer = HDBSCAN(
+            min_cluster_size=actual_min_cluster_size,
+            min_samples=actual_min_samples,
+            cluster_selection_epsilon=epsilon,
+            n_jobs=-1
+        ).fit(xz_coords)
+        df["cluster_xz"] = xz_clusterer.labels_
     
     # YZ clustering (Bottom-left)
     yz_coords = coords_scaled[:, [1, 2]]  # Y and Z
-    yz_clusterer = HDBSCAN(
-        min_cluster_size=min_cluster_size,
-        min_samples=min_samples,
-        cluster_selection_epsilon=epsilon,
-        n_jobs=-1
-    ).fit(yz_coords)
-    df["cluster_yz"] = yz_clusterer.labels_
+    
+    if len(yz_coords) < 3:
+        # Not enough data for clustering, assign all to noise
+        logging.warning(f"{csv_path.name}: Only {len(yz_coords)} nuclei found, skipping YZ clustering")
+        df["cluster_yz"] = [-1] * len(df)
+        yz_clusterer = None
+    else:
+        yz_clusterer = HDBSCAN(
+            min_cluster_size=actual_min_cluster_size,
+            min_samples=actual_min_samples,
+            cluster_selection_epsilon=epsilon,
+            n_jobs=-1
+        ).fit(yz_coords)
+        df["cluster_yz"] = yz_clusterer.labels_
 
-    xz_counts = Counter(xz_clusterer.labels_)
-    yz_counts = Counter(yz_clusterer.labels_)
+    # Handle cases where clustering wasn't performed
+    if xz_clusterer is not None:
+        xz_counts = Counter(xz_clusterer.labels_)
+    else:
+        xz_counts = Counter([-1] * len(df))
+        
+    if yz_clusterer is not None:
+        yz_counts = Counter(yz_clusterer.labels_)
+    else:
+        yz_counts = Counter([-1] * len(df))
 
     # Prepare statistics for summary
     image_stats = {
@@ -200,8 +230,15 @@ def cluster(
     fig = plt.figure(figsize=(20, 20))
 
     # Color maps
-    xz_clusters = sorted([l for l in set(xz_clusterer.labels_) if l != -1])
-    yz_clusters = sorted([l for l in set(yz_clusterer.labels_) if l != -1])
+    if xz_clusterer is not None:
+        xz_clusters = sorted([l for l in set(xz_clusterer.labels_) if l != -1])
+    else:
+        xz_clusters = []
+        
+    if yz_clusterer is not None:
+        yz_clusters = sorted([l for l in set(yz_clusterer.labels_) if l != -1])
+    else:
+        yz_clusters = []
 
     xz_colors = plt.cm.viridis(np.linspace(0, 1, max(1, len(xz_clusters))))[:len(xz_clusters)]
     yz_colors = plt.cm.plasma(np.linspace(0, 1, max(1, len(yz_clusters))))[:len(yz_clusters)]
