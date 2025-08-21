@@ -379,7 +379,7 @@ def process_csv_file(file_path, angle_value):
     
     # Rename columns
     df.columns = ['orientation_angle', 'occurrence_value']
-    
+
     # Find peak angle
     max_occurrence_idx = df['occurrence_value'].idxmax()
     angle_of_max = df.loc[max_occurrence_idx, 'orientation_angle']
@@ -697,7 +697,7 @@ def main():
     except Exception as e:
         print(f"\nError: {e}")
         sys.exit(1)
-        
+            
     finally:
         # Clean up ImageJ
         if 'ij' in locals():
