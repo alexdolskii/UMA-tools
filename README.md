@@ -17,18 +17,19 @@ In fibroblast/ECM 3D units, three readouts are especially informative: **fibrone
 - The original fibronectin alignment protocol using the OrientationJ plugin was developed from the methods described in [this study](https://pubmed.ncbi.nlm.nih.gov/32222216/) and due to plugin constraints can be run only in ImageJ for Windows in GUI mode (headless mode is not supported).
 - Pipeline: channel selection → 2D Max-Intensity Projection (XY) → resize/standardize → OrientationJ direction & coherence maps → orientation histograms and metrics.
 - Outputs: color-coded orientation images, per-sample histograms, summary tables/Excel; % fibers within user-defined angle mode range.
+- Windows
 
-## 2. 3D Unit Thickness Assay (fibronectin)
+## 2. Fibronectin Fiber Alignment — orientationpy library (cross-platform)
+- Drop-in alternative to OrientationJ using a Python structure-tensor implementation (OrientationPy) for cross-platform, headless, and faster runs. Numeric values may differ slightly, but group-level trends remain consistent.
+- Pipeline: projection & standardization → structure-tensor orientation + coherence → HSV orientation maps → orientation histograms/CSV.
+- Outputs: identical report structure to the original protocol.
+- Platforms: Linux, macOS.
+
+## 3. 3D Unit Thickness Assay (fibronectin)
 - Quantitatively measures the thickness of the fibronectin layer in 3D fibroblastic units.
 - Pipeline: channel selection → XZ reslice from 3D stacks → Max-Intensity Z-Projection → denoise (max filter + Gaussian) → background subtraction → Otsu threshold → Local Thickness (ImageJ plugin) → stats export.
 - Outputs: per-image TIFF masks and thickness maps; CSV with area, mean/SD, min/median/max local thickness.
 - Notes: assumes a consistent channel order across all images in a run.
-
-## 3. Fibronectin Fiber Alignment — orientationpy library (cross-platform)
-Drop-in alternative to OrientationJ using a Python implementation (e.g., structure-tensor/gradient methods).
-- Pipeline: projection & standardization → structure-tensor orientation + coherence → HSV orientation maps → orientation histograms/CSV.
-- Outputs: identical report structure to the original protocol; small numeric differences may occur but group-level trends are consistent.
-- Platforms: Linux, macOS.
 
 ## 4. Nuclei Counts & Layer Prediction (3D)
 AI-assisted 3D nuclei segmentation and spatial clustering to approximate “layers”.
@@ -40,34 +41,19 @@ Outputs: per-nucleus metrics (volume, centroid, equivalent diameter), image-leve
 - User-guided channel selection (e.g., fibronectin, DAPI) with support for .nd2 and .tif/.tiff.
 - Reproducible outputs: standardized images, per-image tables, and consolidated summaries suitable for downstream statistics and figure generation.
 
-## Conventions
-One run can process multiple folders/conditions.
-For reliable automation, keep fluorescence channel order identical across all images in a run.
-If applying the nuclei pipeline to new cell types, plan to train a StarDist 3D model for best results.
-
 ## Installation 
 For *2. Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin* only:
 - To download and install *OrientationJ plugin* please visit [OrientationJ](https://bigwww.epfl.ch/demo/orientation/)
 
-For UMA-tools:
+For *all UMA-tools*:
 - To download and install *git* please visit [Git Download page](https://git-scm.com/downloads).
 - To download and install *conda* please visit [Miniforge github](https://github.com/conda-forge/miniforge)
 - To download and install *OrientationPy* please visit [Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)] (version 0.3.0 is required)
 
 
-1. Clone the Repository. Download the  code for OrientationPy:
-    - git clone https://gitlab.com/epfl-center-for-imaging/orientationpy.git
-2. Enter the cloned directory:
-    - cd orientationpy
-3. Install OrientationPy and its dependencies:
-    - pip install .
-4. Return to the UMA-tools directory:
-    - cd ..
-
 ## Usage
-1. Before running the program, you need to modify a `input_paths.json` file. This file should contain a list of folders with .nd2 images, and you can include as many folders as needed.
-
-Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application FiJi (https://imagej.net/software/fiji/downloads).
+1. Before running the program, you need to modify a `input_paths.json` file. This file should contain a list of folders with .nd2 /.tiff/.tif images, and you can include as many folders as needed.
+Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application (FiJi)[https://imagej.net/software/fiji/downloads].
 
 
 2. Run the main analysis script:
@@ -77,20 +63,6 @@ Additionally, before starting the program, make sure you know how many fluoresce
 
 
 # Dependencies and Tools Used
-
-This program utilizes the following tools:
-
-
-
-2. **Fiji**  
-   [Fiji](https://fiji.sc/) (Fiji Is Just ImageJ) is an open-source distribution of ImageJ with a focus on image analysis. In this project, Fiji was used for **preprocessing image stacks**, including tasks such as contrast enhancement, filtering, and segmentation, to ensure the data is optimized for analysis in OrientationPy.
-
-   - Repository: [Fiji](https://github.com/fiji/fiji)  
-   - License: [GPL License](https://imagej.net/licensing/)
-
-
-## References
-
 This program utilizes the following tools:
 
 1. **Fiji** 
