@@ -109,7 +109,7 @@ This program utilizes the following tools:
     - License: [BSD 3-Clause License](https://github.com/stardist/stardist/blob/main/LICENSE.txt)
   
 3. **OrientationPy**
-   - Official page: [Library description]:(https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)
+   - Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)
    - Repository: [OrientationPy](https://gitlab.com/epfl-center-for-imaging/orientationpy/)
 
 
