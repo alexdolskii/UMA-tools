@@ -52,7 +52,7 @@ For *all UMA-tools*:
 - To download and install *conda* please visit [Miniforge github](https://github.com/conda-forge/miniforge)
 - To download and install *OrientationPy* please visit [Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)] (version 0.3.0 is required)
 
-## Usage
+# Usage
 1. Before running the program, you need to modify a `input_paths.json` file. For Nuclei Counts & Layer Prediction please modify `nuclei_layers.json`.  This file should contain a list of folders with .nd2 /.tiff/.tif images, and you can include as many folders as needed.
 Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application (FiJi)[https://imagej.net/software/fiji/downloads].
 
