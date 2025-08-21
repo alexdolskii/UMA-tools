@@ -9,39 +9,38 @@ For a complete guide to script usage, visit protocols.io.
 Automated image-analysis utilities for 3D fibroblast/ECM (“unit”) assays in confocal microscopy. The toolbox focuses on fibronectin layer thickness, fibronectin fiber alignment, and 3D nuclei counting/layering. All workflows support batch, headless processing with ImageJ/FIJI and take a simple JSON manifest of input folders.
 
 
-##**3D Unit Thickness Assay (fibronectin)**
+## 3D Unit Thickness Assay (fibronectin)
 - Quantitatively measures the thickness of the fibronectin layer in 3D fibroblastic units.
 - Pipeline: channel selection → XZ reslice from 3D stacks → Max-Intensity Z-Projection → denoise (max filter + Gaussian) → background subtraction → Otsu threshold → Local Thickness (ImageJ plugin) → stats export.
 - Outputs: per-image TIFF masks and thickness maps; CSV with area, mean/SD, min/median/max local thickness.
 - Notes: assumes a consistent channel order across all images in a run.
 
-**Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin (original protocol, Windows only)**
+## Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin (original protocol, Windows only)
 - Reproduces the original OrientationJ-based alignment analysis (OrientationJ is unreliable in headless mode cross-platform; use Windows).
 Pipeline: channel selection → 2D Max-Intensity Projection (XY) → resize/standardize → OrientationJ direction & coherence maps → orientation histograms and metrics.
 - Outputs: color-coded orientation images, per-sample histograms, summary tables/Excel; % fibers within user-defined angular windows (aligned vs disorganized categories).
 - Platforms: Linux, macOS.
 
-**Fibronectin Fiber Alignment — orientationpy library (cross-platform)**
+## Fibronectin Fiber Alignment — orientationpy library (cross-platform)
 Drop-in alternative to OrientationJ using a Python implementation (e.g., structure-tensor/gradient methods).
 - Pipeline: projection & standardization → structure-tensor orientation + coherence → HSV orientation maps → orientation histograms/CSV.
 - Outputs: identical report structure to the original protocol; small numeric differences may occur but group-level trends are consistent.
 - Platforms: Linux, macOS.
 
-**Nuclei Counts & Layer Prediction (3D)**
+## Nuclei Counts & Layer Prediction (3D)
 AI-assisted 3D nuclei segmentation and spatial clustering to approximate “layers”.
 Pipeline: nuclei channel isolation → 3D denoising (Gaussian/mean) → StarDist 3D segmentation (pre-trained models for fibroblastic lines; you may need to train your own) → QC overlays & tri-view projections → HDBSCAN clustering in 3D to infer layer-like groupings.
 Outputs: per-nucleus metrics (volume, centroid, equivalent diameter), image-level summaries, and study-level CSVs; QC figures for rapid validation.
 
-**Common features**
+## Common features
 - Headless batch processing across many folders/conditions listed in a single JSON file.
 - User-guided channel selection (e.g., fibronectin, DAPI) with support for .nd2 and .tif/.tiff.
 - Reproducible outputs: standardized images, per-image tables, and consolidated summaries suitable for downstream statistics and figure generation.
 
-**Conventions**
+## Conventions
 One run can process multiple folders/conditions.
 For reliable automation, keep fluorescence channel order identical across all images in a run.
 If applying the nuclei pipeline to new cell types, plan to train a StarDist 3D model for best results.
-
 
 ## Installation 
 To download and install *git* please visit [Git Download page](https://git-scm.com/downloads).
