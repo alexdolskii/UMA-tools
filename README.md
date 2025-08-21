@@ -1,4 +1,4 @@
-# UMA-tools
+# UMA-tools (Unit Matrix Assay)
 UMA-tools streamlines confocal analysis of 3D fibroblast/ECM units—turning time-consuming, error-prone steps into reproducible, scriptable workflows with clear, publication-ready outputs.
 
 The project was developed in the [Edna (Eti) Cukierman lab](https://www.foxchase.org/edna-cukierman).
