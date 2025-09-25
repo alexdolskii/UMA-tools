@@ -1,4 +1,4 @@
-name: uma_tools
+name: uma_fia_tools
 channels:
   - conda-forge
   - defaults

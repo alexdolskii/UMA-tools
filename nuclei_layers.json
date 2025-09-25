@@ -1,6 +1,7 @@
 {
   "folder_paths": [
-    "/Users/aleksandrdolskii/Desktop/ImageJ projects/files_to_tif/TIF/OUTPUT"
+    "/path/1",
+    "/path/2"
   ],
   "nuclei_channel": 1,
   "gaussian_sigma": 4.0,
@@ -8,5 +9,5 @@
   "z_scale_factor": 32,
   "n_tiles": [2, 4, 4],
   "downscale_factor": 2,
-  "model_path": "/Users/aleksandrdolskii/Desktop/stardist-1024-v3"
+  "model_path": "/path/to/model"
 }
