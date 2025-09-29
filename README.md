@@ -1,6 +1,6 @@
 # UMA-tools (Unit Matrix Assay)
 
-Please visit full description of UMA-tools: [step-by-step-protocol]([https://www.foxchase.org/edna-cukierman](https://www.protocols.io/view/fibroblast-ecm-functional-units-a-medium-throughpu-gzpabx5if))
+Please visit full description of UMA-tools: [step-by-step-protocol](https://www.protocols.io/view/fibroblast-ecm-functional-units-a-medium-throughpu-gzpabx5if)
 
 UMA-tools streamlines confocal analysis of 3D fibroblast/ECM units—turning time-consuming, error-prone steps into reproducible, scriptable workflows with clear, publication-ready outputs.
 
