@@ -10,7 +10,7 @@ See also [fia-tools](https://github.com/alexdolskii/FIA-tools) for optimization 
 
 For a complete guide to script usage, visit protocols.io.
 
-# Aplication
+# Usage
 Automated image-analysis utilities for 3D fibroblast/ECM units assays in confocal microscopy.
 For detailed description of 3D fibroblast/ECM units please refer [1](https://pubmed.ncbi.nlm.nih.gov/32222216/) and [2](https://pubmed.ncbi.nlm.nih.gov/27245425/).
 
