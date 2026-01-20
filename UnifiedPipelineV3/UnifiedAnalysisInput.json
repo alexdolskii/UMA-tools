@@ -1,0 +1,75 @@
+{
+  "report_directory": "Analysis_Report",
+  
+  "_comment_paths": "Paths can use forward slashes (/) or backslashes (\\\\) - both work on Windows, Linux, and macOS",
+  "_comment_colors": "Colors are now automatically generated! You can omit 'treatment_colors' entirely, or provide custom colors for specific groups to override the automatic colors",
+  "_comment_groups": "Set group_assignments and stat_comparisons once globally and they'll be used for all analyses. Individual sections can override if needed.",
+  
+  "group_assignments": {
+    "Control": "Group0",
+    "Treatment 1": "Group1"
+  },
+  
+  "stat_comparisons": [
+    ["Group0", "Group1"]
+  ],
+  
+  "intensity_combining": {
+    "input_folder": "C:/Users/YourName/Path/To/ROI_Measurement_Files",
+    "output_filename": "Combined_Intensity_Results.csv"
+  },
+  
+  "alignment": {
+    "input_csv": "C:/Users/YourName/Path/To/Alignment_Summary.xlsx",
+    "y_col": "Percentage_Fibers_Aligned_Within_5.0_Degree",
+    "statistics": {
+      "alpha": 0.05
+    },
+    "y_axis_max": 100,
+    "stat_line_offset": 0.2,
+    "star_offset": 2,
+    "font_size": 10,
+    "plot_title": "Alignment_Test_CellLine1"
+  },
+  
+  "thickness": {
+    "input_csv": "C:/Users/YourName/Path/To/Thickness_Summary.csv",
+    "y_col": "Median",
+    "statistics": {
+      "alpha": 0.05
+    },
+    "y_axis_max": 10,
+    "stat_line_offset": 1,
+    "star_offset": 1,
+    "font_size": 10
+  },
+  
+  "intensity": {
+    "input_csv": "C:/Users/YourName/Path/To/Combined_Intensity_Results.csv",
+    "y_col": "RawIntDen",
+    "statistics": {
+      "alpha": 0.05
+    },
+    "y_axis_max": 1000000,
+    "y_axis_increment": 100000,
+    "stat_line_offset": 0.03,
+    "star_offset": 0.015,
+    "violin_width": 0.7,
+    "scatter_jitter": 0.045,
+    "font_size": 10,
+    "plot_title": "Signal Intensity per Image"
+  },
+  
+  "nuclei_counts": {
+    "input_csv": "C:/Users/YourName/Path/To/Combined_Intensity_Results.csv",
+    "y_col": "Nucleus",
+    "statistics": {
+      "alpha": 0.05
+    },
+    "y_axis_max": 200,
+    "stat_line_offset": 3,
+    "star_offset": 1,
+    "font_size": 10,
+    "plot_title": "Nuclei per Image"
+  }
+}
