@@ -253,7 +253,7 @@ def run_intensity_combining(cfg_intensity):
             df.rename(columns={df.columns[0]: "Nucleus"}, inplace=True)
         combined_df = pd.concat([combined_df, df], ignore_index=True)
     
-    output_path = os.path.join(report_subdir, output_filename)
+    output_path = os.path.join(input_folder, output_filename)
     combined_df.to_csv(output_path, index=False)
     print(f"✅ Combined intensity CSV saved to: {output_path}")
     return output_path
