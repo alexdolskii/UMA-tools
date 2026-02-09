@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Unified Analysis Pipeline
+A comprehensive analysis tool for biological image data processing.
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -9,6 +15,7 @@ import os
 import re
 import json
 import glob
+import argparse
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -44,28 +51,6 @@ def is_valid_input_path(input_path):
             return False
     return True
 
-# =========================
-# === LOAD CONFIG =========
-# =========================
-config_path = "UnifiedAnalysisInput.json"
-if not os.path.exists(config_path):
-    raise FileNotFoundError(f"Config file not found: {config_path}")
-
-print(f"📄 Loading configuration from: {config_path}")
-with open(config_path, "r") as f:
-    cfg = json.load(f)
-print(f"✅ Configuration loaded successfully")
-
-# Create report directory
-report_dir = normalize_path(cfg.get("report_directory", "Analysis_Report"))
-os.makedirs(report_dir, exist_ok=True)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-report_subdir = os.path.join(report_dir, f"Report_{timestamp}")
-os.makedirs(report_subdir, exist_ok=True)
-
-# Excel writer for all stats
-excel_path = os.path.join(report_subdir, "All_Statistics.xlsx")
-excel_writer = pd.ExcelWriter(excel_path, engine='openpyxl')
 
 def parse_label(filename, file_col_type="standard"):
     """Parse filename to extract CellLine, Treatment, Replicate, Photo"""
@@ -227,8 +212,16 @@ def generate_group_colors(groups, custom_colors=None):
 # =========================
 # === INTENSITY COMBINING ===
 # =========================
-def run_intensity_combining(cfg_intensity):
-    """Combine intensity ROI measurement files"""
+def run_intensity_combining(cfg_intensity, report_subdir=None):
+    """Combine intensity ROI measurement files
+    
+    Args:
+        cfg_intensity: Configuration dictionary for intensity combining
+        report_subdir: Report subdirectory (unused, kept for compatibility)
+    
+    Returns:
+        Path to the combined CSV file, or None if skipped
+    """
     if not is_valid_input_path(cfg_intensity.get("input_folder")):
         print(f"⚠️ Intensity combining skipped: 'input_folder' not specified or set to None/blank")
         return None
@@ -261,7 +254,7 @@ def run_intensity_combining(cfg_intensity):
 # =========================
 # === ALIGNMENT ANALYSIS ===
 # =========================
-def run_alignment_analysis(cfg_analysis, analysis_name="Alignment", global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
+def run_alignment_analysis(cfg_analysis, report_subdir, excel_writer, analysis_name="Alignment", global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
     """Run alignment analysis (boxplot)"""
     # Check if required fields exist and are valid
     if "input_csv" not in cfg_analysis or not is_valid_input_path(cfg_analysis.get("input_csv")):
@@ -426,7 +419,7 @@ def run_alignment_analysis(cfg_analysis, analysis_name="Alignment", global_group
 # =========================
 # === THICKNESS ANALYSIS ===
 # =========================
-def run_thickness_analysis(cfg_analysis, global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
+def run_thickness_analysis(cfg_analysis, report_subdir, excel_writer, global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
     """Run thickness analysis (boxplot)"""
     # Check if required fields exist and are valid
     if "input_csv" not in cfg_analysis or not is_valid_input_path(cfg_analysis.get("input_csv")):
@@ -583,7 +576,7 @@ def run_thickness_analysis(cfg_analysis, global_group_colors=None, global_group_
 # =========================
 # === INTENSITY ANALYSIS ===
 # =========================
-def run_intensity_analysis(cfg_analysis, global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
+def run_intensity_analysis(cfg_analysis, report_subdir, excel_writer, global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
     """Run intensity analysis (violin plot)"""
     # Check if required fields exist and are valid
     if "input_csv" not in cfg_analysis or not is_valid_input_path(cfg_analysis.get("input_csv")):
@@ -748,7 +741,7 @@ def run_intensity_analysis(cfg_analysis, global_group_colors=None, global_group_
 # =========================
 # === NUCLEI COUNT ANALYSIS ===
 # =========================
-def run_nuclei_analysis(cfg_analysis, global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
+def run_nuclei_analysis(cfg_analysis, report_subdir, excel_writer, global_group_colors=None, global_group_assignments=None, global_stat_comparisons=None):
     """Run nuclei count analysis (boxplot)"""
     # Check if required fields exist and are valid
     if "input_csv" not in cfg_analysis or not is_valid_input_path(cfg_analysis.get("input_csv")):
@@ -905,131 +898,177 @@ def run_nuclei_analysis(cfg_analysis, global_group_colors=None, global_group_ass
     return stats_results
 
 # =========================
-# === MAIN EXECUTION ======
+# === MAIN FUNCTION =======
 # =========================
-print("\n" + "=" * 60)
-print("UNIFIED ANALYSIS PIPELINE")
-print("=" * 60)
-
-# Run intensity combining if configured
-if "intensity_combining" in cfg:
-    print("\n[1/5] Running Intensity Combining...")
-    combined_intensity_path = run_intensity_combining(cfg["intensity_combining"])
-    if combined_intensity_path and "intensity" in cfg:
-        # Update intensity analysis input_csv if combining was successful
-        cfg["intensity"]["input_csv"] = combined_intensity_path
-
-# =========================
-# === GET GLOBAL SETTINGS ===
-# =========================
-# Get global group_assignments if provided, otherwise collect from all sections
-global_group_assignments = cfg.get("group_assignments", None)
-
-# If global group_assignments not provided, try to get from first analysis section
-if global_group_assignments is None:
+def main():
+    """Main execution function for the Unified Analysis Pipeline"""
+    parser = argparse.ArgumentParser(
+        description="Unified Analysis Pipeline - Comprehensive analysis tool for biological image data processing",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python Unified_Analysis_Pipeline.py
+  python Unified_Analysis_Pipeline.py --config my_config.json
+  python Unified_Analysis_Pipeline.py -c custom_config.json
+        """
+    )
+    parser.add_argument(
+        '-c', '--config',
+        type=str,
+        default='UnifiedAnalysisInput.json',
+        help='Path to configuration JSON file (default: UnifiedAnalysisInput.json)'
+    )
+    
+    args = parser.parse_args()
+    config_path = args.config
+    
+    # Validate config file exists
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    
+    print("\n" + "=" * 60)
+    print("UNIFIED ANALYSIS PIPELINE")
+    print("=" * 60)
+    
+    print(f"\n📄 Loading configuration from: {config_path}")
+    with open(config_path, "r") as f:
+        cfg = json.load(f)
+    print(f"✅ Configuration loaded successfully")
+    
+    # Create report directory
+    report_dir = normalize_path(cfg.get("report_directory", "Analysis_Report"))
+    os.makedirs(report_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_subdir = os.path.join(report_dir, f"Report_{timestamp}")
+    os.makedirs(report_subdir, exist_ok=True)
+    
+    # Excel writer for all stats
+    excel_path = os.path.join(report_subdir, "All_Statistics.xlsx")
+    excel_writer = pd.ExcelWriter(excel_path, engine='openpyxl')
+    
+    # Run intensity combining if configured
+    if "intensity_combining" in cfg:
+        print("\n[1/5] Running Intensity Combining...")
+        combined_intensity_path = run_intensity_combining(cfg["intensity_combining"], report_subdir)
+        if combined_intensity_path and "intensity" in cfg:
+            # Update intensity analysis input_csv if combining was successful
+            cfg["intensity"]["input_csv"] = combined_intensity_path
+    
+    # =========================
+    # === GET GLOBAL SETTINGS ===
+    # =========================
+    # Get global group_assignments if provided, otherwise collect from all sections
+    global_group_assignments = cfg.get("group_assignments", None)
+    
+    # If global group_assignments not provided, try to get from first analysis section
+    if global_group_assignments is None:
+        analysis_sections = ["alignment", "thickness", "intensity", "nuclei_counts"]
+        for section in analysis_sections:
+            if section in cfg and "group_assignments" in cfg[section]:
+                global_group_assignments = cfg[section]["group_assignments"]
+                print(f"⚠️  No global 'group_assignments' found. Using assignments from '{section}' section.")
+                break
+    else:
+        print(f"✅ Using global group_assignments: {list(global_group_assignments.keys())} → {list(global_group_assignments.values())}")
+    
+    # Get global stat_comparisons if provided, otherwise collect from first section
+    global_stat_comparisons = cfg.get("stat_comparisons", None)
+    
+    # If global stat_comparisons not provided, try to get from first analysis section
+    if global_stat_comparisons is None:
+        analysis_sections = ["alignment", "thickness", "intensity", "nuclei_counts"]
+        for section in analysis_sections:
+            if section in cfg and "stat_comparisons" in cfg[section]:
+                global_stat_comparisons = cfg[section]["stat_comparisons"]
+                print(f"⚠️  No global 'stat_comparisons' found. Using comparisons from '{section}' section.")
+                break
+    else:
+        print(f"✅ Using global stat_comparisons: {global_stat_comparisons}")
+    
+    # =========================
+    # === GENERATE GLOBAL COLORS ===
+    # =========================
+    # Collect all unique groups across all analyses for consistent color mapping
+    all_groups = set()
+    all_custom_colors = {}
+    
+    # Use global group_assignments to get all groups
+    if global_group_assignments:
+        all_groups.update(global_group_assignments.values())
+    
+    # Also check individual sections for any additional groups or overrides
     analysis_sections = ["alignment", "thickness", "intensity", "nuclei_counts"]
     for section in analysis_sections:
-        if section in cfg and "group_assignments" in cfg[section]:
-            global_group_assignments = cfg[section]["group_assignments"]
-            print(f"⚠️  No global 'group_assignments' found. Using assignments from '{section}' section.")
-            break
-else:
-    print(f"✅ Using global group_assignments: {list(global_group_assignments.keys())} → {list(global_group_assignments.values())}")
+        if section in cfg:
+            # Check for section-specific group_assignments (may override global)
+            section_assignments = cfg[section].get("group_assignments", global_group_assignments or {})
+            all_groups.update(section_assignments.values())
+            # Collect custom colors from all analyses (later sections override earlier ones)
+            section_colors = cfg[section].get("treatment_colors", {})
+            if section_colors:
+                all_custom_colors.update(section_colors)
+    
+    # Generate global color mapping once for all groups
+    if all_groups:
+        global_group_colors = generate_group_colors(list(all_groups), all_custom_colors if all_custom_colors else None)
+        print(f"\n🎨 Generated colors for {len(all_groups)} unique groups:")
+        for group in sorted(all_groups):
+            print(f"   {group}: {global_group_colors[group]}")
+    else:
+        global_group_colors = None
+    
+    # Run analyses
+    analyses_run = []
+    analysis_count = 0
+    
+    # Count total analyses to run for step numbering
+    total_analyses = sum(1 for section in ["alignment", "thickness", "intensity", "nuclei_counts"] if section in cfg)
+    
+    if "alignment" in cfg:
+        analysis_count += 1
+        step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
+        print(f"\n{step_num} Running Alignment Analysis...")
+        result = run_alignment_analysis(cfg["alignment"], report_subdir, excel_writer, "Alignment", global_group_colors, global_group_assignments, global_stat_comparisons)
+        if result is not None:
+            analyses_run.append("Alignment")
+    
+    if "thickness" in cfg:
+        analysis_count += 1
+        step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
+        print(f"\n{step_num} Running Thickness Analysis...")
+        result = run_thickness_analysis(cfg["thickness"], report_subdir, excel_writer, global_group_colors, global_group_assignments, global_stat_comparisons)
+        if result is not None:
+            analyses_run.append("Thickness")
+    
+    if "intensity" in cfg:
+        analysis_count += 1
+        step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
+        print(f"\n{step_num} Running Intensity Analysis...")
+        result = run_intensity_analysis(cfg["intensity"], report_subdir, excel_writer, global_group_colors, global_group_assignments, global_stat_comparisons)
+        if result is not None:
+            analyses_run.append("Intensity")
+    
+    if "nuclei_counts" in cfg:
+        analysis_count += 1
+        step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
+        print(f"\n{step_num} Running Nuclei Counts Analysis...")
+        result = run_nuclei_analysis(cfg["nuclei_counts"], report_subdir, excel_writer, global_group_colors, global_group_assignments, global_stat_comparisons)
+        if result is not None:
+            analyses_run.append("NucleiCounts")
+    
+    # Close Excel writer
+    excel_writer.close()
+    print(f"\n✅ All statistics exported to: {excel_path}")
+    
+    print("\n" + "=" * 60)
+    print(f"REPORT GENERATED SUCCESSFULLY")
+    print("=" * 60)
+    print(f"📁 Report directory: {report_subdir}")
+    print(f"📊 Analyses completed: {', '.join(analyses_run) if analyses_run else 'None'}")
+    print(f"📈 Statistics file: All_Statistics.xlsx")
+    print(f"🎨 Color scheme: Auto-generated for {len(all_groups)} unique groups")
+    print("=" * 60)
 
-# Get global stat_comparisons if provided, otherwise collect from first section
-global_stat_comparisons = cfg.get("stat_comparisons", None)
 
-# If global stat_comparisons not provided, try to get from first analysis section
-if global_stat_comparisons is None:
-    analysis_sections = ["alignment", "thickness", "intensity", "nuclei_counts"]
-    for section in analysis_sections:
-        if section in cfg and "stat_comparisons" in cfg[section]:
-            global_stat_comparisons = cfg[section]["stat_comparisons"]
-            print(f"⚠️  No global 'stat_comparisons' found. Using comparisons from '{section}' section.")
-            break
-else:
-    print(f"✅ Using global stat_comparisons: {global_stat_comparisons}")
-
-# =========================
-# === GENERATE GLOBAL COLORS ===
-# =========================
-# Collect all unique groups across all analyses for consistent color mapping
-all_groups = set()
-all_custom_colors = {}
-
-# Use global group_assignments to get all groups
-if global_group_assignments:
-    all_groups.update(global_group_assignments.values())
-
-# Also check individual sections for any additional groups or overrides
-analysis_sections = ["alignment", "thickness", "intensity", "nuclei_counts"]
-for section in analysis_sections:
-    if section in cfg:
-        # Check for section-specific group_assignments (may override global)
-        section_assignments = cfg[section].get("group_assignments", global_group_assignments or {})
-        all_groups.update(section_assignments.values())
-        # Collect custom colors from all analyses (later sections override earlier ones)
-        section_colors = cfg[section].get("treatment_colors", {})
-        if section_colors:
-            all_custom_colors.update(section_colors)
-
-# Generate global color mapping once for all groups
-if all_groups:
-    global_group_colors = generate_group_colors(list(all_groups), all_custom_colors if all_custom_colors else None)
-    print(f"\n🎨 Generated colors for {len(all_groups)} unique groups:")
-    for group in sorted(all_groups):
-        print(f"   {group}: {global_group_colors[group]}")
-else:
-    global_group_colors = None
-
-# Run analyses
-analyses_run = []
-analysis_count = 0
-
-# Count total analyses to run for step numbering
-total_analyses = sum(1 for section in ["alignment", "thickness", "intensity", "nuclei_counts"] if section in cfg)
-
-if "alignment" in cfg:
-    analysis_count += 1
-    step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
-    print(f"\n{step_num} Running Alignment Analysis...")
-    result = run_alignment_analysis(cfg["alignment"], "Alignment", global_group_colors, global_group_assignments, global_stat_comparisons)
-    if result is not None:
-        analyses_run.append("Alignment")
-
-if "thickness" in cfg:
-    analysis_count += 1
-    step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
-    print(f"\n{step_num} Running Thickness Analysis...")
-    result = run_thickness_analysis(cfg["thickness"], global_group_colors, global_group_assignments, global_stat_comparisons)
-    if result is not None:
-        analyses_run.append("Thickness")
-
-if "intensity" in cfg:
-    analysis_count += 1
-    step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
-    print(f"\n{step_num} Running Intensity Analysis...")
-    result = run_intensity_analysis(cfg["intensity"], global_group_colors, global_group_assignments, global_stat_comparisons)
-    if result is not None:
-        analyses_run.append("Intensity")
-
-if "nuclei_counts" in cfg:
-    analysis_count += 1
-    step_num = f"[{analysis_count}/{total_analyses}]" if total_analyses > 0 else "[1]"
-    print(f"\n{step_num} Running Nuclei Counts Analysis...")
-    result = run_nuclei_analysis(cfg["nuclei_counts"], global_group_colors, global_group_assignments, global_stat_comparisons)
-    if result is not None:
-        analyses_run.append("NucleiCounts")
-
-# Close Excel writer
-excel_writer.close()
-print(f"\n✅ All statistics exported to: {excel_path}")
-
-print("\n" + "=" * 60)
-print(f"REPORT GENERATED SUCCESSFULLY")
-print("=" * 60)
-print(f"📁 Report directory: {report_subdir}")
-print(f"📊 Analyses completed: {', '.join(analyses_run) if analyses_run else 'None'}")
-print(f"📈 Statistics file: All_Statistics.xlsx")
-print(f"🎨 Color scheme: Auto-generated for {len(all_groups)} unique groups")
-print("=" * 60)
+if __name__ == "__main__":
+    main()
