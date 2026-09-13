@@ -2,12 +2,15 @@
 
 This folder contains the original UMA-tools approach for measuring fibronectin fiber alignment using Fiji/ImageJ and the OrientationJ plugin.
 
+This folder can be used independently of the rest of the repository. The script reads `input_paths.json` and loads `Fiji.app` from its own directory, regardless of the current working directory.
+
 **Platform: Windows only.** This workflow requires an interactive Windows desktop session and runs Fiji/ImageJ in GUI mode. Headless execution is not supported.
 
 ## Files
 
 - [alignment_analysis_original_approach.py](alignment_analysis_original_approach.py): the original fibronectin alignment analysis script.
 - [environment_uma_original.yaml](environment_uma_original.yaml): the Conda environment definition for this approach, named `uma_original`.
+- [input_paths.json](input_paths.json): the local configuration listing the image folders to analyze.
 
 ## Analysis
 
@@ -17,22 +20,44 @@ Supported input formats are `.nd2`, `.tif`, `.tiff`, `.oif`, and `.oib`. Results
 
 ## Setup and launch on Windows
 
-1. Place a Windows installation of Fiji with the OrientationJ plugin in `Fiji.app` at the repository root.
-2. Edit [input_paths.json](../input_paths.json) at the repository root to list your image folders under `folder_paths`. Use forward slashes or escaped backslashes in JSON paths.
-3. Open a Miniforge/Conda prompt in the repository root and create the environment:
+1. Install Fiji for Windows and the OrientationJ plugin. Place the complete `Fiji.app` directory inside `original_fibronectin_alignment_analysis`, next to the Python script. Fiji and OrientationJ are installed separately from the Conda environment.
+2. Edit the [input_paths.json](input_paths.json) in this folder. Replace `/path/1` and `/path/2` with absolute paths to your image folders. Use forward slashes or escaped backslashes in JSON paths, for example:
+
+```json
+{
+  "folder_paths": [
+    "C:/Microscopy/experiment_1",
+    "D:/Microscopy/experiment_2"
+  ]
+}
+```
+
+3. Open a Miniforge/Conda prompt and change to this folder, replacing the example path with its actual location:
 
 ```bat
-conda env create -f original_fibronectin_alignment_analysis/environment_uma_original.yaml
+cd /d "C:\path\to\original_fibronectin_alignment_analysis"
+```
+
+Create the environment on the first run:
+
+```bat
+conda env create -f environment_uma_original.yaml
 conda activate uma_original
-conda install -c conda-forge scikit-image
 ```
 
-The script imports `scikit-image`, which is not explicitly listed in the original YAML; the additional installation command supplies this dependency. If `uma_original` already exists, skip the environment creation command and activate it.
+`scikit-image` is included in the YAML and is installed automatically with the `uma_original` environment.
 
-Run the analysis from the repository root:
+If `uma_original` already exists, update it using the YAML in this folder instead of creating it again:
 
 ```bat
-python original_fibronectin_alignment_analysis/alignment_analysis_original_approach.py
+conda env update -n uma_original -f environment_uma_original.yaml
+conda activate uma_original
 ```
 
-Follow the prompts to choose the angular window, specify the fibronectin channel, and confirm processing. The script reads `input_paths.json` and locates `Fiji.app` in the parent directory of this folder.
+Run the analysis from this folder:
+
+```bat
+python alignment_analysis_original_approach.py
+```
+
+Follow the prompts to choose the angular window, specify the fibronectin channel, and confirm processing. Keep the local `input_paths.json` and `Fiji.app` alongside the script when moving or copying this folder.

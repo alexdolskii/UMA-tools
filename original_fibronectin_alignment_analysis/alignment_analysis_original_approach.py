@@ -651,8 +651,7 @@ def main():
     try:
         # Initialize ImageJ
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        parent_dir = os.path.dirname(script_dir)
-        fiji_path = os.path.join(parent_dir, "Fiji.app")
+        fiji_path = os.path.join(script_dir, "Fiji.app")
         
         if not os.path.exists(fiji_path):
             raise FileNotFoundError(f"Fiji.app not found at {fiji_path}")
@@ -662,7 +661,7 @@ def main():
         print("ImageJ initialization completed.")
         
         # Get folder paths
-        json_path = os.path.join(parent_dir, "input_paths.json")
+        json_path = os.path.join(script_dir, "input_paths.json")
         folder_paths = get_folder_paths(json_path)
         print(f"Found {len(folder_paths)} folders to process")
         

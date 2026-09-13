@@ -16,3 +16,6 @@ dependencies:
 
   # exact plotting backend
   - matplotlib=3.9      
+
+  # image processing
+  - scikit-image
