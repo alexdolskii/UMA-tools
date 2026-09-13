@@ -1,0 +1,16 @@
+{
+  "_comment": "Configuration file for file renaming script. Paths can use forward slashes (/) or backslashes (\\\\) - both work on Windows, Linux, and macOS",
+  
+  "input_root": "C:/Users/YourName/Path/To/Input/Folder",
+  
+  "output_root": "C:/Users/YourName/Path/To/Output/Folder",
+  
+  "well_map": {
+    "WellA1": ["CellLine1", "DMSO", 1],
+    "WellA2": ["CellLine1", "DMSO", 2],
+    "WellA3": ["CellLine1", "DMSO", 3],
+    "WellB1": ["CellLine2", "TGFBInh", 1],
+    "WellB2": ["CellLine2", "TGFBInh", 2],
+    "WellB4": ["CellLine2", "TGFBInh", 3]
+  }
+}
