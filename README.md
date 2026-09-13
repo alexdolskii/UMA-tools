@@ -66,7 +66,7 @@ Additionally, before starting the program, make sure you know how many fluoresce
 2. Before first run only execute permission modofocation:
 - Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin (original protocol, Windows only)
 ```bash
-chmod +x code/alignment_analysis_original_approach.py
+chmod +x original_fibronectin_alignment_analysis/alignment_analysis_original_approach.py
 ```
 - Fibronectin Fiber Alignment - orientationpy library (cross-platform)
 ```bash
@@ -89,7 +89,7 @@ chmod +x alternative_nuclei_layers_assay/3_nla_fiji_calculation.py
 
 4. Run the main analysis script:
 ```bash
-python code/alignment_analysis_original_approach.py -i input_paths.json
+python original_fibronectin_alignment_analysis/alignment_analysis_original_approach.py
 ```
 ```bash
 python code/alignment_analysis.py -i input_paths.json
