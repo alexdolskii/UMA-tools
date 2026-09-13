@@ -66,6 +66,8 @@ skipped_unmapped_well = 0
 for root, dirs, files in os.walk(input_root):
 
     for file in files:
+        if file.startswith("._"):
+            continue
         old_path = os.path.join(root, file)
         ext = os.path.splitext(file)[1]
 

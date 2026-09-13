@@ -38,7 +38,10 @@ def run_segmentation(folder: str, model: StarDist3D, n_tiles):
     logging.info(f"Starting segmentation with n_tiles: {n_tiles}")
 
     for tif in sorted(
-        p for p in proc.iterdir() if p.suffix.lower() in (".tif", ".tiff")
+        p for p in proc.iterdir()
+        if not p.name.startswith("._")
+        and p.is_file()
+        and p.suffix.lower() in (".tif", ".tiff")
     ):
         try:
             logging.info(f"Processing {tif.name}")

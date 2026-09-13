@@ -11,6 +11,8 @@ import os
 
 def load_config(path: str) -> dict:
     """Load configuration from JSON file."""
+    if os.path.basename(path).startswith("._"):
+        raise ValueError(f"macOS metadata files cannot be used as input: {path}")
     if not os.path.isfile(path):
         raise FileNotFoundError(path)
     with open(path, encoding="utf-8") as fh:

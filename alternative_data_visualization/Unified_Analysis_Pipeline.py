@@ -94,6 +94,8 @@ def load_data(input_file):
     """
     # Normalize the path first to handle any path separator issues
     input_file = normalize_path(input_file)
+    if os.path.basename(input_file).startswith("._"):
+        raise ValueError(f"macOS metadata files cannot be used as input: {input_file}")
     
     if input_file.lower().endswith(('.xls', '.xlsx')):
         df = pd.read_excel(input_file)
@@ -921,6 +923,8 @@ Examples:
     
     args = parser.parse_args()
     config_path = args.config
+    if os.path.basename(config_path).startswith("._"):
+        raise ValueError(f"macOS metadata files cannot be used as input: {config_path}")
     
     # Validate config file exists
     if not os.path.exists(config_path):

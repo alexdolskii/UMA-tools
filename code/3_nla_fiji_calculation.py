@@ -378,6 +378,8 @@ def process_all_images(
     summary_data = []
 
     for csv_file in input_dir.glob('*_analysis.csv'):
+        if csv_file.name.startswith("._") or not csv_file.is_file():
+            continue
         # Process each image
         image_stats = cluster(
             csv_path=csv_file,
@@ -406,12 +408,16 @@ def run_quantification_and_clustering(folder_path: str, config: dict):
 
     # Quantification
     for msk in masks.glob("*_mask.tif"):
+        if msk.name.startswith("._") or not msk.is_file():
+            continue
         csv_out = anal / msk.name.replace("_mask.tif", "_analysis.csv")
         qc_png = anal / msk.name.replace("_mask.tif", "_3D_QC.png")
         quantify(msk, csv_out, qc_png)
 
     # Clustering
     for csv_file in anal.glob("*_analysis.csv"):
+        if csv_file.name.startswith("._") or not csv_file.is_file():
+            continue
         cluster(csv_file, clus, config["z_scale_factor"], summaries)
 
     # Process all images and create summary
@@ -456,6 +462,8 @@ def main(input_file_path):
         logging.getLogger('').addHandler(fh)
 
         for msk in masks.glob("*_mask.tif"):
+            if msk.name.startswith("._") or not msk.is_file():
+                continue
             csv_out = anal / msk.name.replace("_mask.tif", "_analysis.csv")
             qc_png = anal / msk.name.replace("_mask.tif", "_3D_QC.png")
             if not csv_out.exists():

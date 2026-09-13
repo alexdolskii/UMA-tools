@@ -78,6 +78,8 @@ def get_folder_paths(input_file_path):
         ValueError: If the file does not contain folder paths or
                     no valid folders exist.
     """
+    if os.path.basename(input_file_path).startswith("._"):
+        raise ValueError(f"macOS metadata files cannot be used as input: {input_file_path}")
     if not os.path.isfile(input_file_path):
         raise FileNotFoundError(
             f"File '{input_file_path}' does not exist."
@@ -96,7 +98,11 @@ def get_folder_paths(input_file_path):
     valid_folder_paths = []
     for folder_path in folder_paths:
         if os.path.isdir(folder_path):
-            files = os.listdir(folder_path)
+            files = [
+                f for f in os.listdir(folder_path)
+                if not f.startswith(".")
+                and os.path.isfile(os.path.join(folder_path, f))
+            ]
             num_files = len(files)
             file_types = set([os.path.splitext(f)[1].lower() for f in files])
             print(f"\nFolder: {folder_path}")
