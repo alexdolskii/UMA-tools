@@ -150,7 +150,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="3D Nuclei Analysis Pipeline")
     parser.add_argument("-i",
                         "--input",
-                        default="input_paths.json",
+                        default=str(
+                            Path(__file__).resolve().with_name("nuclei_layers.json")
+                        ),
                         help="Path to JSON config file"
                         )
     args = parser.parse_args()

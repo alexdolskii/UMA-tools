@@ -39,6 +39,8 @@ Using standard ImageJ/FIJI operations, we treat the fibronectin layer as a true 
 - Notes: assumes a consistent channel order across all images in a run.
 
 ## 4. Nuclei Counts & Layer Prediction (3D)
+The three analysis steps and their configuration are located in [alternative_nuclei_layers_assay](alternative_nuclei_layers_assay). Each script uses the `nuclei_layers.json` next to it by default; `-i` selects a different configuration file.
+
 Because fibroblast/ECM 3D units often exhibit strong background and debris that confound classical ImageJ thresholding, we perform StarDist 3D segmentation to robustly detect nuclei and extract their XYZ coordinates. We then apply scikit-learn spatial clustering to approximate nuclear “layers,” reporting both the layer count and per-nucleus membership. Note: for new cell types or staining conditions, you will likely need to train a custom StarDist model and point the script to it; step-by-step training and integration instructions are available on protocols.io.
 - Pipeline: nuclei channel isolation → 3D denoising (Gaussian/mean) → StarDist 3D model (pre-trained models for fibroblastic lines; you may need to train your own) → QC overlays & tri-view projections → HDBSCAN clustering in 3D to infer layer-like groupings.
 - Outputs: per-nucleus metrics (volume, centroid, equivalent diameter), image-level summaries, and study-level CSVs; QC figures for rapid validation.
@@ -58,7 +60,7 @@ For *all UMA-tools*:
 - To download and install *OrientationPy* please visit [Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)] (version 0.3.0 is required)
 
 # Usage
-1. Before running the program, you need to modify a `input_paths.json` file. For Nuclei Counts & Layer Prediction please modify `nuclei_layers.json`.  This file should contain a list of folders with .nd2 /.tiff/.tif images, and you can include as many folders as needed.
+1. Before running the program, you need to modify a `input_paths.json` file. For Nuclei Counts & Layer Prediction please modify `alternative_nuclei_layers_assay/nuclei_layers.json`.  This file should contain a list of folders with .nd2 /.tiff/.tif images, and you can include as many folders as needed.
 Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application (FiJi)[https://imagej.net/software/fiji/downloads].
 
 2. Before first run only execute permission modofocation:
@@ -76,13 +78,13 @@ chmod +x code/thickness_analysis.py
 ```
 -   Nuclei Counts & Layer Prediction (3D)
 ```bash
-chmod +x code/1_nla_fiji_channel_extraction.py
+chmod +x alternative_nuclei_layers_assay/1_nla_fiji_channel_extraction.py
 ```
 ```bash
-chmod +x code/2_nla_stardist_prediction.py
+chmod +x alternative_nuclei_layers_assay/2_nla_stardist_prediction.py
 ```
 ```bash
-chmod +x code/3_nla_fiji_calculation.py
+chmod +x alternative_nuclei_layers_assay/3_nla_fiji_calculation.py
 ```
 
 4. Run the main analysis script:
@@ -96,13 +98,13 @@ python code/alignment_analysis.py -i input_paths.json
 python ccode/thickness_analysis.py -i input_paths.json
 ```
 ```bash
-python code/1_nla_fiji_channel_extraction.py -i nuclei_layers.json
+python alternative_nuclei_layers_assay/1_nla_fiji_channel_extraction.py -i alternative_nuclei_layers_assay/nuclei_layers.json
 ```
 ```bash
-python code/2_nla_stardist_prediction.py -i nuclei_layers.json
+python alternative_nuclei_layers_assay/2_nla_stardist_prediction.py -i alternative_nuclei_layers_assay/nuclei_layers.json
 ```
 ```bash
-python code/3_nla_fiji_calculation.py -i nuclei_layers.json
+python alternative_nuclei_layers_assay/3_nla_fiji_calculation.py -i alternative_nuclei_layers_assay/nuclei_layers.json
 ```
 
 
