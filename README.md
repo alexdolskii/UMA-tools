@@ -53,64 +53,111 @@ Alternative nuclei-layer assays, marker-intensity analysis, data visualization t
 - User-guided channel selection (e.g., fibronectin, DAPI) with support for .nd2 and .tif/.tiff.
 - Reproducible outputs: standardized images, per-image tables, and consolidated summaries suitable for downstream statistics and figure generation.
 
-# Installation 
-For *2. Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin* only:
-- To download and install *OrientationJ plugin* please visit [OrientationJ](https://bigwww.epfl.ch/demo/orientation/)
+# Installation and commands for the main assays
 
-For *all UMA-tools*:
-- To download and install *git* please visit [Git Download page](https://git-scm.com/downloads).
-- To download and install *conda* please visit [Miniforge github](https://github.com/conda-forge/miniforge)
-- To download and install *OrientationPy* please visit [Official page: [Library description](https://epfl-center-for-imaging.gitlab.io/orientationpy/introduction.html)] (version 0.3.0 is required)
+The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment` and `uma_thickness` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
 
-# Usage
-1. Before running the program, you need to modify a `input_paths.json` file. For Nuclei Counts & Layer Prediction please modify `alternative_assays/alternative_nuclei_layers_assay/nuclei_layers.json`.  This file should contain a list of folders with .nd2 /.tiff/.tif images, and you can include as many folders as needed.
-Additionally, before starting the program, make sure you know how many fluorescence channels you have (e.g., DAPI, Cy5) and their order in the file. You can check this by opening the image using the standard method in the GPU application (FiJi)[https://imagej.net/software/fiji/downloads].
+## Install
 
-2. Before first run only execute permission modofocation:
-- Fibronectin Fiber Alignment — OrientationJ ImageJ/FIJI plugin (original protocol, Windows only)
+Install [Git](https://git-scm.com/downloads) and [Miniforge](https://github.com/conda-forge/miniforge). On Apple Silicon, use the native arm64 installer; on an Intel Mac, use x86_64. Python and Java must use the same architecture.
+
+Clone the development branch and run the installation commands from the repository root:
+
 ```bash
-chmod +x original_fibronectin_alignment_analysis/alignment_analysis_original_approach.py
-```
-- Fibronectin Fiber Alignment - orientationpy library (cross-platform)
-```bash
-chmod +x code/alignment_analysis.py
-```
--   3D Unit Thickness Assay (fibronectin)
-```bash
-chmod +x code/thickness_analysis.py
-```
--   Nuclei Counts & Layer Prediction (3D)
-```bash
-chmod +x alternative_assays/alternative_nuclei_layers_assay/1_nla_fiji_channel_extraction.py
-```
-```bash
-chmod +x alternative_assays/alternative_nuclei_layers_assay/2_nla_stardist_prediction.py
-```
-```bash
-chmod +x alternative_assays/alternative_nuclei_layers_assay/3_nla_fiji_calculation.py
+git clone --branch UMA-tools-V2 --single-branch https://github.com/alexdolskii/UMA-tools.git
+cd UMA-tools
+conda env create -f environment_uma.yaml
+conda activate uma_tools
+python -m pip install .
+python -m pip check
 ```
 
-4. Run the main analysis script:
-```bash
-python original_fibronectin_alignment_analysis/alignment_analysis_original_approach.py
-```
-```bash
-python code/alignment_analysis.py -i input_paths.json
-```
-```bash
-python ccode/thickness_analysis.py -i input_paths.json
-```
-```bash
-python alternative_assays/alternative_nuclei_layers_assay/1_nla_fiji_channel_extraction.py -i alternative_assays/alternative_nuclei_layers_assay/nuclei_layers.json
-```
-```bash
-python alternative_assays/alternative_nuclei_layers_assay/2_nla_stardist_prediction.py -i alternative_assays/alternative_nuclei_layers_assay/nuclei_layers.json
-```
-```bash
-python alternative_assays/alternative_nuclei_layers_assay/3_nla_fiji_calculation.py -i alternative_assays/alternative_nuclei_layers_assay/nuclei_layers.json
+If `uma_tools` already exists, choose a new environment name with `conda env create -n uma_tools_v2 -f environment_uma.yaml`, then activate that name before installing the package. No existing FIA-tools environment needs to be changed.
+
+The environment specifies Python 3.10, OpenJDK 11, Maven, NumPy 1.26.4, PyImageJ 1.5.0, scyjava 1.10.0, jgo 1.0.4, and OrientationPy 0.3.0. scikit-image is installed automatically. TensorFlow and StarDist are not needed for these two assays. See [environment_uma.yaml](environment_uma.yaml) and [pyproject.toml](pyproject.toml) for the full requirements.
+
+Both programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route.
+
+`uv.lock` records the Python dependency resolution. It does not install Java or Maven and does not replace the Conda setup above.
+
+## Prepare the input JSON
+
+Keep the UMA schema: the key is `folder_paths`, not FIA-tools' `paths_to_files`.
+
+```json
+{
+  "folder_paths": [
+    "/absolute/path/to/image folder"
+  ]
+}
 ```
 
+Use absolute paths for image folders. The JSON file may be anywhere; pass its absolute path in quotes to run commands from any working directory. Hidden files, including macOS `._` metadata files, are excluded from image processing and file counts.
 
+## Run
+
+Activate the environment in each new terminal session:
+
+```bash
+conda activate uma_tools
+uma_alignment --help
+uma_thickness --help
+```
+
+Fibronectin alignment, using the default 15-degree range:
+
+```bash
+uma_alignment -i "/absolute/path/input_paths.json"
+```
+
+To choose another angle, for example 10 degrees:
+
+```bash
+uma_alignment -i "/absolute/path/input_paths.json" -a 10
+```
+
+The program asks for the fibronectin channel (numbered from 1) and confirmation to start. It accepts `.nd2`, `.tif`, and `.tiff` images. Existing processing settings, including the 500-by-500 projection size and the 55% alignment classification threshold, are retained.
+
+Fibronectin thickness:
+
+```bash
+uma_thickness -i "/absolute/path/input_paths.json"
+```
+
+The program asks for the file type (`.nd2` or `.tiff`), channel count, fibronectin channel where applicable, and confirmation. These terminal questions are intentional; headless means no Fiji windows, not unattended execution.
+
+Each assay retains its timestamped results directories and `log.log` files within the input folders. Alignment produces `Analysis/Alignment_Summary.csv`; thickness produces `Thickness_Summary.csv` with `Area`, `StdDev`, `Min`, `Max`, and `Median`. Image processing excludes macOS metadata files.
+
+The direct script interface remains available:
+
+```bash
+python code/alignment_analysis.py -i "/absolute/path/input_paths.json" -a 15
+python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
+```
+
+After updating the checkout, run `python -m pip install .` again in the active environment to update the installed commands.
+
+## Validation
+
+Run the command/argument tests after installing the package:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Enable the additional Fiji integration tests explicitly:
+
+```bash
+UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
+```
+
+These integration tests process small synthetic TIFF stacks without a display, check output tables and metadata-file exclusion, and compare direct Local Thickness results with the original menu command. They require Java, Maven, and network access for the initial Fiji download. Synthetic TIFF tests do not establish accuracy on every experimental dataset; representative ND2 files and their channel/calibration metadata must also be validated on the target machine.
+
+The [main-assay workflow](.github/workflows/core-assays.yml) builds the environment and runs these tests on Ubuntu and macOS. Check the latest GitHub Actions results before treating a platform as validated; a configured workflow alone is not evidence of a successful run.
+
+## Other approaches
+
+See [Original Fibronectin Alignment Analysis](original_fibronectin_alignment_analysis/README.md) for the Windows-only original protocol and its own environment, or [Alternative Assays](alternative_assays/README.md) for nuclei-layer analysis, marker-intensity analysis, visualization tools, and StarDist models.
 
 # Dependencies and Tools Used
 This program utilizes the following tools:
@@ -155,4 +202,3 @@ This program utilizes the following tools:
 
 
 Enjoy your use 💫
-

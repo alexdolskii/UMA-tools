@@ -9,6 +9,7 @@ from pathlib import Path
 
 import imagej
 import matplotlib
+matplotlib.use("Agg")
 import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,7 +38,7 @@ def initialize_imagej():
     # Attempt to initialize ImageJ headless mode
     print("Initializing ImageJ...")
     try:
-        ij = imagej.init('sc.fiji:fiji', mode='headless')
+        ij = imagej.init('sc.fiji:fiji:2.14.0', mode='headless')
     except Exception as e:
         raise ImageJInitializationError(
             f"Failed to initialize ImageJ: {e}")
@@ -189,6 +190,7 @@ def process_part1(
     # Import IJ and ZProjector
     IJ = sj.jimport('ij.IJ')
     ZProjector = sj.jimport('ij.plugin.ZProjector')
+    Duplicator = sj.jimport('ij.plugin.Duplicator')
 
     for filename in os.listdir(folder_path):
         if (
@@ -239,12 +241,14 @@ def process_part1(
             f"in '{filename}'."
         )
         imp.setC(fibronectin_channel_index)
-        IJ.run(
+        imp_fibro = Duplicator().run(
             imp,
-            "Duplicate...",
-            f"title=imp_fibro duplicate channels={fibronectin_channel_index}"
+            fibronectin_channel_index,
+            fibronectin_channel_index,
+            1, imp.getNSlices(),
+            1, imp.getNFrames()
         )
-        imp_fibro = IJ.getImage()
+        imp_fibro.setTitle("imp_fibro")
 
         # Perform maximum intensity projection along Z
         zp_fibro = ZProjector(imp_fibro)
@@ -736,40 +740,37 @@ def main_fibronectin_processing(
     logging.basicConfig(level=logging.INFO,
                         format='%(levelname)s: %(message)s')
 
-    # Initialize ImageJ
-    ij = initialize_imagej()
-
     # Get folder paths
     folder_paths = get_folder_paths(input_file_path)
 
-    # Get fibronectin channel index
-    fibr_chan_index = int(
-        input("Enter fibronectin channel index (starting from 1): ").strip()
-    )
-
-    # Prompt user to start processing
-    start_analysis = (input("\nDo you want to start processing? (y/n): ")
-                      .strip().lower())
-    if start_analysis in ('no', 'n'):
-        ij.dispose()
-        raise ValueError("Analysis canceled by user.")
-    elif start_analysis not in ('yes', 'y', 'no', 'n'):
-        raise ValueError("Incorrect input. Please enter y/n or yes/no")
-
-    # Process each folder
-    for folder_path in folder_paths:
-        process_folder(
-            folder_path,
-            fibr_chan_index,
-            angle_value,
-            desired_width,
-            desired_height,
-            ij
+    ij = initialize_imagej()
+    try:
+        fibr_chan_index = int(
+            input("Enter fibronectin channel index (starting from 1): ").strip()
         )
+        start_analysis = (input("\nDo you want to start processing? (y/n): ")
+                          .strip().lower())
+        if start_analysis in ('no', 'n'):
+            raise ValueError("Analysis canceled by user.")
+        elif start_analysis not in ('yes', 'y', 'no', 'n'):
+            raise ValueError("Incorrect input. Please enter y/n or yes/no")
 
-    print("\nAll folders have been processed.")
-    print("Terminating ImageJ...")
-    ij.context().dispose()
+        for folder_path in folder_paths:
+            process_folder(
+                folder_path,
+                fibr_chan_index,
+                angle_value,
+                desired_width,
+                desired_height,
+                ij
+            )
+        print("\nAll folders have been processed.")
+    except Exception:
+        logging.exception("Alignment analysis failed.")
+        raise
+    finally:
+        print("Terminating ImageJ...")
+        ij.dispose()
     print("Script execution completed.")
 
 

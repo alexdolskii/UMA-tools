@@ -1,0 +1,58 @@
+name: Validate main UMA assays
+
+on:
+  push:
+    branches: [UMA-tools-V2]
+    paths:
+      - 'code/**'
+      - 'tests/**'
+      - 'environment_uma.yaml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/core-assays.yml'
+  pull_request:
+    paths:
+      - 'code/**'
+      - 'tests/**'
+      - 'environment_uma.yaml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/core-assays.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Main assays on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          auto-activate-base: false
+          activate-environment: uma_tools
+          environment-file: environment_uma.yaml
+      - name: Install package and verify dependencies
+        run: |
+          python -m pip install .
+          python -m pip check
+          java -version
+          mvn -version
+          uma_alignment --help
+          uma_thickness --help
+      - name: Test commands and headless TIFF processing
+        env:
+          UMA_RUN_IMAGEJ_TESTS: '1'
+          MPLBACKEND: Agg
+        run: python -m unittest discover -s tests -v

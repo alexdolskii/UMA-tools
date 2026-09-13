@@ -5,7 +5,6 @@ import argparse
 import json
 import logging
 import os
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -31,7 +30,7 @@ def initialize_imagej():
     # Attempt to initialize ImageJ headless mode
     print("Initializing ImageJ...")
     try:
-        ij = imagej.init('sc.fiji:fiji', mode='headless')
+        ij = imagej.init('sc.fiji:fiji:2.14.0', mode='headless')
     except Exception as e:
         raise ImageJInitializationError(
             f"Failed to initialize ImageJ: {e}")
@@ -239,12 +238,13 @@ def process_single_file(
 
     # Reslice
     print("  Performing Reslice...")
-    IJ.run(imp_fibronectin,
-           "Reslice [/]...", "output=0.500 start=Top flip rotate avoid")
+    # Batch mode preserves the original macro options without GUI windows.
+    interpreter = jimport('ij.macro.Interpreter')()
+    resliced_imp = interpreter.runBatchMacro(
+        'run("Reslice [/]...", "output=0.500 start=Top flip rotate avoid");',
+        imp_fibronectin
+    )
     imp_fibronectin.close()
-    time.sleep(2)
-
-    resliced_imp = IJ.getImage()
     if resliced_imp is None:
         logging.warning(f"Failed to perform Reslice for {filename}")
         IJ.run("Close All")
@@ -253,11 +253,11 @@ def process_single_file(
 
     # Z Project
     print("  Performing Z projection...")
-    IJ.run(resliced_imp, "Z Project...", "projection=[Max Intensity]")
+    projector = jimport('ij.plugin.ZProjector')(resliced_imp)
+    projector.setMethod(projector.MAX_METHOD)
+    projector.doProjection()
+    projected_imp = projector.getProjection()
     resliced_imp.close()
-    time.sleep(2)
-
-    projected_imp = IJ.getImage()
     if projected_imp is None:
         logging.warning(f"Failed to perform Z projection for {filename}")
         IJ.run("Close All")
@@ -286,20 +286,14 @@ def process_single_file(
 
     # Run Local Thickness
     print("  Running Local Thickness...")
-    images_before = set(WindowManager.getImageTitles())
-    IJ.runMacro('run("Local Thickness (masked, calibrated, silent)");')
-    time.sleep(5)
-
-    images_after = set(WindowManager.getImageTitles())
-    new_images = images_after - images_before
-
-    if not new_images:
-        logging.warning("Local Thickness plugin failed.")
-        IJ.run("Close All")
-        return
-
-    new_image_title = new_images.pop()
-    local_thickness_imp = WindowManager.getImage(new_image_title)
+    # This is the same plugin registered by the masked/calibrated/silent menu
+    # command, but processImage returns its result without opening a window.
+    local_thickness = jimport('sc.fiji.localThickness.LocalThicknessWrapper')()
+    local_thickness.setSilence(True)
+    local_thickness.setShowOptions(False)
+    local_thickness.maskThicknessMap = True
+    local_thickness.calibratePixels = True
+    local_thickness_imp = local_thickness.processImage(projected_imp)
 
     if local_thickness_imp is None:
         logging.warning("  Could not retrieve Local Thickness image.")
@@ -307,18 +301,20 @@ def process_single_file(
         return
 
     local_thickness_imp.setTitle(f"Local_Thickness_of_{filename}")
+    IJ.run(local_thickness_imp, "Fire", "")
 
-    # Set measurements as in macro
-    IJ.run("Set Measurements...",
-           "area standard min median redirect=None decimal=3")
-
-    # Clear previous Results
-    IJ.run("Clear Results")
-
-    # Measure
+    # Measure the explicit image into a private table without a Results window.
+    # Preserve the original area, standard deviation, min/max and median flags.
     print("  Measuring thickness...")
-    IJ.run(local_thickness_imp, "Measure", "")
-    rt = jimport('ij.measure.ResultsTable').getResultsTable()
+    measurements = jimport('ij.measure.Measurements')
+    flags = (measurements.AREA | measurements.STD_DEV |
+             measurements.MIN_MAX | measurements.MEDIAN)
+    rt = ResultsTable()
+    rt.setPrecision(3)
+    analyzer = jimport('ij.plugin.filter.Analyzer')(
+        local_thickness_imp, flags, rt
+    )
+    analyzer.measure()
 
     # Extract results
     if rt is None or rt.getCounter() == 0:
@@ -326,6 +322,7 @@ def process_single_file(
         area = None
         std_dev = None
         min_thickness = None
+        max_thickness = None
         median_thickness = None
     else:
         try:
@@ -352,6 +349,8 @@ def process_single_file(
     IJ.saveAs(local_thickness_imp, "Tiff", thickness_path)
     logging.info(f"Local Thickness image saved to '{thickness_path}'.")
 
+    projected_imp.close()
+    local_thickness_imp.close()
     IJ.run("Close All")
     print("  Closed all images.\n")
 
@@ -496,43 +495,33 @@ def main(input_json_path: str) -> None:
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
 
-    ij = initialize_imagej()
-
-    (IJ,
-     ImagePlus,
-     WindowManager,
-     ResultsTable,
-     Duplicator,
-     System) = import_java_classes()
-
     folder_paths = get_folder_paths(input_json_path)
-    file_extension = get_file_type_choice()
-    num_channels = get_num_channels()
-    fibronectin_channel = get_fibronectin_channel(num_channels)
+    ij = initialize_imagej()
+    try:
+        (IJ, ImagePlus, WindowManager, ResultsTable,
+         Duplicator, System) = import_java_classes()
+        file_extension = get_file_type_choice()
+        num_channels = get_num_channels()
+        fibronectin_channel = get_fibronectin_channel(num_channels)
 
-    start_analysis = (input("\nDo you want to start processing? (y/n): ")
-                      .strip().lower())
-    if start_analysis in ('no', 'n'):
+        start_analysis = (input("\nDo you want to start processing? (y/n): ")
+                          .strip().lower())
+        if start_analysis in ('no', 'n'):
+            raise ValueError("Analysis canceled by user.")
+        elif start_analysis not in ('yes', 'y', 'no', 'n'):
+            raise ValueError("Incorrect input. Please enter y/n or yes/no")
+
+        process_all_folders(
+            ij, IJ, WindowManager, Duplicator, ResultsTable,
+            folder_paths, file_extension, fibronectin_channel
+        )
+    except Exception:
+        logging.exception("Thickness analysis failed.")
+        raise
+    finally:
+        print("Disposing of ImageJ context...")
         ij.dispose()
-        raise ValueError("Analysis canceled by user.")
-    elif start_analysis not in ('yes', 'y', 'no', 'n'):
-        raise ValueError("Incorrect input. Please enter y/n or yes/no")
-
-    process_all_folders(
-        ij,
-        IJ,
-        WindowManager,
-        Duplicator,
-        ResultsTable,
-        folder_paths,
-        file_extension,
-        fibronectin_channel
-    )
-
-    print("Disposing of ImageJ context...")
-    ij.dispose()
     print("Thickness analysis is successfully completed.")
-    System.exit(0)
 
 
 if __name__ == "__main__":
