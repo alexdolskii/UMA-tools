@@ -23,40 +23,13 @@ from pathlib import Path
 from ..common.config import read_config
 from ..common.files import safe_label, save_json
 from ..common.version import package_version
-from . import engine
-from .collection import (
-    COMBINED_PATTERN as COMBINED_PATTERN,
-)
-from .collection import (
-    ROLES as ROLES,
-)
-from .collection import (
-    SUCCESS_STATES as SUCCESS_STATES,
-)
-from .collection import (
-    archive_inputs as archive_inputs,
-)
-from .collection import (
-    collection_entries as collection_entries,
-)
-from .collection import (
-    discover_inputs as discover_inputs,
-)
-from .collection import (
-    read_collection_status as read_collection_status,
-)
-from .collection import (
-    recorded_basename as recorded_basename,
-)
-from .collection import (
-    select_combined as select_combined,
-)
-from .collection import (
-    verify_sources as verify_sources,
-)
-
-SCRIPT_VERSION = "4.0.0"
-ValidationError = engine.ValidationError
+from . import collected_inputs, dependencies, source_tables
+from . import io as report_io
+from . import plots as plot_renderer
+from . import validation as report_validation
+from . import workbook as workbook_export
+from .constants import EVENT_COLUMNS, SCRIPT_VERSION, THICKNESS_UNITS
+from .models import ValidationError
 
 
 class BufferedLog:
@@ -74,7 +47,7 @@ class BufferedLog:
                 stage,
                 str(message),
                 console,
-                timestamp or engine.utc_now(),
+                timestamp or report_io.utc_now(),
             )
         )
 
@@ -133,7 +106,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                 parent,
                 source.name if source is not None else "configuration_error",
             )
-            log = engine.RunLog(directory)
+            log = report_io.RunLog(directory)
             if buffered is not None:
                 buffered.replay(log)
             log.event("FAILED", "Startup", str(error))
@@ -144,9 +117,9 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                     "script_version": SCRIPT_VERSION,
                     "package_version": package_version(),
                     "status": "VALIDATION_FAILED"
-                    if isinstance(error, (engine.ValidationError, ValueError))
+                    if isinstance(error, (ValidationError, ValueError))
                     else "ERROR",
-                    "ended_utc": engine.utc_now(),
+                    "ended_utc": report_io.utc_now(),
                     "source_folder": str(source)
                     if source is not None
                     else None,
@@ -155,7 +128,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                     "run_directory": str(directory),
                 },
             )
-            engine.save_details(
+            report_io.save_details(
                 directory / "validation_errors.csv",
                 [{"Stage": "Startup", "Issue": str(error)}],
             )
@@ -175,18 +148,18 @@ def diagnostic_failure(source, input_json, error, buffered=None):
 def process_folder(source, input_json, args):
     buffered = BufferedLog()
     try:
-        combined = select_combined(source, buffered)
+        combined = collected_inputs.select_combined(source, buffered)
         run_id, directory = new_run(combined, source.name)
-    except (OSError, ValueError, engine.ValidationError) as error:
+    except (OSError, ValueError, ValidationError) as error:
         return diagnostic_failure(source, input_json, error, buffered)
-    log = engine.RunLog(directory)
+    log = report_io.RunLog(directory)
     status = {
         "run_id": run_id,
         "script_version": SCRIPT_VERSION,
         "package_version": package_version(),
         "status": "RUNNING",
         "stage": "Initialization",
-        "started_utc": engine.utc_now(),
+        "started_utc": report_io.utc_now(),
         "source_folder": str(source),
         "source_name": source.name,
         "combined_results_folder": str(combined),
@@ -239,7 +212,7 @@ def process_folder(source, input_json, args):
             "statistical_tests": "Not performed",
             "quartiles": "Linear interpolation (R type 7)",
             "whiskers": "1.5 x IQR",
-            "thickness_units": dict(engine.THICKNESS_UNITS),
+            "thickness_units": dict(THICKNESS_UNITS),
             "alignment_axis": [0, 100],
             "fibronectin_axis": [0, 100],
             "thickness_axis": (
@@ -253,9 +226,9 @@ def process_folder(source, input_json, args):
         }
         save_json(directory / "run_parameters.json", parameters)
         stage("Parameter validation")
-        threshold = engine.validate_fn_threshold(args.fn_threshold)
+        threshold = source_tables.validate_fn_threshold(args.fn_threshold)
         stage("Input discovery")
-        paths = discover_inputs(combined, source.name)
+        paths = collected_inputs.discover_inputs(combined, source.name)
         status["input_files"] = {
             role: str(path) for role, path in paths.items()
         }
@@ -265,7 +238,7 @@ def process_folder(source, input_json, args):
             "Three unchanged summaries and one plate-template workbook found",
         )
         stage("Input archive")
-        snapshots, manifests = archive_inputs(
+        snapshots, manifests = collected_inputs.archive_inputs(
             paths, input_json, combined, directory
         )
         parameters.update(
@@ -275,10 +248,10 @@ def process_folder(source, input_json, args):
             },
         )
         stage("Dependencies")
-        parameters["dependency_versions"] = engine.load_dependencies(log)
+        parameters["dependency_versions"] = dependencies.load_dependencies(log)
         save_json(directory / "run_parameters.json", parameters)
         stage("Input validation")
-        data = engine.validate_and_merge(
+        data = report_validation.validate_and_merge(
             snapshots,
             args.sheet,
             args.plate_id or source.name,
@@ -303,15 +276,15 @@ def process_folder(source, input_json, args):
             ("filtered_data.csv", data["retained_rows"]),
             ("excluded_data.csv", data["excluded_rows"]),
         ):
-            engine.save_csv(directory / filename, data["columns"], rows)
+            report_io.save_csv(directory / filename, data["columns"], rows)
         for filename, key in (
             ("group_filter_counts.csv", "group_filter_counts"),
             ("well_filter_counts.csv", "well_filter_counts"),
         ):
-            engine.save_csv(
+            report_io.save_csv(
                 directory / filename, list(data[key][0]), data[key]
             )
-        engine.save_csv(
+        report_io.save_csv(
             directory / "qc.csv", ["Check", "Value", "Details"], data["qc"]
         )
         status.update(
@@ -324,23 +297,25 @@ def process_folder(source, input_json, args):
             annotation_coverage_percent=100,
         )
         stage("Plots")
-        plots = engine.create_plots(data, directory / "Plots", log)
+        plots = plot_renderer.create_plots(data, directory / "Plots", log)
         save_json(directory / "plot_manifest.json", plots)
         stage("Workbook export")
         candidate = directory / "report_pending.xlsx"
         final_path = (
             directory / f"UMA_Report_{safe_label(source.name)}_{run_id}.xlsx"
         )
-        workbook = engine.build_workbook(data, plots, log.events, run_id)
+        workbook = workbook_export.build_workbook(
+            data, plots, log.events, run_id
+        )
         try:
             workbook.save(candidate)
-            engine.verify_workbook(candidate, data)
+            workbook_export.verify_workbook(candidate, data)
             log.event(
                 "PASS",
                 "Workbook verification",
                 "All data, 20 sheets, and 13 embedded plots verified",
             )
-            completion_time = engine.utc_now()
+            completion_time = report_io.utc_now()
             message = (
                 f"{len(data['rows'])} images; "
                 f"{len(data['retained_rows'])} retained; "
@@ -349,23 +324,23 @@ def process_folder(source, input_json, args):
             )
             completion = dict(
                 zip(
-                    engine.EVENT_COLUMNS,
+                    EVENT_COLUMNS,
                     [completion_time, "SUCCESS", "Run", message],
                 )
             )
             log_sheet = workbook["Run Log"]
             log_sheet.delete_rows(1, log_sheet.max_row)
-            engine.write_table(
+            workbook_export.write_table(
                 log_sheet,
-                engine.EVENT_COLUMNS,
+                EVENT_COLUMNS,
                 log.events + [completion],
                 widths=[28, 14, 32, 130],
             )
             workbook.save(candidate)
         finally:
             workbook.close()
-        engine.verify_workbook(candidate, data, require_success=True)
-        verify_sources(manifests)
+        workbook_export.verify_workbook(candidate, data, require_success=True)
+        collected_inputs.verify_sources(manifests)
         candidate.rename(final_path)
         log.event("SUCCESS", "Run", message, timestamp=completion_time)
         status.update(
@@ -379,7 +354,7 @@ def process_folder(source, input_json, args):
         print(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
         return True, directory
     except (Exception, KeyboardInterrupt) as error:
-        validation = isinstance(error, engine.ValidationError)
+        validation = isinstance(error, ValidationError)
         label = (
             "VALIDATION_FAILED"
             if validation
@@ -398,7 +373,9 @@ def process_folder(source, input_json, args):
                     path.unlink,
                     missing_ok=True,
                 )
-        status.update(status=label, ended_utc=engine.utc_now(), error=message)
+        status.update(
+            status=label, ended_utc=report_io.utc_now(), error=message
+        )
         status.pop("workbook", None)
         best_effort(
             "save failure status",
@@ -420,7 +397,7 @@ def process_folder(source, input_json, args):
         )
         best_effort(
             "save diagnostic details",
-            engine.save_details,
+            report_io.save_details,
             directory
             / ("validation_errors.csv" if validation else "error_details.csv"),
             details,

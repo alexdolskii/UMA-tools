@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.6**; this is separate from the V2
+The current Python package version is **0.2.7**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -20,10 +20,10 @@ Compared with the [earlier workflow](https://github.com/alexdolskii/UMA-tools/tr
 | Main workflow | Alignment and thickness, alongside alternative assays | Alignment, thickness, FN area, result collection, and reporting |
 | Results | Individual analysis outputs | Image-matched collected CSVs, plots, and an Excel report |
 
-The latest modular refactor preserves the established calculations, units,
-parameters, and output columns. Current alignment uses OrientationPy; the
-historical OrientationJ approach is linked below. Old script paths remain
-available for compatibility.
+The modular code preserves the established calculations, units, parameters,
+and output columns. Current alignment uses OrientationPy; the historical
+OrientationJ approach is linked below. Version 0.2.7 simplifies the launch
+structure to five commands and five numbered scripts.
 
 ## Install on macOS or Linux
 
@@ -141,12 +141,19 @@ python -m pip check
 uma_alignment --version
 ```
 
-An environment already set up for 0.2.5 needs no dependency changes for 0.2.6.
+An environment already set up for 0.2.5 or 0.2.6 needs no dependency changes
+for 0.2.7. The version command above should report `uma_alignment 0.2.7`.
 For older environments, first update with
 `conda env update -n uma_tools_new -f environment_uma.yaml`.
 Recreating the environment is unnecessary. Editable installation (`-e`) makes
 later Python source updates available after `git pull`; new commands or package
 metadata changes still require reinstalling the package.
+
+**Migration from earlier versions:** use the five installed commands above or
+the numbered `code/1_alignment.py` through `code/5_report.py` launchers. Old
+unnumbered script paths, such as `python code/alignment_analysis.py`, and their
+compatibility imports have been removed. The commands and their arguments are
+unchanged; see [`code/README.md`](code/README.md) for module locations.
 
 ## Development and paused approaches
 

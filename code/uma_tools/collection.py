@@ -2,7 +2,7 @@
 """Collect the latest valid UMA summaries for each JSON source folder.
 
 Usage: uma_collect_results -i input_paths.json
-       python code/collect_results.py -i input_paths.json
+       python code/4_collect_results.py -i input_paths.json
 
 Selection is independent for each assay. Image-set mismatches never
 trigger a search for older matching runs. CSV bytes are preserved.

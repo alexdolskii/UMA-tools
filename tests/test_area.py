@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from uma_tools import area_analysis as area
+from uma_tools.assays import area
 
 
 class AreaInputTests(unittest.TestCase):

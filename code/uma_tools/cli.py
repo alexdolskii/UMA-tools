@@ -61,7 +61,7 @@ def alignment(argv: Sequence[str] | None = None) -> int:
         help="Alignment angle in degrees (default: 15)",
     )
     args = parser.parse_args(argv)
-    from .alignment_analysis import main_fibronectin_processing
+    from .assays.alignment import main_fibronectin_processing
 
     return _run_imagej_command(
         main_fibronectin_processing, args.input, args.angle_value
@@ -73,27 +73,27 @@ def thickness(argv: Sequence[str] | None = None) -> int:
     parser = _image_parser("Fibronectin thickness analysis")
     args = parser.parse_args(argv)
     print(f"UMA-tools {package_version()} — thickness analysis", flush=True)
-    from .thickness_analysis import main
+    from .assays.thickness import main
 
     return _run_imagej_command(main, args.input)
 
 
 def area(argv: Sequence[str] | None = None) -> int:
     """Run area and record its runtime shutdown status."""
-    from .area_analysis import main
+    from .assays.area import main
 
     return main() if argv is None else main(argv)
 
 
 def collect_results(argv: Sequence[str] | None = None) -> int:
     """Collect summaries without loading scientific runtimes."""
-    from .collect_results import main
+    from .collection import main
 
     return main() if argv is None else main(argv)
 
 
 def report(argv: Sequence[str] | None = None) -> int:
     """Create plots and an Excel report without starting Fiji."""
-    from .report import main
+    from .reporting.workflow import main
 
     return main() if argv is None else main(argv)

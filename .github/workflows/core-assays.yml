@@ -53,7 +53,9 @@ jobs:
           java -version
           mvn -version
           uma_alignment --help
+          uma_alignment --version
           uma_thickness --help
+          uma_thickness --version
           area_analysis --help
           area_analysis --version
           uma_collect_results --help
@@ -66,13 +68,11 @@ jobs:
           ruff check code tests
           # Match formatter slices and PEP 8's break-before-operator style.
           pycodestyle --max-line-length=79 --max-doc-length=72 --ignore=E203,W503 code
-      - name: Check numbered and legacy script entry points
+      - name: Check five numbered script entry points
         run: |
           for script in \
             1_alignment.py 2_thickness.py 3_area.py \
-            4_collect_results.py 5_report.py \
-            alignment_analysis.py thickness_analysis.py area_analysis.py \
-            collect_results.py report.py; do
+            4_collect_results.py 5_report.py; do
             python "code/$script" --help
             python "code/$script" --version
           done

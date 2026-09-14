@@ -18,8 +18,9 @@ from unittest.mock import patch
 
 import openpyxl
 
-from uma_tools import report
-from uma_tools import report_rendering as engine
+from uma_tools.reporting import collected_inputs, dependencies, validation
+from uma_tools.reporting import workflow as report
+from uma_tools.reporting.models import ValidationError
 
 ALIGNMENT_METRIC = "Percentage_Fibers_Aligned_Within_15_Degree"
 ALIGNMENT_SUFFIX = "_processed_orientation_distribution.csv"
@@ -226,7 +227,7 @@ class ReportFixture(unittest.TestCase):
     def merge(self, paths, threshold=20, sheet=None):
         output = self.root / "validation"
         output.mkdir(exist_ok=True)
-        return engine.validate_and_merge(
+        return validation.validate_and_merge(
             paths, sheet, "Synthetic plate", output, self.log, threshold
         )
 
@@ -257,7 +258,7 @@ class CombinedSelectionTests(ReportFixture):
         )
         os.utime(older, (2000000000, 2000000000))
         self.assertEqual(
-            report.select_combined(self.source, self.log), selected
+            collected_inputs.select_combined(self.source, self.log), selected
         )
 
     def test_hidden_nested_and_symlinked_combined_folders_do_not_compete(self):
@@ -275,7 +276,7 @@ class CombinedSelectionTests(ReportFixture):
             / f"Combined_Results_{self.source.name}_20260914_160000_000001"
         ).symlink_to(target, target_is_directory=True)
         self.assertEqual(
-            report.select_combined(self.source, self.log), selected
+            collected_inputs.select_combined(self.source, self.log), selected
         )
 
     def test_missing_or_malformed_completion_status_is_not_completed(self):
@@ -288,24 +289,26 @@ class CombinedSelectionTests(ReportFixture):
                 status_path.unlink()
             else:
                 status_path.write_text(json.dumps(payload), encoding="utf-8")
-        with self.assertRaises(report.ValidationError):
-            report.select_combined(self.source, self.log)
+        with self.assertRaises(ValidationError):
+            collected_inputs.select_combined(self.source, self.log)
 
     def test_manifest_survives_move_and_requires_byte_exact_direct_copies(
         self,
     ):
         paths = self.inputs()
         combined = paths["template"].parent
-        discovered = report.discover_inputs(combined, self.source.name)
+        discovered = collected_inputs.discover_inputs(
+            combined, self.source.name
+        )
         self.assertEqual(discovered, paths)
         paths["thickness"].write_bytes(
             paths["thickness"].read_bytes() + b"\r\n"
         )
         with self.assertRaisesRegex(
-            report.ValidationError,
+            ValidationError,
             "(?i)hash|sha256|digest|checksum|changed since collection",
         ):
-            report.discover_inputs(combined, self.source.name)
+            collected_inputs.discover_inputs(combined, self.source.name)
 
     def test_selected_latest_missing_csv_does_not_fall_back(self):
         self.inputs(self.make_combined("20260914_100000_000001"))
@@ -316,17 +319,19 @@ class CombinedSelectionTests(ReportFixture):
             )
         )
         paths["fibronectin"].unlink()
-        selected = report.select_combined(self.source, self.log)
+        selected = collected_inputs.select_combined(self.source, self.log)
         self.assertEqual(selected, paths["template"].parent)
-        with self.assertRaises(report.ValidationError):
-            report.discover_inputs(selected, self.source.name)
+        with self.assertRaises(ValidationError):
+            collected_inputs.discover_inputs(selected, self.source.name)
 
     def test_archive_rejects_analysis_removed_from_manifest_after_discovery(
         self,
     ):
         paths = self.inputs()
         combined = paths["template"].parent
-        discovered = report.discover_inputs(combined, self.source.name)
+        discovered = collected_inputs.discover_inputs(
+            combined, self.source.name
+        )
         self.assertEqual(discovered, paths)
         status_path = combined / "run_status.json"
         status = json.loads(status_path.read_text(encoding="utf-8"))
@@ -339,8 +344,8 @@ class CombinedSelectionTests(ReportFixture):
         status_path.write_text(json.dumps(status), encoding="utf-8")
         output = self.root / "archive attempt"
         output.mkdir()
-        with self.assertRaises(report.ValidationError):
-            report.archive_inputs(
+        with self.assertRaises(ValidationError):
+            collected_inputs.archive_inputs(
                 discovered, self.config([self.source]), combined, output
             )
 
@@ -350,17 +355,19 @@ class CombinedSelectionTests(ReportFixture):
         (combined / "._metadata.xlsx").write_bytes(b"not an Excel file")
         (combined / "~$locked.xlsx").write_bytes(b"not an Excel file")
         self.assertEqual(
-            report.discover_inputs(combined, self.source.name)["template"],
+            collected_inputs.discover_inputs(combined, self.source.name)[
+                "template"
+            ],
             paths["template"],
         )
         duplicate = combined / "second.xlsx"
         shutil.copyfile(paths["template"], duplicate)
-        with self.assertRaises(report.ValidationError):
-            report.discover_inputs(combined, self.source.name)
+        with self.assertRaises(ValidationError):
+            collected_inputs.discover_inputs(combined, self.source.name)
         duplicate.unlink()
         paths["template"].unlink()
-        with self.assertRaises(report.ValidationError):
-            report.discover_inputs(combined, self.source.name)
+        with self.assertRaises(ValidationError):
+            collected_inputs.discover_inputs(combined, self.source.name)
 
     def test_symlinked_summary_cannot_escape_selected_combined_directory(self):
         paths = self.inputs()
@@ -368,14 +375,16 @@ class CombinedSelectionTests(ReportFixture):
         external = self.root / "external_summary.csv"
         source.rename(external)
         source.symlink_to(external)
-        with self.assertRaises(report.ValidationError):
-            report.discover_inputs(paths["template"].parent, self.source.name)
+        with self.assertRaises(ValidationError):
+            collected_inputs.discover_inputs(
+                paths["template"].parent, self.source.name
+            )
 
 
 class MergeValidationTests(ReportFixture):
     @classmethod
     def setUpClass(cls):
-        engine.load_dependencies(EventLog())
+        dependencies.load_dependencies(EventLog())
 
     def test_full_identity_and_exact_legacy_stem_join_without_sequence_tokens(
         self,
@@ -481,7 +490,7 @@ class MergeValidationTests(ReportFixture):
         self,
     ):
         paths = self.inputs(names=("same_WellB02.nd2", "same_WellB02.tif"))
-        with self.assertRaises(engine.ValidationError):
+        with self.assertRaises(ValidationError):
             self.merge(paths)
 
     def test_equal_counts_with_different_full_image_names_do_not_match(self):
@@ -494,7 +503,7 @@ class MergeValidationTests(ReportFixture):
             list(rows[0]),
             [list(row.values()) for row in rows],
         )
-        with self.assertRaises(engine.ValidationError):
+        with self.assertRaises(ValidationError):
             self.merge(paths)
 
     def test_area_image_id_must_agree_with_original_filename(self):
@@ -502,13 +511,13 @@ class MergeValidationTests(ReportFixture):
         self.mutate_csv(
             paths["fibronectin"], "Image_ID", "different_WellB03.nd2"
         )
-        with self.assertRaises(engine.ValidationError):
+        with self.assertRaises(ValidationError):
             self.merge(paths)
 
     def test_unannotated_well_fails_with_coordinate_diagnostic(self):
         paths = self.inputs(annotations={"B02": "Group one"})
         with self.assertRaisesRegex(
-            engine.ValidationError, "(?i)B03|unannotated|coverage"
+            ValidationError, "(?i)B03|unannotated|coverage"
         ):
             self.merge(paths)
         diagnostics = self.read_csv(
@@ -531,7 +540,7 @@ class MergeValidationTests(ReportFixture):
                     self.make_combined(f"20260914_12000{index}_000001")
                 )
                 self.mutate_csv(paths[role], column, value)
-                with self.assertRaises(engine.ValidationError):
+                with self.assertRaises(ValidationError):
                     self.merge(paths)
 
     def test_template_formula_is_rejected_without_evaluating_or_shifting(self):
@@ -540,9 +549,7 @@ class MergeValidationTests(ReportFixture):
         workbook.active["C3"] = '=CONCAT("Group", " one")'
         workbook.save(paths["template"])
         workbook.close()
-        with self.assertRaisesRegex(
-            engine.ValidationError, "(?i)literal|formula"
-        ):
+        with self.assertRaisesRegex(ValidationError, "(?i)literal|formula"):
             self.merge(paths)
 
 
@@ -561,15 +568,19 @@ class ReportCommandTests(ReportFixture):
             raise RuntimeError("synthetic workbook verification failure")
 
         with (
-            patch.object(report.engine, "create_plots", return_value=[]),
             patch.object(
-                report.engine, "build_workbook", return_value=workbook
+                report.plot_renderer, "create_plots", return_value=[]
             ),
             patch.object(
-                report.engine, "verify_workbook", side_effect=fail_verification
+                report.workbook_export, "build_workbook", return_value=workbook
+            ),
+            patch.object(
+                report.workbook_export,
+                "verify_workbook",
+                side_effect=fail_verification,
             ) as verification,
             patch.object(
-                report.engine,
+                report.report_io,
                 "save_details",
                 side_effect=OSError("synthetic diagnostics write failure"),
             ) as details,
@@ -600,7 +611,7 @@ class ReportCommandTests(ReportFixture):
         paths = self.inputs()
         config = self.config([self.source])
         with patch.object(
-            report.engine,
+            report.dependencies,
             "load_dependencies",
             side_effect=RuntimeError("synthetic dependency failure"),
         ):
@@ -632,7 +643,9 @@ class ReportCommandTests(ReportFixture):
         paths = self.inputs()
         config = self.config([self.source])
         with patch.object(
-            report.engine, "load_dependencies", side_effect=KeyboardInterrupt
+            report.dependencies,
+            "load_dependencies",
+            side_effect=KeyboardInterrupt,
         ):
             with (
                 contextlib.redirect_stdout(io.StringIO()),
@@ -846,7 +859,13 @@ class ReportCommandTests(ReportFixture):
         paths["template"].unlink()
         config = self.config([self.source])
         result = subprocess.run(
-            [sys.executable, "-m", "uma_tools.report", "-i", str(config)],
+            [
+                sys.executable,
+                "-m",
+                "uma_tools.reporting.workflow",
+                "-i",
+                str(config),
+            ],
             cwd=self.root,
             capture_output=True,
             text=True,
@@ -888,7 +907,7 @@ class ReportCommandTests(ReportFixture):
         self.assertEqual(result, 1)
 
     def test_help_and_version_outside_repository_do_not_import_imagej(self):
-        script = Path(__file__).resolve().parents[1] / "code" / "report.py"
+        script = Path(__file__).resolve().parents[1] / "code" / "5_report.py"
         for argument in ("--help", "--version"):
             with self.subTest(argument=argument):
                 completed = subprocess.run(
@@ -906,7 +925,8 @@ class ReportCommandTests(ReportFixture):
                 self.assertIn("report", completed.stdout.lower())
         code = (
             "import runpy,sys; sys.argv=['uma_report','--help']; "
-            "\ntry: runpy.run_module('uma_tools.report',run_name='__main__')"
+            "\ntry: runpy.run_module("
+            "'uma_tools.reporting.workflow',run_name='__main__')"
             "\nexcept SystemExit as error: assert error.code == 0"
             "\nassert 'imagej' not in sys.modules "
             "and 'scyjava' not in sys.modules"

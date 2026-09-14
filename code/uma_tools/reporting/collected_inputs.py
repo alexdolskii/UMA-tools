@@ -12,8 +12,9 @@ from datetime import datetime
 from pathlib import Path, PureWindowsPath
 
 from ..common.contracts import SUMMARY_NAMES
-from . import engine
-from .models import EventLogger, ReportInputs
+from ..common.files import sha256_file
+from . import io as report_io
+from .models import EventLogger, ReportInputs, ValidationError
 
 ROLES = {
     "Alignment": ("alignment", SUMMARY_NAMES["Alignment"]),
@@ -29,15 +30,13 @@ SUCCESS_STATES = {"SUCCESS", "SUCCESS_WITH_MISSING_ANALYSES"}
 def read_collection_status(combined):
     path = combined / "run_status.json"
     if path.is_symlink() or not path.is_file():
-        raise engine.ValidationError(
+        raise ValidationError(
             "Collector completion record is missing or not a regular file: "
             f"{path}"
         )
     status = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(status, dict):
-        raise engine.ValidationError(
-            f"Invalid collector completion record: {path}"
-        )
+        raise ValidationError(f"Invalid collector completion record: {path}")
     return status
 
 
@@ -57,7 +56,7 @@ def select_combined(source: Path, log: EventLogger) -> Path:
         try:
             match = COMBINED_PATTERN.fullmatch(path.name)
             if not match:
-                raise engine.ValidationError(
+                raise ValidationError(
                     "Unrecognized Combined_Results timestamp"
                 )
             timestamp = datetime.strptime(match[1], "%Y%m%d_%H%M%S")
@@ -65,16 +64,16 @@ def select_combined(source: Path, log: EventLogger) -> Path:
                 timestamp = timestamp.replace(microsecond=int(match[2]))
             status = read_collection_status(path)
             if status.get("status") not in SUCCESS_STATES:
-                raise engine.ValidationError(
+                raise ValidationError(
                     f"Collector status is {status.get('status')!r}"
                 )
             candidates.append((timestamp, path))
-        except (OSError, ValueError, engine.ValidationError) as error:
+        except (OSError, ValueError, ValidationError) as error:
             log.event(
                 "WARNING", "Collection selection", f"Skipping {path}: {error}"
             )
     if not candidates:
-        raise engine.ValidationError(
+        raise ValidationError(
             f"No successful Combined_Results directory found in {source}"
         )
     candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
@@ -82,7 +81,7 @@ def select_combined(source: Path, log: EventLogger) -> Path:
         path for timestamp, path in candidates if timestamp == candidates[0][0]
     ]
     if len(latest) != 1:
-        raise engine.ValidationError(
+        raise ValidationError(
             "Several successful collections have the same latest timestamp: "
             + ", ".join(str(path) for path in latest)
         )
@@ -100,14 +99,10 @@ def recorded_basename(value):
     drives.
     """
     if not isinstance(value, str) or not value:
-        raise engine.ValidationError(
-            "Collector manifest contains an empty CSV path"
-        )
+        raise ValidationError("Collector manifest contains an empty CSV path")
     name = PureWindowsPath(value).name if "\\" in value else Path(value).name
     if not name or name.startswith((".", "~$")) or name in {".", ".."}:
-        raise engine.ValidationError(
-            f"Invalid collected CSV filename: {value!r}"
-        )
+        raise ValidationError(f"Invalid collected CSV filename: {value!r}")
     return name
 
 
@@ -116,31 +111,31 @@ def collection_entries(status):
     Validate the complete collector manifest, including archived copies.
     """
     if not isinstance(status, dict):
-        raise engine.ValidationError("Invalid collector completion record")
+        raise ValidationError("Invalid collector completion record")
     if status.get("status") not in SUCCESS_STATES:
-        raise engine.ValidationError(
+        raise ValidationError(
             "The selected collection is no longer marked successful"
         )
     entries = status.get("copied_csvs")
     if not isinstance(entries, list):
-        raise engine.ValidationError(
+        raise ValidationError(
             "Collector completion record has no copied_csvs manifest"
         )
     by_analysis = {}
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("analysis") not in ROLES:
-            raise engine.ValidationError(
+            raise ValidationError(
                 "Collector manifest contains an unknown analysis entry"
             )
         analysis = entry["analysis"]
         if analysis in by_analysis:
-            raise engine.ValidationError(
+            raise ValidationError(
                 f"Duplicate {analysis} entries in collector manifest"
             )
         by_analysis[analysis] = entry
     missing = [analysis for analysis in ROLES if analysis not in by_analysis]
     if missing:
-        raise engine.ValidationError(
+        raise ValidationError(
             "All three analyses are required. Missing: " + ", ".join(missing)
         )
     return by_analysis
@@ -172,7 +167,7 @@ def discover_inputs(combined: Path, source_name: str) -> ReportInputs:
             issue = (
                 f"Missing or invalid {analysis} SHA256 in collector manifest"
             )
-        elif engine.sha256_file(path) != digest.lower():
+        elif sha256_file(path) != digest.lower():
             issue = (
                 f"Collected {analysis} CSV has changed since collection: "
                 f"{path}"
@@ -205,7 +200,7 @@ def discover_inputs(combined: Path, source_name: str) -> ReportInputs:
     else:
         paths["template"] = templates[0]
     if details:
-        raise engine.ValidationError(
+        raise ValidationError(
             "Selected collection is not ready for reporting. "
             + "; ".join(item["Issue"] for item in details),
             details,
@@ -242,15 +237,13 @@ def archive_inputs(paths, input_json, combined, directory):
     for role, source in sources.items():
         name = names.get(role, source.name)
         if name in used:
-            raise engine.ValidationError(
-                f"Input archive filename collision: {name}"
-            )
+            raise ValidationError(f"Input archive filename collision: {name}")
         used.add(name)
         data = source.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         target = archive / name
         target.write_bytes(data)
-        if engine.sha256_file(target) != digest:
+        if sha256_file(target) != digest:
             raise OSError(f"Input copy verification failed: {target}")
         records.append(
             {
@@ -264,7 +257,7 @@ def archive_inputs(paths, input_json, combined, directory):
         )
         if role in paths:
             snapshots[role] = target
-    engine.save_csv(
+    report_io.save_csv(
         directory / "input_manifest.csv", list(records[0]), records
     )
     # Reconcile copied summary bytes against the archived collector
@@ -282,7 +275,7 @@ def archive_inputs(paths, input_json, combined, directory):
             or not isinstance(digest, str)
             or digest.lower() != record["SHA256"]
         ):
-            raise engine.ValidationError(
+            raise ValidationError(
                 "Collector manifest changed while inputs were copied: "
                 + record["Path"]
             )
@@ -292,7 +285,7 @@ def archive_inputs(paths, input_json, combined, directory):
 
 def verify_sources(records):
     for record in records:
-        if engine.sha256_file(Path(record["Path"])) != record["SHA256"]:
-            raise engine.ValidationError(
+        if sha256_file(Path(record["Path"])) != record["SHA256"]:
+            raise ValidationError(
                 "An input changed during report generation: " + record["Path"]
             )

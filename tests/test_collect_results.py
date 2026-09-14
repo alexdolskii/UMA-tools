@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from uma_tools import collect_results as collector
+from uma_tools import collection as collector
 
 
 class CollectionTests(unittest.TestCase):
@@ -492,7 +492,9 @@ class CollectionTests(unittest.TestCase):
         self.assertIn("Collection finished", result.stdout)
         # -S disables site-packages; the launcher must use only stdlib.
         launcher = (
-            Path(__file__).resolve().parents[1] / "code" / "collect_results.py"
+            Path(__file__).resolve().parents[1]
+            / "code"
+            / "4_collect_results.py"
         )
         result = subprocess.run(
             [sys.executable, "-S", str(launcher), "-i", str(self.config)],

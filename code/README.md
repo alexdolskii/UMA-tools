@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.6**.
+development; the current Python package version is **0.2.7**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -27,10 +27,11 @@ They accept identical arguments, for example, from the repository root:
 python code/1_alignment.py -i input_paths.json -a 15
 ```
 
-The old `alignment_analysis.py`, `thickness_analysis.py`, `area_analysis.py`,
-`collect_results.py`, and `report.py` paths remain compatibility launchers.
-Existing imports under `uma_tools` remain available. All launchers and installed
-commands support `--help` and `--version` without starting Fiji.
+All five launchers and installed commands support `--help` and `--version`
+without starting Fiji. Version 0.2.7 removes the old unnumbered launchers and
+compatibility import modules. Replace calls such as
+`python code/alignment_analysis.py` with `uma_alignment` or
+`python code/1_alignment.py`; arguments stay the same.
 
 ## Module responsibilities
 
@@ -43,11 +44,28 @@ Reusable code belongs in the importable `uma_tools` package:
 | `uma_tools/runtime/` | Shared headless Fiji initialization and worker cleanup |
 | `uma_tools/collection.py` | Result selection and image correspondence |
 | `uma_tools/reporting/` | Input validation, plate mapping, plots, and Excel output |
+| `uma_tools/reporting/collected_inputs.py` | Select and archive collected report inputs; distinct from running result collection |
 | `uma_tools/common/` | Configuration, file operations, output directories, logs, errors, version, and shared data definitions |
 
-Reporting separates workflow, validation, plotting, and workbook generation.
-Scientific dependencies load when needed. New code should import these focused
-modules; compatibility launchers should contain no processing logic.
+The `code` directory contains only the five numbered launchers, this README,
+and the package. Each launcher calls `uma_tools.cli`, which calls the relevant
+implementation directly. Reporting separates workflow, validation, plotting,
+and workbook generation; scientific dependencies load when needed.
+
+For custom Python integrations, replace old compatibility imports with these
+module locations:
+
+| Removed module | Implementation |
+|---|---|
+| `uma_tools.alignment_analysis` | `uma_tools.assays.alignment` |
+| `uma_tools.thickness_analysis` | `uma_tools.assays.thickness` |
+| `uma_tools.area_analysis` | `uma_tools.assays.area` |
+| `uma_tools.collect_results` | `uma_tools.collection` |
+| `uma_tools.report` | `uma_tools.reporting.workflow` |
+| `uma_tools.report_rendering` or `uma_tools.reporting.engine` | Import the needed functions from `reporting.plots`, `reporting.workbook`, `reporting.validation`, or the other focused reporting modules |
+
+The command interfaces remain unchanged. Runtime dependencies also remain
+unchanged from 0.2.5 and 0.2.6; updating the installed package is sufficient.
 
 ## Behavior to preserve
 

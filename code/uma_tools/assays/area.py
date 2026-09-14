@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import importlib.metadata
 import json
 import platform
 import sys
@@ -65,6 +64,7 @@ from ..common.files import sha256_file
 from ..common.run import RunLog as _RunLog
 from ..common.run import unique_output
 from ..common.run import utc_now as _utc_now
+from ..common.version import package_version
 from ..runtime.imagej import (
     FIJI_ENDPOINT,
     shutdown_imagej_workers,
@@ -138,13 +138,6 @@ SUMMARY_COLUMNS = PROJECTION_COLUMNS + [
     "Mask_Path",
     "Mask_SHA256",
 ]
-
-
-def package_version():
-    try:
-        return importlib.metadata.version("uma-tools")
-    except importlib.metadata.PackageNotFoundError:
-        return "not installed"
 
 
 def utc_now() -> str:

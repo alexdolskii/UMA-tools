@@ -3,7 +3,6 @@
 import contextlib
 import csv
 import hashlib
-import importlib
 import io
 import json
 import logging
@@ -19,18 +18,17 @@ import numpy as np
 import pandas as pd
 import tifffile
 
-from uma_tools import alignment_analysis as alignment
-from uma_tools import collect_results as collector
-from uma_tools import thickness_analysis as thickness
+from uma_tools import collection as collector
+from uma_tools.assays import alignment, thickness
 
 FIXTURES = Path(__file__).with_name("fixtures")
 REPOSITORY = Path(__file__).resolve().parents[1]
 ENTRY_POINTS = (
-    ("1_alignment.py", "alignment_analysis.py", "uma_alignment"),
-    ("2_thickness.py", "thickness_analysis.py", "uma_thickness"),
-    ("3_area.py", "area_analysis.py", "area_analysis"),
-    ("4_collect_results.py", "collect_results.py", "uma_collect_results"),
-    ("5_report.py", "report.py", "uma_report"),
+    ("1_alignment.py", "uma_alignment"),
+    ("2_thickness.py", "uma_thickness"),
+    ("3_area.py", "area_analysis"),
+    ("4_collect_results.py", "uma_collect_results"),
+    ("5_report.py", "uma_report"),
 )
 
 
@@ -155,7 +153,7 @@ class FrozenAlignmentTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
-    def test_numbered_and_legacy_scripts_help_and_version_are_lightweight(
+    def test_numbered_scripts_help_and_version_are_lightweight(
         self,
     ):
         driver = """
@@ -171,32 +169,31 @@ for name in ("imagej", "jpype", "matplotlib.pyplot"):
     assert name not in sys.modules, name
 """
         with tempfile.TemporaryDirectory() as cwd:
-            for numbered, legacy, _ in ENTRY_POINTS:
-                for filename in (numbered, legacy):
-                    for argument in ("--help", "--version"):
-                        with self.subTest(file=filename, argument=argument):
-                            path = REPOSITORY / "code" / filename
-                            completed = subprocess.run(
-                                [
-                                    sys.executable,
-                                    "-c",
-                                    driver,
-                                    str(path),
-                                    argument,
-                                ],
-                                cwd=cwd,
-                                capture_output=True,
-                                text=True,
-                                timeout=30,
-                            )
-                            self.assertEqual(
-                                completed.returncode, 0, completed.stderr
-                            )
-                            self.assertTrue(completed.stdout.strip())
+            for filename, _ in ENTRY_POINTS:
+                for argument in ("--help", "--version"):
+                    with self.subTest(file=filename, argument=argument):
+                        path = REPOSITORY / "code" / filename
+                        completed = subprocess.run(
+                            [
+                                sys.executable,
+                                "-c",
+                                driver,
+                                str(path),
+                                argument,
+                            ],
+                            cwd=cwd,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        self.assertEqual(
+                            completed.returncode, 0, completed.stderr
+                        )
+                        self.assertTrue(completed.stdout.strip())
 
     def test_installed_commands_keep_argument_error_exit_status(self):
         with tempfile.TemporaryDirectory() as cwd:
-            for _, _, command in ENTRY_POINTS:
+            for _, command in ENTRY_POINTS:
                 executable = Path(sys.executable).parent / command
                 with self.subTest(command=command):
                     completed = subprocess.run(
@@ -209,16 +206,73 @@ for name in ("imagej", "jpype", "matplotlib.pyplot"):
                     self.assertEqual(completed.returncode, 2, completed.stderr)
                     self.assertIn("--input", completed.stderr)
 
-    def test_legacy_assay_imports_keep_public_processing_functions(self):
-        for legacy, modular, attribute in (
-            ("alignment_analysis", "assays.alignment", "process_folder"),
-            ("thickness_analysis", "assays.thickness", "process_single_file"),
-            ("area_analysis", "assays.area", "main"),
-        ):
-            with self.subTest(module=legacy):
-                old = importlib.import_module(f"uma_tools.{legacy}")
-                new = importlib.import_module(f"uma_tools.{modular}")
-                self.assertIs(getattr(old, attribute), getattr(new, attribute))
+    def test_numbered_commands_reach_canonical_analyses_without_adapters(self):
+        """Exercise launch, argument routing, and exit status in isolation."""
+        driver = """
+import runpy
+import sys
+import types
+
+path, module_name, function_name, result = sys.argv[1:]
+for removed in (
+    "alignment_analysis", "thickness_analysis", "area_analysis",
+    "collect_results", "report", "report_rendering",
+    "reporting.engine", "reporting.collection",
+):
+    sys.modules["uma_tools." + removed] = None
+module = types.ModuleType(module_name)
+calls = []
+
+def calculate(*args):
+    calls.append(args)
+    assert sys.argv[1:] == ["-i", "routing path.json"]
+    return int(result)
+
+setattr(module, function_name, calculate)
+sys.modules[module_name] = module
+sys.argv = [path, "-i", "routing path.json"]
+try:
+    runpy.run_path(path, run_name="__main__")
+except SystemExit as error:
+    assert error.code == int(result), error.code
+else:
+    raise AssertionError("The launcher did not propagate its exit status")
+expected = {
+    "uma_tools.assays.alignment": ("routing path.json", 15),
+    "uma_tools.assays.thickness": ("routing path.json",),
+}.get(module_name, ())
+assert calls == [expected], calls
+for heavy in ("imagej", "matplotlib.pyplot"):
+    assert heavy not in sys.modules, heavy
+"""
+        targets = (
+            ("assays.alignment", "main_fibronectin_processing", 0),
+            ("assays.thickness", "main", 0),
+            ("assays.area", "main", 3),
+            ("collection", "main", 3),
+            ("reporting.workflow", "main", 3),
+        )
+        with tempfile.TemporaryDirectory() as cwd:
+            for (filename, _), (module, entry, status) in zip(
+                ENTRY_POINTS, targets
+            ):
+                with self.subTest(command=filename):
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            driver,
+                            str(REPOSITORY / "code" / filename),
+                            f"uma_tools.{module}",
+                            entry,
+                            str(status),
+                        ],
+                        cwd=cwd,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 class ScopedAssayTests(unittest.TestCase):
