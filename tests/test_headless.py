@@ -192,7 +192,9 @@ class HeadlessTests(unittest.TestCase):
                                  tuple(reference_image.getDimensions()))
                 actual_cal = actual_image.getCalibration()
                 reference_cal = reference_image.getCalibration()
-                self.assertAlmostEqual(reference_cal.pixelWidth, 0.75)
+                # TIFF resolution is stored as a rational: ImageJ reloads
+                # 0.75 as 0.7500001875. Actual/reference equality stays exact.
+                self.assertAlmostEqual(reference_cal.pixelWidth, 0.75, delta=1e-6)
                 self.assertAlmostEqual(reference_cal.pixelHeight, 0.5)
                 self.assertEqual(actual_cal.getUnit(), reference_cal.getUnit())
                 for axis in ("pixelWidth", "pixelHeight", "pixelDepth"):
