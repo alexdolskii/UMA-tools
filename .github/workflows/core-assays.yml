@@ -55,6 +55,8 @@ jobs:
           area_analysis --version
           uma_collect_results --help
           uma_collect_results --version
+          uma_report --help
+          uma_report --version
       - name: Test commands and headless TIFF processing
         env:
           UMA_RUN_IMAGEJ_TESTS: '1'

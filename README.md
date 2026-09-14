@@ -58,7 +58,7 @@ Alternative nuclei-layer assays, marker-intensity analysis, data visualization t
 
 # Installation and commands for the main assays
 
-The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment`, `uma_thickness`, `area_analysis`, and `uma_collect_results` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
+The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment`, `uma_thickness`, `area_analysis`, `uma_collect_results`, and `uma_report` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
 
 ## Install
 
@@ -75,11 +75,11 @@ python -m pip install .
 python -m pip check
 ```
 
-For an existing UMA environment, activate its actual name (for example, `conda activate uma_tools_new`) and update the package as described below. Adding the area and results-collection commands does not require recreating the environment. To deliberately create a separate environment, use `conda env create -n uma_tools_v2 -f environment_uma.yaml` and activate that name before installing the package.
+For an existing UMA environment, update its dependencies and package using its actual name (for example, `uma_tools_new`), as described below. This does not require recreating the environment. To deliberately create a separate environment, use `conda env create -n uma_tools_v2 -f environment_uma.yaml` and activate that name before installing the package.
 
-The environment specifies Python 3.10, OpenJDK 11, Maven, NumPy 1.26.4, PyImageJ 1.5.0, scyjava 1.10.0, jgo 1.0.4, and OrientationPy 0.3.0. scikit-image is installed automatically. Area uses the existing NumPy, PyImageJ, and scyjava dependencies. TensorFlow and StarDist are not needed for these three assays. See [environment_uma.yaml](environment_uma.yaml) and [pyproject.toml](pyproject.toml) for the full requirements.
+The environment specifies Python 3.10, OpenJDK 11, Maven, NumPy 1.26.4, PyImageJ 1.5.0, scyjava 1.10.0, jgo 1.0.4, and OrientationPy 0.3.0. scikit-image is installed automatically. Area uses the existing NumPy, PyImageJ, and scyjava dependencies. Reports add openpyxl 3.1.5 and Pillow >=10.1,<13 for Excel workbooks and embedded plots. TensorFlow and StarDist are not needed for these three assays. See [environment_uma.yaml](environment_uma.yaml) and [pyproject.toml](pyproject.toml) for the full requirements.
 
-All three image-analysis programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route. The results collector uses only Python's standard library and does not start Fiji or ask for an image channel.
+All three image-analysis programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route. The results collector uses only Python's standard library. Neither the collector nor the report command starts Fiji or asks for an image channel.
 
 `uv.lock` records the Python dependency resolution. It does not install Java or Maven and does not replace the Conda setup above.
 
@@ -107,6 +107,7 @@ uma_alignment --help
 uma_thickness --help
 area_analysis --help
 uma_collect_results --help
+uma_report --help
 ```
 
 Fibronectin alignment, using the default 15-degree range:
@@ -192,6 +193,31 @@ Each collection starts with `run.log` and `run_status.json`. Selection adds `sel
 
 The collector returns naturally to the terminal without starting Java. Exit status is `0` for successful collections, including collections with missing analyses, `1` if any source folder fails, and `130` if interrupted. Duplicate folder paths in the JSON are processed once.
 
+### Generate the Excel report and plots
+
+Place the experiment's annotation template (`.xlsx`) directly inside the completed `Combined_Results` directory, then run:
+
+```bash
+uma_report -i "/absolute/path/input_paths.json" --fn-threshold 20
+```
+
+Each JSON source folder is reported separately. The command selects the newest collector-completed `Combined_Results_<source_folder_name>_<timestamp>` directly inside that source folder, using the embedded timestamp. Eligible collector statuses are `SUCCESS` and `SUCCESS_WITH_MISSING_ANALYSES`; failed collector outputs are skipped. Ambiguous latest timestamps are errors. After selection, the chosen directory must contain all three collected assay CSVs and exactly one visible `.xlsx` annotation template directly inside it. A missing assay, missing or multiple templates, corrupt selected contents, or inconsistent image sets fails that source folder; the report does not fall back to an older collection or combine files from different collections. A collector status allowing missing analyses therefore does not waive the report's three-assay requirement.
+
+The annotation template supplies the experiment's well and replicate information. Image correspondence uses complete original filenames, including extensions, and does not require `_Seq####`. Filenames must contain the supported `Well` token so images can be assigned to the template. Missing well annotations, duplicate or ambiguous image identities, and mismatches across assays produce diagnostics rather than dropping unmatched images. Hidden files, including macOS `._` files, are ignored.
+
+`--fn-threshold` is a percentage from 0 through 100, with a default of 20. Images with `FN_Area_Percent` **strictly below** the threshold are excluded from the filtered report; images equal to the threshold are retained. Raw measurements remain available. This is a report filter on existing area percentages: the area assay's raw-intensity threshold, masks, and measurements are not recomputed.
+
+Each successful run creates a new `UMA_Report_<source_folder_name>_<timestamp>` directory inside the selected `Combined_Results` directory. It includes:
+
+- One `UMA_Report_<source_folder_name>_<timestamp>.xlsx` workbook with 20 sheets and 13 PNG plots, with the plots also embedded in the workbook.
+- Raw, filtered, and excluded CSV tables and counts before and after filtering.
+- Run logs, status, diagnostics, and a manifest recording the selected inputs and report settings.
+- An `Inputs` directory preserving copies of the three source CSVs, annotation XLSX, `input_paths.json`, and `collector_run_status.json`, plus the collector's image check and selection report when available.
+
+The report preserves the original plot semantics: points represent individual images, and colors distinguish technical replicates. Thickness `Area` is labeled in µm²; `StdDev`, `Min`, `Max`, and `Median` are labeled in µm. These labels assume the upstream thickness assay was run with micrometer calibration; report generation does not rescale measurements.
+
+Failures retain diagnostics and allow subsequent JSON folders to run. Invalid JSON, including an explicitly selected `._...json`, is rejected before reading experiment data. If no source folder is available, failure logs are created in a separate report directory in the current working directory, never beside the installed package. The command returns naturally to the terminal without Java; a failed source folder produces a nonzero exit status.
+
 The direct script interface remains available:
 
 ```bash
@@ -199,17 +225,22 @@ python code/alignment_analysis.py -i "/absolute/path/input_paths.json" -a 15
 python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
 python code/area_analysis.py -i "/absolute/path/input_paths.json" -t 2000
 python code/collect_results.py -i "/absolute/path/input_paths.json"
+python code/report.py -i "/absolute/path/input_paths.json" --fn-threshold 20
 ```
 
-To install the results collector, area command, and previous thickness fixes, update the `UMA-tools-V2` checkout in your active UMA environment. An editable installation keeps subsequent Python source edits linked to the checkout:
+To add the report command to an existing installation, update the `UMA-tools-V2` checkout and the existing environment's dependencies. Run these commands from the repository root and replace `uma_tools_new` with your actual environment name. An editable installation keeps subsequent Python source edits linked to the checkout:
 
 ```bash
-git pull --ff-only &&
-"$CONDA_PREFIX/bin/python" -m pip install --no-deps -e . &&
-"$CONDA_PREFIX/bin/uma_collect_results" --version
+git pull --ff-only
+conda env update -n uma_tools_new -f environment_uma.yaml
+conda activate uma_tools_new
+python -m pip install --no-deps -e .
+python -m pip check
+uma_report --help
+uma_report --version
 ```
 
-The package version should be `0.2.4` or later; the collector script version is reported separately as `1.0.0`. The area script version remains `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
+The package version should be `0.2.5` or later; the report implementation version is `4.0.0`, the collector version is `1.0.0`, and the area version remains `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
 replace a previously installed, non-editable package. Thickness runs report the
 package version, implementation path, and reslice/projection calibration so the
 installed implementation and spatial scale can be checked. For input calibrated
@@ -226,6 +257,8 @@ python -m unittest discover -s tests -v
 ```
 
 Results-collector tests cover latest-valid fallback, unavailable analyses, exact image identity checks, duplicate or ambiguous names, differing image sets with equal row counts, repeated and multi-folder collections, unchanged CSV bytes, and process exit without ImageJ. They use temporary files and require no experimental images or Java.
+
+Report tests cover completed-collection selection, required inputs, exact image matching, plate annotations, threshold boundaries, corrected units, stable full/filtered plot positions and scales, workbook contents, archived input bytes, and error/interrupt handling. The installed-command test creates all 13 plots and verifies the 20-sheet workbook using synthetic measurements; it does not start Fiji.
 
 Enable the additional Fiji integration tests explicitly:
 

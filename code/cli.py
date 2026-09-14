@@ -71,3 +71,9 @@ def collect_results():
     """Collect existing CSV results without importing image-analysis tools."""
     from .collect_results import main
     return main()
+
+
+def report():
+    """Create plots and Excel reports without starting image-analysis runtimes."""
+    from .report import main
+    return main()
