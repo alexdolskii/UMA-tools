@@ -77,18 +77,45 @@ Each image assay asks for the fibronectin channel, numbered from **1**.
 Thickness also asks for the image file type. For execution outside the
 repository, provide the JSON's absolute path in quotes.
 
-Before the fifth stage, place **one 96-well plate template (`.xlsx`)** directly
-inside the latest completed `Combined_Results` directory in each image folder.
-That directory must contain all three collected assay CSVs. Then run:
+Before the fifth stage, copy
+[`UMA_96_well_plate_template.xlsx`](UMA_96_well_plate_template.xlsx) from the
+repository root directly into the latest completed `Combined_Results`
+directory in each image folder. Fill in your experimental groups and save it.
+That directory must contain all three collected assay CSVs and **exactly one
+plate-template `.xlsx`**. Then run:
 
 ```bash
 uma_report -i input_paths.json --fn-threshold 20
 ```
 
-The template uses columns 1–12 in `B1:M1`, rows A–H in `A2:A9`, and literal group
-names in `B2:M9`. Every analyzed well must be annotated. Image names must contain
-a supported well identifier such as `WellA02`; `_Seq####` is not required.
-The first worksheet is used unless `--sheet` selects another.
+The supplied template has one worksheet, `Plate Map`, and 96 empty well cells.
+Keep columns 1–12 in `B1:M1` and rows A–H in `A2:A9`. Enter literal group names
+in `B2:M9` (for example, well A01 is cell B2). Use identical spelling, case,
+and spacing for wells in the same group. Do not use formulas or merge cells
+in `A1:M9`. Every well represented in the images needs a group; unused wells
+may stay blank. The empty template must be filled before reporting.
+Image names must contain a supported well identifier such as `WellA02`;
+`_Seq####` is not required.
+
+**How the template is found:**
+
+- The report selects the latest successful `Combined_Results` by the timestamp
+  in its directory name, then searches directly inside that directory.
+- The filename is unrestricted: `UMA_96_well_plate_template.xlsx`,
+  `BK_far_day7.xlsx`, or a name with spaces all work. Renaming is optional;
+  the name does not need to match the image folder or collected CSVs.
+- Exactly one visible regular `.xlsx` file is required; `.XLSX` also works.
+  Files starting with `.` (including `._`) or `~$`, symbolic links, directories,
+  and Excel files inside subdirectories are ignored. `.xls` is not supported.
+- No matching workbook causes an error. Two or more matching workbooks also
+  cause an error, even if one is unrelated notes. The program does not choose
+  by filename or switch to an older collection to find a template.
+- The first worksheet in tab order is read by default. To choose another,
+  use `--sheet "Worksheet name"` with its exact name; the active tab is not
+  used to make this choice.
+
+If a later collection run creates a newer successful `Combined_Results`, copy
+the appropriate filled template into that new directory before reporting.
 
 Key parameters:
 
