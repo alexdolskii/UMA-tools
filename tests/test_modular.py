@@ -110,17 +110,38 @@ class FrozenAlignmentTests(unittest.TestCase):
                 (processed, "processed_distribution"),
             ):
                 self.assertEqual(list(actual), list(expected[key]))
-                np.testing.assert_array_equal(
-                    actual.to_numpy(),
-                    pd.DataFrame(expected[key]).to_numpy(),
-                )
+                reference = pd.DataFrame(expected[key])
+                for column in actual:
+                    observed_values = actual[column].to_numpy()
+                    reference_values = reference[column].to_numpy()
+                    if column == "perc_occvalue2sum_of_occvalue":
+                        # Division and decimal CSV parsing may differ by
+                        # a few float64 ULPs between x86_64 and arm64.
+                        # Counts, bins, ranks, and summary remain exact.
+                        if not np.array_equal(
+                            observed_values, reference_values
+                        ):
+                            difference = np.max(
+                                np.abs(observed_values - reference_values)
+                            )
+                            print(
+                                "Percentage CSV rounding: maximum absolute "
+                                f"difference {difference:.17g}"
+                            )
+                        np.testing.assert_array_max_ulp(
+                            observed_values, reference_values, maxulp=4
+                        )
+                    else:
+                        np.testing.assert_array_equal(
+                            observed_values, reference_values
+                        )
             summary = pd.read_csv(analysis / "Alignment_Summary.csv")
             self.assertEqual(
                 summary.to_dict(orient="records"), [expected["summary"]]
             )
             self.assertGreaterEqual(len(sampled_rgb), 2)
             # RGB arrays are float32; allow one small cross-platform rounding
-            # difference. Histogram bins and all exported numbers stay exact.
+            # difference. Histogram and angle columns stay exact.
             np.testing.assert_allclose(
                 [sampled_rgb[0], sampled_rgb[-1]],
                 [expected["rgb_samples"][0], expected["rgb_samples"][-1]],
