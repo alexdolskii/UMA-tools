@@ -253,10 +253,9 @@ def process_single_file(
 
     # Z Project
     print("  Performing Z projection...")
-    projector = jimport('ij.plugin.ZProjector')(resliced_imp)
-    projector.setMethod(projector.MAX_METHOD)
-    projector.doProjection()
-    projected_imp = projector.getProjection()
+    # Match the original Z Project macro: preserve spatial calibration and
+    # project the current time frame. The low-level doProjection() loses both.
+    projected_imp = jimport('ij.plugin.ZProjector').run(resliced_imp, 'max')
     resliced_imp.close()
     if projected_imp is None:
         logging.warning(f"Failed to perform Z projection for {filename}")

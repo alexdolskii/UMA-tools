@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 @unittest.skipUnless(os.environ.get("UMA_RUN_IMAGEJ_TESTS") == "1",
@@ -22,7 +23,17 @@ class HeadlessTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.ij.dispose()
+        from scyjava import jimport
+        try:
+            cls.ij.dispose()
+        finally:
+            # ImageJ1 filters leave non-daemon workers outside the Fiji context.
+            # Close the shared pool only after the final integration test.
+            pool = jimport("ij.util.ThreadUtil").threadPoolExecutor
+            pool.shutdown()
+            seconds = jimport("java.util.concurrent.TimeUnit").SECONDS
+            if not pool.awaitTermination(5, seconds):
+                raise RuntimeError("ImageJ worker pool did not terminate")
 
     def setUp(self):
         import numpy as np
@@ -104,6 +115,105 @@ class HeadlessTests(unittest.TestCase):
                          reference.getCalibration().pixelWidth)
         for imp in (actual, reference, direct_input, image):
             imp.close()
+
+    def test_thickness_matches_original_projection_with_calibration(self):
+        import numpy as np
+        import tifffile
+        from uma_tools import thickness_analysis as thickness
+
+        filename = "calibrated.tiff"
+        stack = np.zeros((17, 64, 64), dtype=np.uint16)
+        stack[3:14, 8:56, 10:28] = 30000
+        stack[5:12, 12:52, 37:55] = 45000
+        tifffile.imwrite(self.folder / filename, stack, imagej=True,
+                         resolution=(2, 2),
+                         metadata={"axes": "ZYX", "spacing": 0.75, "unit": "um"})
+
+        IJ, image_plus, windows, table, duplicator, _ = thickness.import_java_classes()
+        loaded = self.ij.convert().convert(
+            self.ij.io().open(str(self.folder / filename)), image_plus)
+        try:
+            self.assertAlmostEqual(loaded.getCalibration().pixelWidth, 0.5)
+            self.assertAlmostEqual(loaded.getCalibration().pixelDepth, 0.75)
+        finally:
+            loaded.close()
+
+        real_jimport = thickness.jimport
+
+        class OriginalMacroProjector:
+            """Reference adapter for both the former and current Python call sites."""
+            MAX_METHOD = 1
+
+            def __init__(self, image):
+                self.image = image
+                self.projection = None
+
+            def setMethod(self, method):
+                if method != self.MAX_METHOD:
+                    raise AssertionError("The reference requires maximum projection")
+
+            def doProjection(self, *args):
+                self.projection = self.run(self.image, "max")
+
+            def getProjection(self):
+                return self.projection
+
+            @staticmethod
+            def run(image, method):
+                if method != "max":
+                    raise AssertionError("The reference requires maximum projection")
+                return real_jimport("ij.macro.Interpreter")().runBatchMacro(
+                    'run("Z Project...", "projection=[Max Intensity]");', image)
+
+        actual_dir = self.folder / "actual"
+        reference_dir = self.folder / "reference"
+        actual_dir.mkdir()
+        reference_dir.mkdir()
+        actual = thickness.process_single_file(
+            self.ij, IJ, windows, duplicator, table, str(self.folder),
+            filename, 1, str(actual_dir))
+        with mock.patch.object(
+                thickness, "jimport", side_effect=lambda name:
+                OriginalMacroProjector if name == "ij.plugin.ZProjector"
+                else real_jimport(name)):
+            reference = thickness.process_single_file(
+                self.ij, IJ, windows, duplicator, table, str(self.folder),
+                filename, 1, str(reference_dir))
+
+        self.assertIsNotNone(actual)
+        self.assertIsNotNone(reference)
+        for prefix in ("Mask_", "Local_Thickness_"):
+            actual_image = IJ.openImage(str(actual_dir / f"{prefix}{filename}.tif"))
+            reference_image = IJ.openImage(str(reference_dir / f"{prefix}{filename}.tif"))
+            try:
+                self.assertIsNotNone(actual_image)
+                self.assertIsNotNone(reference_image)
+                self.assertEqual(tuple(actual_image.getDimensions()),
+                                 tuple(reference_image.getDimensions()))
+                actual_cal = actual_image.getCalibration()
+                reference_cal = reference_image.getCalibration()
+                self.assertAlmostEqual(reference_cal.pixelWidth, 0.75)
+                self.assertAlmostEqual(reference_cal.pixelHeight, 0.5)
+                self.assertEqual(actual_cal.getUnit(), reference_cal.getUnit())
+                for axis in ("pixelWidth", "pixelHeight", "pixelDepth"):
+                    self.assertEqual(getattr(actual_cal, axis),
+                                     getattr(reference_cal, axis))
+                np.testing.assert_array_equal(
+                    np.array(actual_image.getProcessor().getPixels()),
+                    np.array(reference_image.getProcessor().getPixels()))
+            finally:
+                for image in (actual_image, reference_image):
+                    if image is not None:
+                        image.close()
+
+        self.assertEqual(list(actual), list(reference))
+        self.assertEqual(actual["File_Name"], reference["File_Name"])
+        columns = ("Area", "StdDev", "Min", "Max", "Median")
+        self.assertTrue(np.isfinite([reference[name] for name in columns]).all())
+        self.assertGreater(reference["Max"], 0)
+        np.testing.assert_allclose([actual[name] for name in columns],
+                                   [reference[name] for name in columns],
+                                   rtol=0, atol=0)
 
 
 if __name__ == "__main__":
