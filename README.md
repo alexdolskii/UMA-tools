@@ -58,7 +58,7 @@ Alternative nuclei-layer assays, marker-intensity analysis, data visualization t
 
 # Installation and commands for the main assays
 
-The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment`, `uma_thickness`, and `area_analysis` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
+The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment`, `uma_thickness`, `area_analysis`, and `uma_collect_results` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
 
 ## Install
 
@@ -75,11 +75,11 @@ python -m pip install .
 python -m pip check
 ```
 
-For an existing UMA environment, activate its actual name (for example, `conda activate uma_tools_new`) and update the package as described below. Adding the area command does not require recreating the environment. To deliberately create a separate environment, use `conda env create -n uma_tools_v2 -f environment_uma.yaml` and activate that name before installing the package.
+For an existing UMA environment, activate its actual name (for example, `conda activate uma_tools_new`) and update the package as described below. Adding the area and results-collection commands does not require recreating the environment. To deliberately create a separate environment, use `conda env create -n uma_tools_v2 -f environment_uma.yaml` and activate that name before installing the package.
 
 The environment specifies Python 3.10, OpenJDK 11, Maven, NumPy 1.26.4, PyImageJ 1.5.0, scyjava 1.10.0, jgo 1.0.4, and OrientationPy 0.3.0. scikit-image is installed automatically. Area uses the existing NumPy, PyImageJ, and scyjava dependencies. TensorFlow and StarDist are not needed for these three assays. See [environment_uma.yaml](environment_uma.yaml) and [pyproject.toml](pyproject.toml) for the full requirements.
 
-All three programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route.
+All three image-analysis programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route. The results collector uses only Python's standard library and does not start Fiji or ask for an image channel.
 
 `uv.lock` records the Python dependency resolution. It does not install Java or Maven and does not replace the Conda setup above.
 
@@ -106,6 +106,7 @@ conda activate uma_tools
 uma_alignment --help
 uma_thickness --help
 area_analysis --help
+uma_collect_results --help
 ```
 
 Fibronectin alignment, using the default 15-degree range:
@@ -159,23 +160,56 @@ An image error stops its source folder, retains partial CSVs plus `errors.csv` a
 
 The existing optional `--projection mean` / `--projection max` and `--projections-only` modes remain available. The default workflow is SUM with area measurement. `--projections-only` cannot be combined with `-t` and produces no masks or area summary.
 
+### Collect the results of the three analyses
+
+Use the same JSON after running alignment, thickness, and area:
+
+```bash
+uma_collect_results -i "/absolute/path/input_paths.json"
+```
+
+For **each source image folder separately**, the collector creates a new `Combined_Results_<source_folder_name>_<UTC_timestamp>` directory inside that folder. The name uses only the final folder component, never the full path. Repeated collections create separate directories. Unusual filename characters are replaced, and very long folder labels are shortened with a hash; the original folder name and full path remain in `run_status.json`.
+
+The collector selects the latest valid result **independently for each analysis**, using the timestamp in the analysis directory name. It searches only the original analysis directories directly inside the JSON folder:
+
+| Analysis | Input summary | Collected filename |
+|---|---|---|
+| Alignment | `Alignment_assay_results_angle_<angle>_<timestamp>/Analysis/Alignment_Summary.csv` | `<source_folder_name>_Alignment_Summary.csv` |
+| Thickness | `Thickness_assay_results_<timestamp>/Thickness_Summary.csv` | `<source_folder_name>_Thickness_Summary.csv` |
+| Area | `Area_assay_results_<timestamp>_<id>/Fibronectin_Area_Summary.csv` | `<source_folder_name>_Fibronectin_Area_Summary.csv` |
+
+All collected CSVs retain their original bytes, column order, row order, and measurements. Tables are not joined. Older area results nested inside alignment directories, arbitrary renamed directories, symbolic-link result directories, hidden files/directories, `.partial.csv` files, and previous `Combined_Results` directories are excluded.
+
+A valid result has a readable UTF-8 CSV, the assay's required columns, at least one image, unique image names, and finite values for its main measurements. Optional fields such as an unbounded area `Threshold_Upper` or unavailable alignment Z metadata may be blank or `N/A`. If `run_status.json` exists, it must report `SUCCESS`; recorded area image/mask counts must also agree with the summary row count. Newer invalid results are skipped with their reasons recorded, allowing an older valid result to be selected. Alignment and thickness do not have a machine-readable completion marker, so their final CSVs can be checked for structural validity but do not prove scientific correctness or coverage of every original image. Different valid runs with the same latest timestamp are reported as ambiguous instead of choosing arbitrarily.
+
+**The main check is equality of the image sets across all selected, available tables.** Thickness and area retain complete original filenames. For alignment, only the exact terminal `_processed_orientation_distribution.csv` suffix is removed; the resulting stem is resolved against original filenames in the source folder and the selected tables. Filenames containing dots, spaces, Unicode, or no `_Seq####` identifier are supported. If `sample.nd2` and `sample.tif` could both correspond to one alignment row, the identity is ambiguous and collection fails. The check uses exact filenames, including case and extensions, not just row counts. It does not compare image contents, channels, or threshold settings; retain the selected assay CSVs and run directories to assess those settings.
+
+If independently selected tables contain different images, the collector saves diagnostics only for that source folder. It does **not** search older runs for a combination that happens to match, remove unmatched rows, or create a successful collection of summary CSVs. Other JSON folders continue processing.
+
+Missing analyses are allowed and reported in both the terminal and `run.log`, for example `Found 2 of 3 analyses`. The available tables must still match. With only one analysis, its CSV can be collected when its image identities are unambiguous, but the comparison is marked `NOT_COMPARABLE`. No empty CSV is created for a missing assay. No valid analyses, ambiguous identities, mismatches, or changed source CSVs produce a nonzero exit status.
+
+Each collection starts with `run.log` and `run_status.json`. Selection adds `selection_report.csv` (selected source paths, timestamps, hashes, and reasons for skipping newer runs) and `image_check.csv` (per-image presence and correspondence). A successful run also contains the renamed summaries. Unexpected errors retain a traceback. Invalid configurations, including explicitly selected `._...json` files, are rejected before processing; if no source directory can receive diagnostics, a separate `Combined_Results` directory is created in the current working directory. Relative source paths, if used, are interpreted relative to the working directory, as in the existing assays; absolute paths are recommended.
+
+The collector returns naturally to the terminal without starting Java. Exit status is `0` for successful collections, including collections with missing analyses, `1` if any source folder fails, and `130` if interrupted. Duplicate folder paths in the JSON are processed once.
+
 The direct script interface remains available:
 
 ```bash
 python code/alignment_analysis.py -i "/absolute/path/input_paths.json" -a 15
 python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
 python code/area_analysis.py -i "/absolute/path/input_paths.json" -t 2000
+python code/collect_results.py -i "/absolute/path/input_paths.json"
 ```
 
-To install the area command and the previous thickness fixes, update the `UMA-tools-V2` checkout in your active UMA environment. An editable installation keeps subsequent Python source edits linked to the checkout:
+To install the results collector, area command, and previous thickness fixes, update the `UMA-tools-V2` checkout in your active UMA environment. An editable installation keeps subsequent Python source edits linked to the checkout:
 
 ```bash
 git pull --ff-only &&
 "$CONDA_PREFIX/bin/python" -m pip install --no-deps -e . &&
-"$CONDA_PREFIX/bin/area_analysis" --version
+"$CONDA_PREFIX/bin/uma_collect_results" --version
 ```
 
-The version should be `0.2.3` or later; the area script version is reported separately as `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
+The package version should be `0.2.4` or later; the collector script version is reported separately as `1.0.0`. The area script version remains `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
 replace a previously installed, non-editable package. Thickness runs report the
 package version, implementation path, and reslice/projection calibration so the
 installed implementation and spatial scale can be checked. For input calibrated
@@ -190,6 +224,8 @@ Run the command/argument tests after installing the package:
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+Results-collector tests cover latest-valid fallback, unavailable analyses, exact image identity checks, duplicate or ambiguous names, differing image sets with equal row counts, repeated and multi-folder collections, unchanged CSV bytes, and process exit without ImageJ. They use temporary files and require no experimental images or Java.
 
 Enable the additional Fiji integration tests explicitly:
 

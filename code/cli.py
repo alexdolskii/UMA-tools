@@ -65,3 +65,9 @@ def area():
     """Run the standalone area command and preserve its process exit status."""
     from .area_analysis import main
     return main()
+
+
+def collect_results():
+    """Collect existing CSV results without importing image-analysis tools."""
+    from .collect_results import main
+    return main()

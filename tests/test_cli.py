@@ -102,7 +102,7 @@ class CommandTests(unittest.TestCase):
                     self.assertIn("ValueError: deliberate analysis failure", result.stderr)
 
     def test_help_does_not_import_imagej(self):
-        for function in ("alignment", "thickness", "area"):
+        for function in ("alignment", "thickness", "area", "collect_results"):
             script = (
                 "import sys; from uma_tools import cli; sys.argv=['assay','--help']; "
                 "\ntry: getattr(cli, " + repr(function) + ")()"
@@ -130,7 +130,7 @@ class CommandTests(unittest.TestCase):
         self.assertIn("uma_thickness", result.stdout)
 
     def test_installed_commands_outside_repository(self):
-        for command in ("uma_alignment", "uma_thickness", "area_analysis"):
+        for command in ("uma_alignment", "uma_thickness", "area_analysis", "uma_collect_results"):
             executable = os.path.join(os.path.dirname(sys.executable), command)
             result = subprocess.run([executable, "--help"], cwd="/tmp",
                                     capture_output=True, text=True, timeout=30)
