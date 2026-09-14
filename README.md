@@ -124,7 +124,7 @@ Fibronectin thickness:
 uma_thickness -i "/absolute/path/input_paths.json"
 ```
 
-The program asks for the file type (`.nd2` or `.tiff`), channel count, fibronectin channel where applicable, and confirmation. These terminal questions are intentional; headless means no Fiji windows, not unattended execution.
+The program asks for the file type (`.nd2` or `.tiff`), the fibronectin channel index, and confirmation. As in alignment, the channel prompt is `Enter fibronectin channel index (starting from 1):`. Enter `1` for a single-channel image. The channel count is read from each image, and the selected index is checked before extraction. These terminal questions are intentional; headless means no Fiji windows, not unattended execution.
 
 Each assay retains its timestamped results directories and `log.log` files within the input folders. Alignment produces `Analysis/Alignment_Summary.csv`; thickness produces `Thickness_Summary.csv` with `Area`, `StdDev`, `Min`, `Max`, and `Median`. Image processing excludes macOS metadata files.
 
@@ -137,7 +137,7 @@ python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
 
 After updating the checkout, run `python -m pip install .` again in the active environment to update the installed commands.
 
-To install the thickness calibration and command-exit fixes, update the
+To install the thickness calibration and command-exit fixes and the single channel prompt, update the
 `UMA-tools-V2` checkout in your active UMA environment:
 
 ```bash
@@ -146,7 +146,7 @@ python -m pip install --no-deps .
 uma_thickness --version
 ```
 
-The version should be `0.2.1` or later. Updating files with Git alone does not
+The version should be `0.2.2` or later. Updating files with Git alone does not
 replace a previously installed, non-editable package. Thickness runs report the
 package version, implementation path, and reslice/projection calibration so the
 installed implementation and spatial scale can be checked. For input calibrated

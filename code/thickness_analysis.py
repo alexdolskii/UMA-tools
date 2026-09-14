@@ -75,45 +75,23 @@ def get_file_type_choice():
         )
 
 
-def get_num_channels():
+def get_fibronectin_channel():
     """
-    Prompt the user for the number of channels in the files.
+    Prompt for the 1-based fibronectin channel index.
+
+    Channel availability is checked against each image during processing.
 
     Returns:
-        int: The number of channels.
+        int: The fibronectin channel index.
     """
-    try:
-        val = int(input("Enter the number of channels in the files: ").strip())
-    except ValueError:
-        raise ValueError("Please enter an integer for the number of channels")
-    if val < 1:
-        raise ValueError("The number of channels must be at least 1.")
-    return val
-
-
-def get_fibronectin_channel(num_channels):
-    """
-    Prompt the user for the fibronectin channel number if there are multiple
-    channels.
-
-    Args:
-        num_channels (int): The total number of channels.
-
-    Returns:
-        int: The fibronectin channel number.
-    """
-    if num_channels == 1:
-        return 1
     try:
         val = int(input(
-            f"Enter the channel number (1-{num_channels}) representing "
-            "fibronectin: "
+            "Enter fibronectin channel index (starting from 1): "
         ).strip())
     except ValueError:
-        raise ValueError("Please enter an integer for the number of channels")
-    if val not in range(1, num_channels + 1):
-        raise ValueError(f"Channel number must "
-                         f"be between 1 and {num_channels}.")
+        raise ValueError("Please enter an integer for the fibronectin channel index.")
+    if val < 1:
+        raise ValueError("The fibronectin channel index must be at least 1.")
     return val
 
 
@@ -507,8 +485,7 @@ def main(input_json_path: str) -> None:
         (IJ, ImagePlus, WindowManager, ResultsTable,
          Duplicator, System) = import_java_classes()
         file_extension = get_file_type_choice()
-        num_channels = get_num_channels()
-        fibronectin_channel = get_fibronectin_channel(num_channels)
+        fibronectin_channel = get_fibronectin_channel()
 
         start_analysis = (input("\nDo you want to start processing? (y/n): ")
                           .strip().lower())
