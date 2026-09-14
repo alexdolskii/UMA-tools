@@ -250,6 +250,9 @@ def process_single_file(
         IJ.run("Close All")
         return
     resliced_imp.setTitle(f"Reslice_of_{filename}")
+    calibration = resliced_imp.getCalibration()
+    logging.info("Reslice calibration: pixelWidth=%s, pixelHeight=%s, unit=%s",
+                 calibration.pixelWidth, calibration.pixelHeight, calibration.getUnit())
 
     # Z Project
     print("  Performing Z projection...")
@@ -262,6 +265,9 @@ def process_single_file(
         IJ.run("Close All")
         return
     projected_imp.setTitle(f"MAX_Reslice_of_{filename}")
+    calibration = projected_imp.getCalibration()
+    logging.info("Projection calibration: pixelWidth=%s, pixelHeight=%s, unit=%s",
+                 calibration.pixelWidth, calibration.pixelHeight, calibration.getUnit())
 
     # Filters and threshold
     print("  Applying Maximum filter...")
@@ -493,6 +499,7 @@ def main(input_json_path: str) -> None:
     # Setting up logging
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.info("Thickness implementation: %s", Path(__file__).resolve())
 
     folder_paths = get_folder_paths(input_json_path)
     ij = initialize_imagej()

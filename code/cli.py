@@ -1,6 +1,29 @@
 """Console entry points. Parse arguments before importing image analysis tools."""
 
 import argparse
+from importlib.metadata import version
+import logging
+import sys
+
+
+def _shutdown_imagej_workers():
+    """Close ImageJ1's shared workers at the end of the standalone command.
+
+    These non-daemon threads are outside the SciJava context, so disposing
+    ImageJ alone leaves Python waiting for them at interpreter shutdown.
+    Reusable analysis functions deliberately do not close this shared pool.
+    """
+    from scyjava import jimport, jvm_started
+
+    if not jvm_started():
+        return
+    pool = jimport("ij.util.ThreadUtil").threadPoolExecutor
+    seconds = jimport("java.util.concurrent.TimeUnit").SECONDS
+    pool.shutdown()
+    if not pool.awaitTermination(5, seconds):
+        pool.shutdownNow()
+        if not pool.awaitTermination(5, seconds):
+            raise RuntimeError("ImageJ worker pool did not terminate")
 
 
 def alignment():
@@ -18,8 +41,21 @@ def alignment():
 def thickness():
     """Run the existing thickness workflow from the active environment."""
     parser = argparse.ArgumentParser(description="Fibronectin thickness analysis")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {version('uma-tools')}")
     parser.add_argument("-i", "--input", required=True,
                         help="Path to a JSON file containing folder_paths")
     args = parser.parse_args()
+    print(f"UMA-tools {version('uma-tools')} — thickness analysis", flush=True)
     from .thickness_analysis import main
-    main(args.input)
+    try:
+        main(args.input)
+    finally:
+        analysis_failed = sys.exc_info()[0] is not None
+        try:
+            _shutdown_imagej_workers()
+        except Exception:
+            if not analysis_failed:
+                raise
+            # Keep the original analysis exception and its nonzero exit status.
+            logging.exception("Could not close ImageJ workers after analysis failed.")

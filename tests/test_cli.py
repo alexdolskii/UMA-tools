@@ -1,8 +1,9 @@
-"""Tests for the installed commands; no JVM or image data is needed."""
+"""Command tests, with opt-in Java process-exit checks and no image data."""
 
 import os
 import subprocess
 import sys
+import textwrap
 import types
 import unittest
 from unittest.mock import Mock, patch
@@ -35,6 +36,64 @@ class CommandTests(unittest.TestCase):
                 cli.thickness()
         module.main.assert_called_once_with("a b.json")
 
+    def test_thickness_cleanup_preserves_analysis_error(self):
+        module = types.ModuleType("uma_tools.thickness_analysis")
+        module.main = Mock(side_effect=ValueError("original analysis error"))
+        with patch.dict(sys.modules, {module.__name__: module}):
+            with patch.object(sys, "argv", ["uma_thickness", "-i", "input.json"]):
+                with patch.object(cli, "_shutdown_imagej_workers",
+                                  side_effect=RuntimeError("cleanup error")) as cleanup:
+                    with self.assertLogs(level="ERROR"):
+                        with self.assertRaisesRegex(ValueError, "original analysis error"):
+                            cli.thickness()
+        cleanup.assert_called_once_with()
+
+    @unittest.skipUnless(os.environ.get("UMA_RUN_IMAGEJ_TESTS") == "1",
+                         "Set UMA_RUN_IMAGEJ_TESTS=1 to run Java process-exit checks")
+    def test_thickness_process_exits_after_java_work_on_success_and_failure(self):
+        # A separate interpreter must exit naturally; shutting down workers in
+        # the test runner would conceal the production command's exit bug.
+        script = textwrap.dedent("""
+            import os
+            import sys
+            import types
+            import jpype
+            from uma_tools import cli
+
+            module = types.ModuleType("uma_tools.thickness_analysis")
+            def main(_):
+                jar = os.environ.get("UMA_TEST_IMAGEJ_JAR")
+                if jar:
+                    jpype.startJVM("-Djava.awt.headless=true", classpath=[jar])
+                else:
+                    import imagej
+                    ij = imagej.init("sc.fiji:fiji:2.14.0", mode="headless")
+                pool = jpype.JClass("ij.util.ThreadUtil").threadPoolExecutor
+                task = jpype.JProxy("java.lang.Runnable", dict(run=lambda: None))
+                pool.submit(task).get()
+                assert pool.getPoolSize() > 0
+                if not jar:
+                    ij.dispose()
+                print("ImageJ work finished", flush=True)
+                if os.environ["UMA_TEST_ANALYSIS_FAILS"] == "1":
+                    raise ValueError("deliberate analysis failure")
+
+            module.main = main
+            sys.modules[module.__name__] = module
+            sys.argv = ["uma_thickness", "-i", "input.json"]
+            cli.thickness()
+        """)
+        for fails in (False, True):
+            with self.subTest(analysis_fails=fails):
+                env = dict(os.environ, UMA_TEST_ANALYSIS_FAILS=str(int(fails)))
+                result = subprocess.run([sys.executable, "-c", script],
+                                        env=env, capture_output=True, text=True,
+                                        timeout=300)
+                self.assertIn("ImageJ work finished", result.stdout)
+                self.assertEqual(result.returncode, 1 if fails else 0, result.stderr)
+                if fails:
+                    self.assertIn("ValueError: deliberate analysis failure", result.stderr)
+
     def test_help_does_not_import_imagej(self):
         for function in ("alignment", "thickness"):
             script = (
@@ -48,6 +107,20 @@ class CommandTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-c", script],
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_thickness_version_does_not_start_imagej(self):
+        script = (
+            "import sys; from uma_tools import cli; "
+            "sys.argv=['uma_thickness','--version']; "
+            "\ntry: cli.thickness()"
+            "\nexcept SystemExit as error:"
+            "\n assert error.code == 0"
+            "\nassert 'imagej' not in sys.modules"
+        )
+        result = subprocess.run([sys.executable, "-c", script],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("uma_thickness", result.stdout)
 
     def test_installed_commands_outside_repository(self):
         for command in ("uma_alignment", "uma_thickness"):

@@ -137,6 +137,23 @@ python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
 
 After updating the checkout, run `python -m pip install .` again in the active environment to update the installed commands.
 
+To install the thickness calibration and command-exit fixes, update the
+`UMA-tools-V2` checkout in your active UMA environment:
+
+```bash
+git pull --ff-only
+python -m pip install --no-deps .
+uma_thickness --version
+```
+
+The version should be `0.2.1` or later. Updating files with Git alone does not
+replace a previously installed, non-editable package. Thickness runs report the
+package version, implementation path, and reslice/projection calibration so the
+installed implementation and spatial scale can be checked. For input calibrated
+in micrometers, `Area` is in µm² and `StdDev`, `Min`, `Max`, and `Median` are in µm.
+Rerun images processed with the uncalibrated projection; scaled filtering can
+change the mask, so rescaling existing CSV values is not a general correction.
+
 ## Validation
 
 Run the command/argument tests after installing the package:
@@ -151,7 +168,7 @@ Enable the additional Fiji integration tests explicitly:
 UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
 ```
 
-These integration tests process small synthetic TIFF stacks without a display, check output tables and metadata-file exclusion, and compare direct Local Thickness results with the original menu command. They require Java, Maven, and network access for the initial Fiji download. Synthetic TIFF tests do not establish accuracy on every experimental dataset; representative ND2 files and their channel/calibration metadata must also be validated on the target machine.
+These integration tests process small synthetic TIFF stacks without a display, check output tables and metadata-file exclusion, compare calibrated masks, thickness maps, and measurements against the original projection macro, and compare direct Local Thickness results with the original menu command. Separate child processes verify that the thickness command exits after Java work on both success and failure. They require Java, Maven, and network access for the initial Fiji download. Synthetic TIFF tests do not establish accuracy on every experimental dataset; representative ND2 files and their channel/calibration metadata must also be validated on the target machine.
 
 The [main-assay workflow](.github/workflows/core-assays.yml) builds the environment and runs these tests on Ubuntu and macOS. Check the latest GitHub Actions results before treating a platform as validated; a configured workflow alone is not evidence of a successful run.
 
