@@ -5,11 +5,11 @@ import csv
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from uma_tools import collect_results as collector
@@ -25,7 +25,10 @@ class CollectionTests(unittest.TestCase):
         self.config = self.root / "input paths.json"
 
     def config_for(self, *sources):
-        self.config.write_text(json.dumps({"folder_paths": [str(path) for path in sources]}), encoding="utf-8")
+        self.config.write_text(
+            json.dumps({"folder_paths": [str(path) for path in sources]}),
+            encoding="utf-8",
+        )
         return self.config
 
     def run_command(self, *sources):
@@ -38,44 +41,96 @@ class CollectionTests(unittest.TestCase):
         return sorted((source or self.source).glob("Combined_Results_*"))[-1]
 
     def status(self, source=None):
-        return json.loads((self.output(source) / "run_status.json").read_text(encoding="utf-8"))
+        return json.loads(
+            (self.output(source) / "run_status.json").read_text(
+                encoding="utf-8"
+            )
+        )
 
-    def make_run(self, analysis, names=("field.one.nd2",), stamp="20260914_120000", source=None, angle="15", status="SUCCESS"):
+    def make_run(
+        self,
+        analysis,
+        names=("field.one.nd2",),
+        stamp="20260914_120000",
+        source=None,
+        angle="15",
+        status="SUCCESS",
+    ):
         source = source or self.source
         if analysis == "Alignment":
             run = source / f"Alignment_assay_results_angle_{angle}_{stamp}"
             path = run / "Analysis" / "Alignment_Summary.csv"
-            columns = ["File_Name", "Number_of_Z_Stacks", "Z_Stack_Type",
-                       f"Percentage_Fibers_Aligned_Within_{angle}_Degree", "Orientation_Mode"]
-            # N/A is legitimate in older alignment metadata; it is not a metric.
-            rows = [[Path(name).stem + "_processed_orientation_distribution.csv", "N/A", "N/A", 65.5, "Aligned"]
-                    for name in names]
+            columns = [
+                "File_Name",
+                "Number_of_Z_Stacks",
+                "Z_Stack_Type",
+                f"Percentage_Fibers_Aligned_Within_{angle}_Degree",
+                "Orientation_Mode",
+            ]
+            # N/A is valid older alignment metadata, not a metric.
+            rows = [
+                [
+                    Path(name).stem
+                    + "_processed_orientation_distribution.csv",
+                    "N/A",
+                    "N/A",
+                    65.5,
+                    "Aligned",
+                ]
+                for name in names
+            ]
         elif analysis == "Thickness":
             run = source / f"Thickness_assay_results_{stamp}"
             path = run / "Thickness_Summary.csv"
             columns = ["File_Name", "Area", "StdDev", "Min", "Max", "Median"]
-            rows = [[name, 1560.8484500537231, 0.900738580354334, 2.2360680103302, 7.0, 5.830951690673828]
-                    for name in names]
+            rows = [
+                [
+                    name,
+                    1560.8484500537231,
+                    0.900738580354334,
+                    2.2360680103302,
+                    7.0,
+                    5.830951690673828,
+                ]
+                for name in names
+            ]
         else:
             run = source / f"Area_assay_results_{stamp}_000123_42"
             path = run / "Fibronectin_Area_Summary.csv"
-            columns = ["File_Name", "Image_ID", "FN_Positive_Pixels", "FN_Area_Percent", "FN_Area",
-                       "Threshold_Lower", "Threshold_Upper", "Projection_Method"]
-            rows = [[name, name, 12000, 30.5, 1200.55, 2000, "", "SUM"] for name in names]
+            columns = [
+                "File_Name",
+                "Image_ID",
+                "FN_Positive_Pixels",
+                "FN_Area_Percent",
+                "FN_Area",
+                "Threshold_Lower",
+                "Threshold_Upper",
+                "Projection_Method",
+            ]
+            rows = [
+                [name, name, 12000, 30.5, 1200.55, 2000, "", "SUM"]
+                for name in names
+            ]
         path.parent.mkdir(parents=True, exist_ok=True)
         buffer = io.StringIO(newline="")
         writer = csv.writer(buffer, lineterminator="\r\n")
         writer.writerow(columns)
         writer.writerows(rows)
-        # BOM and CRLF must survive collection; pandas reserialization would not.
+        # Preserve BOM and CRLF exactly, without reserializing the CSV.
         path.write_bytes(b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8"))
         if analysis == "Area" and status is not None:
-            (run / "run_status.json").write_text(json.dumps({"status": status}), encoding="utf-8")
+            (run / "run_status.json").write_text(
+                json.dumps({"status": status}), encoding="utf-8"
+            )
         return path
 
-    def all_runs(self, names=("field.one.nd2",), source=None, stamp="20260914_120000"):
-        return {name: self.make_run(name, names, source=source, stamp=stamp)
-                for name in ("Alignment", "Thickness", "Area")}
+    def all_runs(
+        self, names=("field.one.nd2",), source=None, stamp="20260914_120000"
+    ):
+        return {
+            name: self.make_run(name, names, source=source, stamp=stamp)
+            for name in ("Alignment", "Thickness", "Area")
+        }
 
     def assert_no_summaries(self, output=None):
         output = output or self.output()
@@ -91,12 +146,16 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(status["status"], "SUCCESS")
         self.assertEqual(status["image_check"], "MATCH")
         self.assertEqual(status["source_name"], self.source.name)
-        self.assertIn(f"Combined_Results_{self.source.name}_", self.output().name)
+        self.assertIn(
+            f"Combined_Results_{self.source.name}_", self.output().name
+        )
         for original in paths.values():
             target = self.output() / f"{self.source.name}_{original.name}"
             self.assertEqual(target.read_bytes(), original.read_bytes())
         self.assertEqual(len(list(self.output().glob("*_Summary.csv"))), 3)
-        with (self.output() / "image_check.csv").open(encoding="utf-8", newline="") as stream:
+        with (self.output() / "image_check.csv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual({row["Image_File_Name"] for row in rows}, set(names))
         self.assertTrue(all(row["Check"] == "MATCH" for row in rows))
@@ -105,7 +164,11 @@ class CollectionTests(unittest.TestCase):
         old = self.all_runs(stamp="20260914_100000")
         alignment = self.make_run("Alignment", stamp="20260914_140000")
         alignment.write_bytes(alignment.read_bytes().replace(b"65.5", b"nan"))
-        self.make_run("Thickness", names=("field.one.nd2", "field.one.nd2"), stamp="20260914_150000")
+        self.make_run(
+            "Thickness",
+            names=("field.one.nd2", "field.one.nd2"),
+            stamp="20260914_150000",
+        )
         self.make_run("Area", stamp="20260914_160000", status="RUNNING")
         # Modifying/copying a historical CSV must not change the run ordering.
         for path in old.values():
@@ -116,11 +179,17 @@ class CollectionTests(unittest.TestCase):
         self.assertIn("Duplicate image", terminal)
         self.assertIn("RUNNING", terminal)
         for analysis, path in old.items():
-            self.assertEqual(self.status()["selected"][analysis]["summary"], str(path))
-        with (self.output() / "selection_report.csv").open(encoding="utf-8", newline="") as stream:
+            self.assertEqual(
+                self.status()["selected"][analysis]["summary"], str(path)
+            )
+        with (self.output() / "selection_report.csv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
             records = list(csv.DictReader(stream))
         self.assertEqual(sum(row["Status"] == "INVALID" for row in records), 3)
-        self.assertEqual(sum(row["Status"] == "SELECTED" for row in records), 3)
+        self.assertEqual(
+            sum(row["Status"] == "SELECTED" for row in records), 3
+        )
 
     def test_missing_two_one_and_zero_available_analyses(self):
         self.make_run("Alignment")
@@ -128,7 +197,10 @@ class CollectionTests(unittest.TestCase):
         code, terminal = self.run_command()
         self.assertEqual(code, 0, terminal)
         self.assertIn("Found 2 of 3 analyses", terminal)
-        self.assertIn("Found 2 of 3 analyses", (self.output() / "run.log").read_text(encoding="utf-8"))
+        self.assertIn(
+            "Found 2 of 3 analyses",
+            (self.output() / "run.log").read_text(encoding="utf-8"),
+        )
         self.assertEqual(self.status()["missing_analyses"], ["Area"])
         self.assertEqual(len(list(self.output().glob("*_Summary.csv"))), 2)
         for count in (1, 0):
@@ -139,15 +211,26 @@ class CollectionTests(unittest.TestCase):
                     self.make_run("Thickness", source=source)
                 code, terminal = self.run_command(source)
                 self.assertEqual(code, 0 if count else 1, terminal)
-                self.assertEqual(self.status(source)["image_check"], "NOT_COMPARABLE" if count else "FAILED")
-                self.assertEqual(len(list(self.output(source).glob("*_Summary.csv"))), count)
+                self.assertEqual(
+                    self.status(source)["image_check"],
+                    "NOT_COMPARABLE" if count else "FAILED",
+                )
+                self.assertEqual(
+                    len(list(self.output(source).glob("*_Summary.csv"))), count
+                )
 
-    def test_latest_mismatch_does_not_search_for_older_matching_combination(self):
+    def test_latest_mismatch_does_not_search_for_older_matching_combination(
+        self,
+    ):
         self.all_runs(("first.nd2",), stamp="20260914_100000")
-        latest = self.make_run("Thickness", ("second.nd2",), stamp="20260914_120000")
+        latest = self.make_run(
+            "Thickness", ("second.nd2",), stamp="20260914_120000"
+        )
         code, terminal = self.run_command()
         self.assertEqual(code, 1, terminal)
-        self.assertEqual(self.status()["selected"]["Thickness"]["summary"], str(latest))
+        self.assertEqual(
+            self.status()["selected"]["Thickness"]["summary"], str(latest)
+        )
         self.assertEqual(self.status()["status"], "VALIDATION_FAILED")
         self.assertIn("first.nd2", terminal)
         self.assertIn("second.nd2", terminal)
@@ -172,7 +255,9 @@ class CollectionTests(unittest.TestCase):
         self.assertIn("field.tif", terminal)
         self.assert_no_summaries()
 
-    def test_alignment_alone_uses_visible_originals_and_rejects_unresolved_names(self):
+    def test_alignment_alone_checks_originals_and_unresolved_names(
+        self,
+    ):
         self.make_run("Alignment", ("sample_processed.v2.nd2",))
         code, terminal = self.run_command()
         self.assertEqual(code, 1, terminal)
@@ -186,7 +271,8 @@ class CollectionTests(unittest.TestCase):
 
     def test_empty_malformed_and_nonfinite_csvs_are_not_valid_results(self):
         replacements = [
-            b"", b"File_Name,Area\nfield.nd2,1\n",
+            b"",
+            b"File_Name,Area\nfield.nd2,1\n",
             b"File_Name,Area,StdDev,Min,Max,Median\n",
             b"File_Name,Area,StdDev,Min,Max,Median\nfield.nd2,1,2,3,4\n",
             b"File_Name,Area,StdDev,Min,Max,Median\nfield.nd2,1,2,3,4,5,6\n",
@@ -216,7 +302,11 @@ class CollectionTests(unittest.TestCase):
                 self.assertEqual(code, 1, terminal)
                 self.assertIn(state, terminal)
         path = self.make_run("Area")
-        path.write_bytes(path.read_bytes().replace(b"field.one.nd2,field.one.nd2", b"field.one.nd2,another.nd2"))
+        path.write_bytes(
+            path.read_bytes().replace(
+                b"field.one.nd2,field.one.nd2", b"field.one.nd2,another.nd2"
+            )
+        )
         code, terminal = self.run_command()
         self.assertEqual(code, 1, terminal)
         self.assertIn("Image_ID differs", terminal)
@@ -225,12 +315,22 @@ class CollectionTests(unittest.TestCase):
         older = self.make_run("Area", stamp="20260914_100000")
         newer = self.make_run("Area", stamp="20260914_180000")
         (newer.parent / "run_status.json").write_text(
-            json.dumps({"status": "SUCCESS", "input_images": 2, "processed_images": 2, "generated_masks": 2}),
-            encoding="utf-8")
+            json.dumps(
+                {
+                    "status": "SUCCESS",
+                    "input_images": 2,
+                    "processed_images": 2,
+                    "generated_masks": 2,
+                }
+            ),
+            encoding="utf-8",
+        )
         code, terminal = self.run_command()
         self.assertEqual(code, 0, terminal)
         self.assertIn("row count", terminal)
-        self.assertEqual(self.status()["selected"]["Area"]["summary"], str(older))
+        self.assertEqual(
+            self.status()["selected"]["Area"]["summary"], str(older)
+        )
 
     def test_same_latest_timestamp_is_reported_as_ambiguous(self):
         self.all_runs()
@@ -240,7 +340,9 @@ class CollectionTests(unittest.TestCase):
         self.assertIn("same latest timestamp", terminal)
         self.assert_no_summaries()
 
-    def test_prior_collections_hidden_nested_and_partial_outputs_are_ignored(self):
+    def test_prior_collections_hidden_nested_and_partial_outputs_are_ignored(
+        self,
+    ):
         old = self.make_run("Thickness", stamp="20260914_100000")
         partial = self.make_run("Thickness", stamp="20260914_140000")
         partial.rename(partial.with_name("Thickness_Summary.partial.csv"))
@@ -258,22 +360,39 @@ class CollectionTests(unittest.TestCase):
         code, terminal = self.run_command()
         self.assertEqual(code, 0, terminal)
         first_output = self.output()
-        before = {path.name: path.read_bytes() for path in first_output.iterdir() if path.is_file()}
+        before = {
+            path.name: path.read_bytes()
+            for path in first_output.iterdir()
+            if path.is_file()
+        }
         code, terminal = self.run_command()
         self.assertEqual(code, 0, terminal)
         self.assertEqual(len(list(self.source.glob("Combined_Results_*"))), 2)
         self.assertEqual(self.status()["analyses_found"], 1)
-        self.assertEqual(self.status()["selected"]["Thickness"]["summary"], str(old))
-        self.assertEqual(before, {path.name: path.read_bytes() for path in first_output.iterdir() if path.is_file()})
+        self.assertEqual(
+            self.status()["selected"]["Thickness"]["summary"], str(old)
+        )
+        self.assertEqual(
+            before,
+            {
+                path.name: path.read_bytes()
+                for path in first_output.iterdir()
+                if path.is_file()
+            },
+        )
 
-    def test_multiple_folders_continue_after_failure_and_deduplicate_paths(self):
+    def test_multiple_folders_continue_after_failure_and_deduplicate_paths(
+        self,
+    ):
         bad = self.root / "no analyses"
         bad.mkdir()
         second = self.root / "second originals"
         second.mkdir()
         self.all_runs()
         self.make_run("Thickness", source=second)
-        code, terminal = self.run_command(bad, self.source, second, self.source / ".")
+        code, terminal = self.run_command(
+            bad, self.source, second, self.source / "."
+        )
         self.assertEqual(code, 1, terminal)
         self.assertEqual(self.status(bad)["status"], "VALIDATION_FAILED")
         self.assertEqual(self.status()["status"], "SUCCESS")
@@ -287,10 +406,14 @@ class CollectionTests(unittest.TestCase):
         original_publish = collector.publish_copies
 
         def change_then_publish(output, label, tables):
-            paths["Thickness"].write_bytes(paths["Thickness"].read_bytes() + b"\n")
+            paths["Thickness"].write_bytes(
+                paths["Thickness"].read_bytes() + b"\n"
+            )
             return original_publish(output, label, tables)
 
-        with patch.object(collector, "publish_copies", side_effect=change_then_publish):
+        with patch.object(
+            collector, "publish_copies", side_effect=change_then_publish
+        ):
             code, terminal = self.run_command()
         self.assertEqual(code, 1, terminal)
         self.assertIn("Selected source changed", terminal)
@@ -313,10 +436,18 @@ class CollectionTests(unittest.TestCase):
         self.assertTrue((self.output() / "traceback.txt").is_file())
         self.assert_no_summaries()
 
-    def test_metadata_json_rejected_before_read_and_startup_errors_logged(self):
+    def test_metadata_json_rejected_before_read_and_startup_errors_logged(
+        self,
+    ):
         metadata = self.root / "._input.json"
-        with patch.object(Path, "read_text", side_effect=AssertionError("Must not read metadata JSON")):
-            with self.assertRaisesRegex(collector.ValidationError, "metadata JSON"):
+        with patch.object(
+            Path,
+            "read_text",
+            side_effect=AssertionError("Must not read metadata JSON"),
+        ):
+            with self.assertRaisesRegex(
+                collector.ValidationError, "metadata JSON"
+            ):
                 collector.read_config(metadata)
         previous = Path.cwd()
         try:
@@ -324,16 +455,24 @@ class CollectionTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 code = collector.main(["-i", str(metadata)])
             self.assertEqual(code, 1)
-            outputs = list(self.root.glob("Combined_Results_configuration_error_*"))
+            outputs = list(
+                self.root.glob("Combined_Results_configuration_error_*")
+            )
             self.assertEqual(len(outputs), 1)
-            self.assertIn("metadata JSON", (outputs[0] / "run.log").read_text())
+            self.assertIn(
+                "metadata JSON", (outputs[0] / "run.log").read_text()
+            )
             self.all_runs()
             missing = self.root / "nonexistent originals"
             code, terminal = self.run_command(missing, self.source)
             self.assertEqual(code, 1, terminal)
             self.assertFalse(missing.exists())
             self.assertEqual(self.status()["status"], "SUCCESS")
-            self.assertTrue(list(self.root.glob("Combined_Results_nonexistent originals_*")))
+            self.assertTrue(
+                list(
+                    self.root.glob("Combined_Results_nonexistent originals_*")
+                )
+            )
         finally:
             os.chdir(previous)
 
@@ -341,27 +480,51 @@ class CollectionTests(unittest.TestCase):
         self.all_runs()
         self.config_for(self.source)
         executable = Path(sys.executable).parent / "uma_collect_results"
-        result = subprocess.run([str(executable), "-i", str(self.config)], cwd=self.root,
-                                capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            [str(executable), "-i", str(self.config)],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("3 analyses", result.stdout)
         self.assertIn("Collection finished", result.stdout)
-        # -S disables site-packages: the standalone script must use only stdlib.
-        result = subprocess.run([sys.executable, "-S", collector.__file__, "-i", str(self.config)], cwd=self.root,
-                                capture_output=True, text=True, timeout=15)
+        # -S disables site-packages; the launcher must use only stdlib.
+        launcher = (
+            Path(__file__).resolve().parents[1] / "code" / "collect_results.py"
+        )
+        result = subprocess.run(
+            [sys.executable, "-S", str(launcher), "-i", str(self.config)],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         script = (
             "import sys; from uma_tools import cli; "
             f"sys.argv=['uma_collect_results','-i',{str(self.config)!r}]; "
             "assert cli.collect_results() == 0; "
-            "assert not {'imagej','jpype','scyjava','numpy','pandas'} & set(sys.modules)"
+            "assert not {'imagej','jpype','scyjava','numpy','pandas'} "
+            "& set(sys.modules)"
         )
-        result = subprocess.run([sys.executable, "-c", script], cwd=self.root,
-                                capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.make_run("Thickness", ("different.nd2",), stamp="20260914_180000")
-        result = subprocess.run([str(executable), "-i", str(self.config)], cwd=self.root,
-                                capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            [str(executable), "-i", str(self.config)],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("1 failed", result.stdout)
 

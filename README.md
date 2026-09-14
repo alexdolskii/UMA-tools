@@ -97,7 +97,21 @@ Keep the UMA schema: the key is `folder_paths`, not FIA-tools' `paths_to_files`.
 
 Use absolute paths for image folders. The JSON file may be anywhere; pass its absolute path in quotes to run commands from any working directory. Hidden files, including macOS `._` metadata files, are excluded from image processing and file counts.
 
+Existing relative-path behavior is preserved: area resolves relative image-folder paths against the JSON file's directory; alignment, thickness, collection, and reporting resolve them against the terminal's working directory. Prefer absolute paths so the same JSON selects the same folders for all five stages.
+
 ## Run
+
+The five stages can be run in order through their installed commands or numbered Python launchers:
+
+| Stage | Installed command | Launcher in `code` |
+|---|---|---|
+| 1. Alignment | `uma_alignment` | `1_alignment.py` |
+| 2. Thickness | `uma_thickness` | `2_thickness.py` |
+| 3. Fibronectin area | `area_analysis` | `3_area.py` |
+| 4. Collect results | `uma_collect_results` | `4_collect_results.py` |
+| 5. Report | `uma_report` | `5_report.py` |
+
+Each launcher delegates to the same command implementation. The numbering documents the usual workflow; it does not automatically run earlier stages. The importable implementation is in `code/uma_tools`, with separate assay, reporting, shared-utility, and ImageJ-runtime modules. See the [code structure and development rules](code/README.md).
 
 Activate the environment in each new terminal session:
 
@@ -133,6 +147,8 @@ uma_thickness -i "/absolute/path/input_paths.json"
 The program asks for the file type (`.nd2` or `.tiff`), the fibronectin channel index, and confirmation. As in alignment, the channel prompt is `Enter fibronectin channel index (starting from 1):`. Enter `1` for a single-channel image. The channel count is read from each image, and the selected index is checked before extraction. These terminal questions are intentional; headless means no Fiji windows, not unattended execution.
 
 Alignment and thickness retain their timestamped results directories and `log.log` files within the input folders. Alignment produces `Analysis/Alignment_Summary.csv`; thickness produces `Thickness_Summary.csv` with `Area`, `StdDev`, `Min`, `Max`, and `Median`. Image processing excludes macOS metadata files.
+
+New alignment and thickness run names include microseconds and the process identifier, with collision handling, so an existing result directory is never reused. The collector recognizes both the earlier second-resolution names and the new names. Log handlers are closed after each source folder; a directory named like an image is excluded from processing as well as from file counts.
 
 Fibronectin area, typically run after alignment and thickness:
 
@@ -218,21 +234,22 @@ The report preserves the original plot semantics: points represent individual im
 
 Failures retain diagnostics and allow subsequent JSON folders to run. Invalid JSON, including an explicitly selected `._...json`, is rejected before reading experiment data. If no source folder is available, failure logs are created in a separate report directory in the current working directory, never beside the installed package. The command returns naturally to the terminal without Java; a failed source folder produces a nonzero exit status.
 
-The direct script interface remains available:
+The numbered direct script interfaces use the same arguments as the installed commands:
 
 ```bash
-python code/alignment_analysis.py -i "/absolute/path/input_paths.json" -a 15
-python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
-python code/area_analysis.py -i "/absolute/path/input_paths.json" -t 2000
-python code/collect_results.py -i "/absolute/path/input_paths.json"
-python code/report.py -i "/absolute/path/input_paths.json" --fn-threshold 20
+python code/1_alignment.py -i "/absolute/path/input_paths.json" -a 15
+python code/2_thickness.py -i "/absolute/path/input_paths.json"
+python code/3_area.py -i "/absolute/path/input_paths.json" -t 2000
+python code/4_collect_results.py -i "/absolute/path/input_paths.json"
+python code/5_report.py -i "/absolute/path/input_paths.json" --fn-threshold 20
 ```
 
-To add the report command to an existing installation, update the `UMA-tools-V2` checkout and the existing environment's dependencies. Run these commands from the repository root and replace `uma_tools_new` with your actual environment name. An editable installation keeps subsequent Python source edits linked to the checkout:
+The old direct script paths, `code/alignment_analysis.py`, `code/thickness_analysis.py`, `code/area_analysis.py`, `code/collect_results.py`, and `code/report.py`, remain as compatibility launchers. All installed commands and both sets of launchers support `--help` and `--version` without initializing Fiji.
+
+To update an existing installation to the modular layout, run these commands from the `UMA-tools-V2` repository root and replace `uma_tools_new` with your actual environment name. Version 0.2.6 preserves the scientific dependency requirements from 0.2.5, so an environment already updated for the report command needs only the package reinstall. An editable installation keeps subsequent Python source edits linked to the checkout:
 
 ```bash
 git pull --ff-only
-conda env update -n uma_tools_new -f environment_uma.yaml
 conda activate uma_tools_new
 python -m pip install --no-deps -e .
 python -m pip check
@@ -240,7 +257,9 @@ uma_report --help
 uma_report --version
 ```
 
-The package version should be `0.2.5` or later; the report implementation version is `4.0.0`, the collector version is `1.0.0`, and the area version remains `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
+For an older environment that does not yet include the report dependencies, first run `conda env update -n uma_tools_new -f environment_uma.yaml`, then activate that environment and reinstall the package as above. Recreating the environment is unnecessary.
+
+The package version should be `0.2.6` or later; the report implementation version is `4.0.0`, the collector version is `1.0.0`, and the area version remains `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
 replace a previously installed, non-editable package. Thickness runs report the
 package version, implementation path, and reslice/projection calibration so the
 installed implementation and spatial scale can be checked. For input calibrated
@@ -249,6 +268,17 @@ Rerun images processed with the uncalibrated projection; scaled filtering can
 change the mask, so rescaling existing CSV values is not a general correction.
 
 ## Validation
+
+Development checks are separate from the scientific Conda environment requirements. To work on the code, install the pinned checkers from `requirements-dev.txt` in your development environment:
+
+```bash
+python -m pip install -r requirements-dev.txt
+ruff format --check code tests
+ruff check code tests
+pycodestyle --max-line-length=79 --max-doc-length=72 --ignore=E203,W503 code
+```
+
+Maintained code follows four-space indentation, 79-character code lines, 72-character comments/docstrings, and Ruff import and syntax checks. The two pycodestyle exceptions match the formatter's slice spacing and PEP 8's preferred line break before binary operators. Necessary headless-backend initialization uses narrowly documented import-order exceptions. Type annotations and small functions describe module boundaries; external Java API names and scientific CSV column names retain their required spelling.
 
 Run the command/argument tests after installing the package:
 
@@ -268,7 +298,7 @@ UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
 
 These integration tests process small synthetic TIFF stacks without a display, check output tables and metadata-file exclusion, compare calibrated masks, thickness maps, and measurements against the original projection macro, and compare direct Local Thickness results with the original menu command. Area command tests compare real SUM32 values and masks with known multichannel data, verify lower/upper threshold boundaries and calibrated area, check repeated runs without alignment folders, and exercise failure logging while continuing to another source folder. Separate child processes verify that thickness and area return to the terminal with the appropriate success/failure status. They require Java, Maven, and network access for the initial Fiji download. Synthetic TIFF tests do not establish accuracy on every experimental dataset; representative ND2 files and their channel/calibration metadata must also be validated on the target machine.
 
-The [main-assay workflow](.github/workflows/core-assays.yml) builds the environment and runs these tests on Ubuntu and macOS. Check the latest GitHub Actions results before treating a platform as validated; a configured workflow alone is not evidence of a successful run.
+The [main-assay workflow](.github/workflows/core-assays.yml) builds the environment, checks formatting and style, exercises numbered and legacy launchers, and runs the full test suite on Ubuntu and macOS. Check the latest GitHub Actions results before treating a platform as validated; a configured workflow alone is not evidence of a successful run.
 
 ## Other approaches
 
