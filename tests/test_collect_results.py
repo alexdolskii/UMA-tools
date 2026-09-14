@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from uma_tools import collection as collector
+from uma_tools import collect_results as collector
 
 
 class CollectionTests(unittest.TestCase):
@@ -476,7 +476,9 @@ class CollectionTests(unittest.TestCase):
         finally:
             os.chdir(previous)
 
-    def test_installed_and_direct_commands_exit_without_imagej(self):
+    def test_installed_command_and_stdlib_collection_exit_without_imagej(
+        self,
+    ):
         self.all_runs()
         self.config_for(self.source)
         executable = Path(sys.executable).parent / "uma_collect_results"
@@ -490,20 +492,6 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("3 analyses", result.stdout)
         self.assertIn("Collection finished", result.stdout)
-        # -S disables site-packages; the launcher must use only stdlib.
-        launcher = (
-            Path(__file__).resolve().parents[1]
-            / "code"
-            / "4_collect_results.py"
-        )
-        result = subprocess.run(
-            [sys.executable, "-S", str(launcher), "-i", str(self.config)],
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         script = (
             "import sys; from uma_tools import cli; "
             f"sys.argv=['uma_collect_results','-i',{str(self.config)!r}]; "
@@ -512,7 +500,11 @@ class CollectionTests(unittest.TestCase):
             "& set(sys.modules)"
         )
         result = subprocess.run(
-            [sys.executable, "-c", script],
+            [sys.executable, "-S", "-c", script],
+            env=dict(
+                os.environ,
+                PYTHONPATH=str(Path(__file__).resolve().parents[1] / "code"),
+            ),
             cwd=self.root,
             capture_output=True,
             text=True,

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uma-tools"
-version = "0.2.7"
+version = "0.2.8"
 description = "Automated, headless workflows for fibroblast/ECM unit confocal data"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -29,7 +29,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["code"]
-include = ["uma_tools", "uma_tools.*"]
+include = ["uma_tools"]
 namespaces = false
 
 [project.scripts]

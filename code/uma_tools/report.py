@@ -2,16 +2,19 @@
 """
 Generate one validated UMA report per source folder in input_paths.json.
 
-Run: uma_report -i input_paths.json --fn-threshold 20 The latest
-completed Combined_Results is selected before checking its three
-summaries and manually supplied plate map. An incomplete selected input
-does not cause a silent fallback to another dataset. No ImageJ runtime
-is started.
+Run: uma_report -i input_paths.json --fn-threshold 20
+
+The latest completed Combined_Results is selected before checking its
+three summaries and manually supplied plate map. An incomplete selected
+input does not cause a silent fallback to another dataset. No ImageJ
+runtime is started.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -20,16 +23,52 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..common.config import read_config
-from ..common.files import safe_label, save_json
-from ..common.version import package_version
-from . import collected_inputs, dependencies, source_tables
-from . import io as report_io
-from . import plots as plot_renderer
-from . import validation as report_validation
-from . import workbook as workbook_export
-from .constants import EVENT_COLUMNS, SCRIPT_VERSION, THICKNESS_UNITS
-from .models import ValidationError
+from . import (
+    package_version,
+    report_inputs,
+    report_plots,
+    report_tables,
+    report_validation,
+    report_workbook,
+)
+from .config import read_config
+from .files import safe_label, save_json
+from .report_schema import (
+    EVENT_COLUMNS,
+    SCRIPT_VERSION,
+    THICKNESS_UNITS,
+    EventLogger,
+    ValidationError,
+)
+
+
+def load_dependencies(log: EventLogger) -> dict[str, str]:
+    """
+    Load libraries and record versions without injecting module globals.
+
+    Individual report functions also import the libraries they use
+    locally. The workflow calls this preflight after creating persistent
+    diagnostics.
+    """
+    try:
+        importlib.import_module("numpy")
+        matplotlib = importlib.import_module("matplotlib")
+        matplotlib.use("Agg")
+        importlib.import_module("matplotlib.pyplot")
+        importlib.import_module("openpyxl")
+        # Openpyxl uses Pillow when embedding the generated PNG images.
+        importlib.import_module("PIL.Image")
+    except ImportError as error:
+        raise RuntimeError(
+            "A report dependency is unavailable. Install the dependencies "
+            "declared by this UMA release. Original error: " + str(error)
+        ) from error
+    versions = {
+        name: importlib.metadata.version(name)
+        for name in ("numpy", "matplotlib", "openpyxl", "Pillow")
+    }
+    log.event("INFO", "Dependencies", json.dumps(versions))
+    return versions
 
 
 class BufferedLog:
@@ -47,7 +86,7 @@ class BufferedLog:
                 stage,
                 str(message),
                 console,
-                timestamp or report_io.utc_now(),
+                timestamp or report_inputs.utc_now(),
             )
         )
 
@@ -106,7 +145,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                 parent,
                 source.name if source is not None else "configuration_error",
             )
-            log = report_io.RunLog(directory)
+            log = report_inputs.RunLog(directory)
             if buffered is not None:
                 buffered.replay(log)
             log.event("FAILED", "Startup", str(error))
@@ -119,7 +158,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                     "status": "VALIDATION_FAILED"
                     if isinstance(error, (ValidationError, ValueError))
                     else "ERROR",
-                    "ended_utc": report_io.utc_now(),
+                    "ended_utc": report_inputs.utc_now(),
                     "source_folder": str(source)
                     if source is not None
                     else None,
@@ -128,7 +167,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                     "run_directory": str(directory),
                 },
             )
-            report_io.save_details(
+            report_inputs.save_details(
                 directory / "validation_errors.csv",
                 [{"Stage": "Startup", "Issue": str(error)}],
             )
@@ -145,21 +184,196 @@ def diagnostic_failure(source, input_json, error, buffered=None):
     return False, None
 
 
+def run_parameters(status, args):
+    """Describe the run and unchanged analysis and display policies."""
+    return {
+        **status,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "python_executable": sys.executable,
+        "fn_area_threshold_percent": args.fn_threshold,
+        "template_sheet": args.sheet or "First worksheet",
+        "plate_id": args.plate_id or status["source_name"],
+        "selection_rule": (
+            "Latest completed collection; no fallback for missing/invalid "
+            "selected inputs"
+        ),
+        "image_id_rule": (
+            "Complete original filename including extension; exact "
+            "alignment suffix mapping"
+        ),
+        "fn_filter_rule": (
+            "FN_Area_Percent < threshold is excluded from filtered views; "
+            "equality is retained"
+        ),
+        "filter_scope": (
+            "Individual images; all full-data rows remain available"
+        ),
+        "replicates": (
+            "Image-level points; wells are technical replicates; "
+            "biological replicate is blank"
+        ),
+        "statistical_tests": "Not performed",
+        "quartiles": "Linear interpolation (R type 7)",
+        "whiskers": "1.5 x IQR",
+        "thickness_units": dict(THICKNESS_UNITS),
+        "alignment_axis": [0, 100],
+        "fibronectin_axis": [0, 100],
+        "thickness_axis": (
+            "Starts at zero; full-data limits shared by full/filtered pairs"
+        ),
+        "empty_groups": (
+            "Preserve X positions with n=0; n=1 displays one point "
+            "without a box"
+        ),
+    }
+
+
+def save_report_tables(data, directory):
+    """Export complete and filtered data, counts, and quality checks."""
+    for filename, rows in (
+        ("merged_data.csv", data["rows"]),
+        ("filtered_data.csv", data["retained_rows"]),
+        ("excluded_data.csv", data["excluded_rows"]),
+    ):
+        report_inputs.save_csv(directory / filename, data["columns"], rows)
+    for filename, key in (
+        ("group_filter_counts.csv", "group_filter_counts"),
+        ("well_filter_counts.csv", "well_filter_counts"),
+    ):
+        report_inputs.save_csv(
+            directory / filename, list(data[key][0]), data[key]
+        )
+    report_inputs.save_csv(
+        directory / "qc.csv", ["Check", "Value", "Details"], data["qc"]
+    )
+
+
+def save_verified_workbook(data, plots, log, run_id, candidate, final_path):
+    """Save and verify the pending workbook before the atomic rename."""
+    workbook = report_workbook.build_workbook(data, plots, log.events, run_id)
+    try:
+        workbook.save(candidate)
+        report_workbook.verify_workbook(candidate, data)
+        log.event(
+            "PASS",
+            "Workbook verification",
+            "All data, 20 sheets, and 13 embedded plots verified",
+        )
+        completion_time = report_inputs.utc_now()
+        message = (
+            f"{len(data['rows'])} images; "
+            f"{len(data['retained_rows'])} retained; "
+            f"{len(data['excluded_rows'])} excluded from filtered views; "
+            f"13 plots. Workbook: {final_path.name}"
+        )
+        completion = dict(
+            zip(
+                EVENT_COLUMNS,
+                [completion_time, "SUCCESS", "Run", message],
+            )
+        )
+        log_sheet = workbook["Run Log"]
+        log_sheet.delete_rows(1, log_sheet.max_row)
+        report_workbook.write_table(
+            log_sheet,
+            EVENT_COLUMNS,
+            log.events + [completion],
+            widths=[28, 14, 32, 130],
+        )
+        workbook.save(candidate)
+    finally:
+        workbook.close()
+    report_workbook.verify_workbook(candidate, data, require_success=True)
+    return completion_time, message
+
+
+def record_run_failure(error, trace, status, directory, log, paths):
+    """Remove unfinished output and preserve all failure diagnostics."""
+    validation = isinstance(error, ValidationError)
+    label = (
+        "VALIDATION_FAILED"
+        if validation
+        else "CANCELLED"
+        if isinstance(error, KeyboardInterrupt)
+        else "ERROR"
+    )
+    message = str(error) or "Run interrupted by the user"
+    # Cleanup and failure status must not depend on successful log
+    # writes.
+    for path in paths:
+        if path is not None:
+            best_effort(
+                f"remove incomplete workbook {path}",
+                path.unlink,
+                missing_ok=True,
+            )
+    status.update(
+        status=label, ended_utc=report_inputs.utc_now(), error=message
+    )
+    status.pop("workbook", None)
+    best_effort(
+        "save failure status",
+        save_json,
+        directory / "run_status.json",
+        status,
+    )
+    best_effort(
+        "record failure in run log",
+        log.event,
+        "FAILED",
+        status["stage"],
+        message,
+    )
+    details = (
+        error.details
+        if validation and error.details
+        else [{"Stage": status["stage"], "Issue": message}]
+    )
+    best_effort(
+        "save diagnostic details",
+        report_inputs.save_details,
+        directory
+        / ("validation_errors.csv" if validation else "error_details.csv"),
+        details,
+    )
+    for detail in details:
+        best_effort(
+            "record diagnostic detail",
+            log.event,
+            "ERROR",
+            "Diagnostic detail",
+            json.dumps(detail, ensure_ascii=False),
+            console=False,
+        )
+    best_effort(
+        "save traceback",
+        (directory / "traceback.txt").write_text,
+        trace,
+        encoding="utf-8",
+    )
+    print(
+        f"Report failed. Diagnostics: {directory}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def process_folder(source, input_json, args):
     buffered = BufferedLog()
     try:
-        combined = collected_inputs.select_combined(source, buffered)
+        combined = report_inputs.select_combined(source, buffered)
         run_id, directory = new_run(combined, source.name)
     except (OSError, ValueError, ValidationError) as error:
         return diagnostic_failure(source, input_json, error, buffered)
-    log = report_io.RunLog(directory)
+    log = report_inputs.RunLog(directory)
     status = {
         "run_id": run_id,
         "script_version": SCRIPT_VERSION,
         "package_version": package_version(),
         "status": "RUNNING",
         "stage": "Initialization",
-        "started_utc": report_io.utc_now(),
+        "started_utc": report_inputs.utc_now(),
         "source_folder": str(source),
         "source_name": source.name,
         "combined_results_folder": str(combined),
@@ -182,53 +396,12 @@ def process_folder(source, input_json, args):
         )
         log.event("INFO", "Output", directory)
         buffered.replay(log)
-        parameters = {
-            **status,
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "python_executable": sys.executable,
-            "fn_area_threshold_percent": args.fn_threshold,
-            "template_sheet": args.sheet or "First worksheet",
-            "plate_id": args.plate_id or source.name,
-            "selection_rule": (
-                "Latest completed collection; no fallback for missing/invalid "
-                "selected inputs"
-            ),
-            "image_id_rule": (
-                "Complete original filename including extension; exact "
-                "alignment suffix mapping"
-            ),
-            "fn_filter_rule": (
-                "FN_Area_Percent < threshold is excluded from filtered views; "
-                "equality is retained"
-            ),
-            "filter_scope": (
-                "Individual images; all full-data rows remain available"
-            ),
-            "replicates": (
-                "Image-level points; wells are technical replicates; "
-                "biological replicate is blank"
-            ),
-            "statistical_tests": "Not performed",
-            "quartiles": "Linear interpolation (R type 7)",
-            "whiskers": "1.5 x IQR",
-            "thickness_units": dict(THICKNESS_UNITS),
-            "alignment_axis": [0, 100],
-            "fibronectin_axis": [0, 100],
-            "thickness_axis": (
-                "Starts at zero; full-data limits shared by full/filtered "
-                "pairs"
-            ),
-            "empty_groups": (
-                "Preserve X positions with n=0; n=1 displays one point "
-                "without a box"
-            ),
-        }
+        parameters = run_parameters(status, args)
         save_json(directory / "run_parameters.json", parameters)
         stage("Parameter validation")
-        threshold = source_tables.validate_fn_threshold(args.fn_threshold)
+        threshold = report_tables.validate_fn_threshold(args.fn_threshold)
         stage("Input discovery")
-        paths = collected_inputs.discover_inputs(combined, source.name)
+        paths = report_inputs.discover_inputs(combined, source.name)
         status["input_files"] = {
             role: str(path) for role, path in paths.items()
         }
@@ -238,7 +411,7 @@ def process_folder(source, input_json, args):
             "Three unchanged summaries and one plate-template workbook found",
         )
         stage("Input archive")
-        snapshots, manifests = collected_inputs.archive_inputs(
+        snapshots, manifests = report_inputs.archive_inputs(
             paths, input_json, combined, directory
         )
         parameters.update(
@@ -248,7 +421,7 @@ def process_folder(source, input_json, args):
             },
         )
         stage("Dependencies")
-        parameters["dependency_versions"] = dependencies.load_dependencies(log)
+        parameters["dependency_versions"] = load_dependencies(log)
         save_json(directory / "run_parameters.json", parameters)
         stage("Input validation")
         data = report_validation.validate_and_merge(
@@ -271,22 +444,7 @@ def process_folder(source, input_json, args):
             excluded_from_filtered_plots=len(data["excluded_rows"]),
         )
         save_json(directory / "run_parameters.json", parameters)
-        for filename, rows in (
-            ("merged_data.csv", data["rows"]),
-            ("filtered_data.csv", data["retained_rows"]),
-            ("excluded_data.csv", data["excluded_rows"]),
-        ):
-            report_io.save_csv(directory / filename, data["columns"], rows)
-        for filename, key in (
-            ("group_filter_counts.csv", "group_filter_counts"),
-            ("well_filter_counts.csv", "well_filter_counts"),
-        ):
-            report_io.save_csv(
-                directory / filename, list(data[key][0]), data[key]
-            )
-        report_io.save_csv(
-            directory / "qc.csv", ["Check", "Value", "Details"], data["qc"]
-        )
+        save_report_tables(data, directory)
         status.update(
             total_images=len(data["rows"]),
             full_data_images=len(data["rows"]),
@@ -297,50 +455,17 @@ def process_folder(source, input_json, args):
             annotation_coverage_percent=100,
         )
         stage("Plots")
-        plots = plot_renderer.create_plots(data, directory / "Plots", log)
+        plots = report_plots.create_plots(data, directory / "Plots", log)
         save_json(directory / "plot_manifest.json", plots)
         stage("Workbook export")
         candidate = directory / "report_pending.xlsx"
         final_path = (
             directory / f"UMA_Report_{safe_label(source.name)}_{run_id}.xlsx"
         )
-        workbook = workbook_export.build_workbook(
-            data, plots, log.events, run_id
+        completion_time, message = save_verified_workbook(
+            data, plots, log, run_id, candidate, final_path
         )
-        try:
-            workbook.save(candidate)
-            workbook_export.verify_workbook(candidate, data)
-            log.event(
-                "PASS",
-                "Workbook verification",
-                "All data, 20 sheets, and 13 embedded plots verified",
-            )
-            completion_time = report_io.utc_now()
-            message = (
-                f"{len(data['rows'])} images; "
-                f"{len(data['retained_rows'])} retained; "
-                f"{len(data['excluded_rows'])} excluded from filtered views; "
-                f"13 plots. Workbook: {final_path.name}"
-            )
-            completion = dict(
-                zip(
-                    EVENT_COLUMNS,
-                    [completion_time, "SUCCESS", "Run", message],
-                )
-            )
-            log_sheet = workbook["Run Log"]
-            log_sheet.delete_rows(1, log_sheet.max_row)
-            workbook_export.write_table(
-                log_sheet,
-                EVENT_COLUMNS,
-                log.events + [completion],
-                widths=[28, 14, 32, 130],
-            )
-            workbook.save(candidate)
-        finally:
-            workbook.close()
-        workbook_export.verify_workbook(candidate, data, require_success=True)
-        collected_inputs.verify_sources(manifests)
+        report_inputs.verify_sources(manifests)
         candidate.rename(final_path)
         log.event("SUCCESS", "Run", message, timestamp=completion_time)
         status.update(
@@ -354,73 +479,13 @@ def process_folder(source, input_json, args):
         print(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
         return True, directory
     except (Exception, KeyboardInterrupt) as error:
-        validation = isinstance(error, ValidationError)
-        label = (
-            "VALIDATION_FAILED"
-            if validation
-            else "CANCELLED"
-            if isinstance(error, KeyboardInterrupt)
-            else "ERROR"
-        )
-        message = str(error) or "Run interrupted by the user"
-        trace = traceback.format_exc()
-        # Cleanup and failure status must not depend on successful log
-        # writes.
-        for path in (candidate, final_path):
-            if path is not None:
-                best_effort(
-                    f"remove incomplete workbook {path}",
-                    path.unlink,
-                    missing_ok=True,
-                )
-        status.update(
-            status=label, ended_utc=report_io.utc_now(), error=message
-        )
-        status.pop("workbook", None)
-        best_effort(
-            "save failure status",
-            save_json,
-            directory / "run_status.json",
+        record_run_failure(
+            error,
+            traceback.format_exc(),
             status,
-        )
-        best_effort(
-            "record failure in run log",
-            log.event,
-            "FAILED",
-            status["stage"],
-            message,
-        )
-        details = (
-            error.details
-            if validation and error.details
-            else [{"Stage": status["stage"], "Issue": message}]
-        )
-        best_effort(
-            "save diagnostic details",
-            report_io.save_details,
-            directory
-            / ("validation_errors.csv" if validation else "error_details.csv"),
-            details,
-        )
-        for detail in details:
-            best_effort(
-                "record diagnostic detail",
-                log.event,
-                "ERROR",
-                "Diagnostic detail",
-                json.dumps(detail, ensure_ascii=False),
-                console=False,
-            )
-        best_effort(
-            "save traceback",
-            (directory / "traceback.txt").write_text,
-            trace,
-            encoding="utf-8",
-        )
-        print(
-            f"Report failed. Diagnostics: {directory}",
-            file=sys.stderr,
-            flush=True,
+            directory,
+            log,
+            (candidate, final_path),
         )
         if isinstance(error, KeyboardInterrupt):
             raise

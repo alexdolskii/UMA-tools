@@ -74,7 +74,7 @@ class HeadlessTests(unittest.TestCase):
     def test_alignment_outputs_and_metadata_filter(self):
         import pandas as pd
 
-        from uma_tools.assays import alignment
+        from uma_tools import alignment_analysis as alignment
 
         self.assertEqual(
             alignment.get_folder_paths(str(self.manifest)), [str(self.folder)]
@@ -98,7 +98,7 @@ class HeadlessTests(unittest.TestCase):
         import numpy as np
         import pandas as pd
 
-        from uma_tools.assays import thickness
+        from uma_tools import thickness_analysis as thickness
 
         ij, image_plus, windows, table, duplicator, system = (
             thickness.import_java_classes()
@@ -170,7 +170,7 @@ class HeadlessTests(unittest.TestCase):
         import numpy as np
         import tifffile
 
-        from uma_tools.assays import thickness
+        from uma_tools import thickness_analysis as thickness
 
         filename = "calibrated.tiff"
         stack = np.zeros((17, 64, 64), dtype=np.uint16)

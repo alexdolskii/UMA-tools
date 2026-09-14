@@ -13,7 +13,7 @@ from uma_tools import cli
 
 class CommandTests(unittest.TestCase):
     def test_alignment_arguments(self):
-        module = types.ModuleType("uma_tools.assays.alignment")
+        module = types.ModuleType("uma_tools.alignment_analysis")
         module.main_fibronectin_processing = Mock()
         with patch.dict(sys.modules, {module.__name__: module}):
             with patch.object(
@@ -25,7 +25,7 @@ class CommandTests(unittest.TestCase):
         )
 
     def test_alignment_default_angle(self):
-        module = types.ModuleType("uma_tools.assays.alignment")
+        module = types.ModuleType("uma_tools.alignment_analysis")
         module.main_fibronectin_processing = Mock()
         with patch.dict(sys.modules, {module.__name__: module}):
             with patch.object(
@@ -37,7 +37,7 @@ class CommandTests(unittest.TestCase):
         )
 
     def test_thickness_arguments(self):
-        module = types.ModuleType("uma_tools.assays.thickness")
+        module = types.ModuleType("uma_tools.thickness_analysis")
         module.main = Mock()
         with patch.dict(sys.modules, {module.__name__: module}):
             with patch.object(
@@ -47,14 +47,14 @@ class CommandTests(unittest.TestCase):
         module.main.assert_called_once_with("a b.json")
 
     def test_area_preserves_analysis_exit_status(self):
-        module = types.ModuleType("uma_tools.assays.area")
+        module = types.ModuleType("uma_tools.area_analysis")
         module.main = Mock(return_value=1)
         with patch.dict(sys.modules, {module.__name__: module}):
             self.assertEqual(cli.area(), 1)
         module.main.assert_called_once_with()
 
     def test_thickness_cleanup_preserves_analysis_error(self):
-        module = types.ModuleType("uma_tools.assays.thickness")
+        module = types.ModuleType("uma_tools.thickness_analysis")
         module.main = Mock(side_effect=ValueError("original analysis error"))
         with patch.dict(sys.modules, {module.__name__: module}):
             with patch.object(
@@ -101,7 +101,7 @@ class CommandTests(unittest.TestCase):
             from uma_tools import cli
 
             command = os.environ["UMA_TEST_COMMAND"]
-            module = types.ModuleType(f"uma_tools.assays.{command}")
+            module = types.ModuleType(f"uma_tools.{command}_analysis")
             def main(*_):
                 jar = os.environ.get("UMA_TEST_IMAGEJ_JAR")
                 if jar:

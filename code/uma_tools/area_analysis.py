@@ -57,30 +57,24 @@ import sys
 import traceback
 from pathlib import Path
 
-from ..common.config import load_json, resolve_path
-from ..common.files import save_csv as _save_csv
-from ..common.files import save_json as _save_json
-from ..common.files import sha256_file
-from ..common.run import RunLog as _RunLog
-from ..common.run import unique_output
-from ..common.run import utc_now as _utc_now
-from ..common.version import package_version
-from ..runtime.imagej import (
-    FIJI_ENDPOINT,
-    shutdown_imagej_workers,
-)
-from ..runtime.imagej import (
-    ImageJInitializationError as ImageJInitializationError,
-)
-from ..runtime.imagej import initialize_imagej as initialize_imagej
-from .area_imagej import ImageJEngine
-from .area_parameters import (
+from . import package_version
+from .area_imagej import (
     DEFAULT_THRESHOLD_LOWER,
+    ImageJEngine,
     ValidationError,
     threshold_settings,
 )
-from .area_parameters import FLOAT32_MAX as FLOAT32_MAX
-from .area_parameters import float32_limit as float32_limit
+from .config import load_json, resolve_path
+from .files import save_csv as _save_csv
+from .files import save_json as _save_json
+from .files import sha256_file
+from .imagej import (
+    FIJI_ENDPOINT,
+    shutdown_imagej_workers,
+)
+from .run import RunLog as _RunLog
+from .run import unique_output
+from .run import utc_now as _utc_now
 
 SCRIPT_VERSION = "2.1.0"
 ORIGINAL_EXTENSIONS = (".nd2", ".tif", ".tiff")
@@ -436,6 +430,44 @@ def process_original_images(
     return projection_rows, summary_rows
 
 
+def prepare_inventory(source_folder, output, log):
+    """Save the selected originals and their input fingerprints."""
+    selected = original_inventory(source_folder)
+    save_csv(output / "input_manifest.csv", MANIFEST_COLUMNS, selected)
+    log.event(
+        "INFO",
+        "Inventory",
+        f"{len(selected)} original image(s); "
+        "subfolders and hidden files are not processed.",
+    )
+    for index, entry in enumerate(selected, 1):
+        log.event(
+            "INFO",
+            "Fingerprint",
+            f"{index}/{len(selected)} {entry['File_Name']}",
+        )
+        entry["SHA256"] = sha256_file(Path(entry["Path"]))
+    save_csv(output / "input_manifest.csv", MANIFEST_COLUMNS, selected)
+    return selected
+
+
+def verify_originals(source_folder, selected):
+    """Check that the inventory and original bytes are unchanged."""
+    current_selected = original_inventory(source_folder)
+    if [entry["Path"] for entry in current_selected] != [
+        entry["Path"] for entry in selected
+    ]:
+        raise ValidationError(
+            "The original image inventory changed during processing."
+        )
+    for entry in selected:
+        if sha256_file(Path(entry["Path"])) != entry["SHA256"]:
+            raise ValidationError(
+                "An original image changed during processing: "
+                + entry["File_Name"]
+            )
+
+
 def process_folder(
     source_folder, channel, method, limits, engine_holder, input_json, outputs
 ):
@@ -513,22 +545,7 @@ def process_folder(
             ),
         )
         status["stage"] = "Original inventory"
-        selected = original_inventory(source_folder)
-        save_csv(output / "input_manifest.csv", MANIFEST_COLUMNS, selected)
-        log.event(
-            "INFO",
-            "Inventory",
-            f"{len(selected)} original image(s); "
-            "subfolders and hidden files are not processed.",
-        )
-        for index, entry in enumerate(selected, 1):
-            log.event(
-                "INFO",
-                "Fingerprint",
-                f"{index}/{len(selected)} {entry['File_Name']}",
-            )
-            entry["SHA256"] = sha256_file(Path(entry["Path"]))
-        save_csv(output / "input_manifest.csv", MANIFEST_COLUMNS, selected)
+        selected = prepare_inventory(source_folder, output, log)
         status.update(
             input_images=len(selected), stage="ImageJ initialization"
         )
@@ -562,19 +579,7 @@ def process_folder(
         )
         current_file = status.get("current_file", "")
         status["stage"] = "Final verification"
-        current_selected = original_inventory(source_folder)
-        if [entry["Path"] for entry in current_selected] != [
-            entry["Path"] for entry in selected
-        ]:
-            raise ValidationError(
-                "The original image inventory changed during processing."
-            )
-        for entry in selected:
-            if sha256_file(Path(entry["Path"])) != entry["SHA256"]:
-                raise ValidationError(
-                    "An original image changed during processing: "
-                    + entry["File_Name"]
-                )
+        verify_originals(source_folder, selected)
         z_counts = sorted(
             {row["Number_of_Z_Stacks"] for row in projection_rows}
         )

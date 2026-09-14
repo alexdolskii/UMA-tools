@@ -68,14 +68,6 @@ jobs:
           ruff check code tests
           # Match formatter slices and PEP 8's break-before-operator style.
           pycodestyle --max-line-length=79 --max-doc-length=72 --ignore=E203,W503 code
-      - name: Check five numbered script entry points
-        run: |
-          for script in \
-            1_alignment.py 2_thickness.py 3_area.py \
-            4_collect_results.py 5_report.py; do
-            python "code/$script" --help
-            python "code/$script" --version
-          done
       - name: Test commands and headless TIFF processing
         env:
           UMA_RUN_IMAGEJ_TESTS: '1'

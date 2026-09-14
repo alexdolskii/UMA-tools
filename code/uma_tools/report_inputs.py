@@ -1,6 +1,5 @@
 """
-Select completed collections and verify immutable report input
-snapshots.
+Select and archive collected inputs, with report file and log policies.
 """
 
 from __future__ import annotations
@@ -9,12 +8,22 @@ import hashlib
 import json
 import re
 from datetime import datetime
+from functools import partial
 from pathlib import Path, PureWindowsPath
 
-from ..common.contracts import SUMMARY_NAMES
-from ..common.files import sha256_file
-from . import io as report_io
-from .models import EventLogger, ReportInputs, ValidationError
+from .contracts import SUMMARY_NAMES
+from .files import save_csv as _save_csv
+from .files import save_json as _save_json
+from .files import sha256_file
+from .report_schema import EventLogger, ReportInputs, ValidationError
+from .run import RunLog as RunLog
+from .run import utc_now as _utc_now
+
+save_csv = partial(_save_csv, encoding="utf-8-sig")
+save_json = partial(
+    _save_json, atomic=False, allow_nan=False, trailing_newline=False
+)
+utc_now = partial(_utc_now, timespec="seconds")
 
 ROLES = {
     "Alignment": ("alignment", SUMMARY_NAMES["Alignment"]),
@@ -257,9 +266,7 @@ def archive_inputs(paths, input_json, combined, directory):
         )
         if role in paths:
             snapshots[role] = target
-    report_io.save_csv(
-        directory / "input_manifest.csv", list(records[0]), records
-    )
+    save_csv(directory / "input_manifest.csv", list(records[0]), records)
     # Reconcile copied summary bytes against the archived collector
     # record as well, closing the gap between discovery and archiving.
     archived_status = json.loads(
@@ -289,3 +296,11 @@ def verify_sources(records):
             raise ValidationError(
                 "An input changed during report generation: " + record["Path"]
             )
+
+
+def save_details(path, rows):
+    """
+    Write every diagnostic field without dropping affected records.
+    """
+    columns = list(dict.fromkeys(key for row in rows for key in row))
+    save_csv(path, columns or ["Issue"], rows)

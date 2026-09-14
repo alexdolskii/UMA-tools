@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from uma_tools.assays import area
+from uma_tools import area_analysis as area
+from uma_tools.area_imagej import FLOAT32_MAX
 
 
 class AreaInputTests(unittest.TestCase):
@@ -174,8 +175,8 @@ class AreaCommandImageJTests(unittest.TestCase):
             manifest = root / "input.json"
             manifest.write_text(json.dumps({"folder_paths": [str(source)]}))
             cases = [
-                ((), 2000, area.FLOAT32_MAX),
-                (("-t", "3000"), 3000, area.FLOAT32_MAX),
+                ((), 2000, FLOAT32_MAX),
+                (("-t", "3000"), 3000, FLOAT32_MAX),
                 (("--threshold", "2000", "5000"), 2000, 5000),
             ]
             for bounds, lower, upper in cases:

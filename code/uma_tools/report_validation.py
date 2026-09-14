@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
-from .constants import (
+from .report_inputs import save_csv
+from .report_schema import (
     ALIGNMENT_PATTERN,
     FN_INCLUDED_FLAG,
     FN_LOW_FLAG,
@@ -18,17 +20,20 @@ from .constants import (
     FN_THRESHOLD_COLUMN,
     THICKNESS_METRICS,
     THICKNESS_UNITS,
+    EventLogger,
+    ParsedRecord,
+    ReportData,
+    ReportInputs,
+    ValidationError,
 )
-from .io import save_csv
-from .models import EventLogger, ReportData, ReportInputs, ValidationError
-from .plate import read_template
-from .source_tables import (
+from .report_tables import (
     metadata_column,
     numeric_values,
     optional_number_sort,
     original_stem_lookup,
     parse_filenames,
     read_csv_table,
+    read_template,
     validate_fibronectin,
     validate_fn_threshold,
 )
@@ -77,15 +82,49 @@ def filter_counts(rows, group_order, group_wells):
     return retained, excluded, groups, wells
 
 
-def validate_and_merge(
-    paths: ReportInputs,
-    sheet_name: str | None,
-    plate_label: str,
-    output: Path,
-    log: EventLogger,
-    fn_threshold: float,
-) -> ReportData:
-    fn_threshold = validate_fn_threshold(fn_threshold)
+@dataclass
+class _AssayTables:
+    """
+    Source columns and matched records, retaining their input order.
+    """
+
+    alignment_columns: list[str]
+    alignment: list[ParsedRecord]
+    thickness_columns: list[str]
+    thickness: list[ParsedRecord]
+    fn_columns: list[str]
+    fibronectin: list[ParsedRecord]
+    metric: str
+    angle_label: str
+
+
+@dataclass
+class _AnnotatedPlate:
+    """Selected template and its validated image-to-well coverage."""
+
+    sheet: str
+    matrix: list[list]
+    well_map: dict[str, str]
+    image_counts: Counter
+    matched_count: int
+    unused_wells: list[str]
+
+
+@dataclass
+class _MergedObservations:
+    """Annotated records and their stable output and replicate order."""
+
+    columns: list[str]
+    rows: list[dict]
+    metric: str
+    group_order: list[str]
+    group_wells: dict[str, list[str]]
+    plate_id: str
+    field_map: list[dict[str, str]]
+
+
+def _read_matched_tables(paths, log):
+    """Read all summaries and require identical unique image sets."""
     alignment_columns, alignment = read_csv_table(
         paths["alignment"], "Alignment"
     )
@@ -156,6 +195,22 @@ def validate_and_merge(
         f"{len(alignment_ids)}/{len(alignment_ids)} unique images matched "
         "across all three CSV tables.",
     )
+    return _AssayTables(
+        alignment_columns,
+        alignment,
+        thickness_columns,
+        thickness,
+        fn_columns,
+        fibronectin,
+        metric,
+        angle_label,
+    )
+
+
+def _read_annotated_plate(paths, sheet_name, alignment, output, log):
+    """
+    Write coverage diagnostics before rejecting unannotated images.
+    """
     selected, grid, well_map, cells = read_template(
         paths["template"], sheet_name
     )
@@ -214,6 +269,21 @@ def validate_and_merge(
         log.event(
             "WARNING", "Template wells without images", ", ".join(unused_wells)
         )
+    return _AnnotatedPlate(
+        selected,
+        grid,
+        well_map,
+        image_counts,
+        matched_count,
+        unused_wells,
+    )
+
+
+def _validate_measurements(tables, log):
+    """Check original numeric values without converting measurements."""
+    alignment, thickness = tables.alignment, tables.thickness
+    fibronectin = tables.fibronectin
+    metric, fn_columns = tables.metric, tables.fn_columns
     numeric_values(alignment, [metric], "Alignment", upper=100)
     numeric_values(thickness, THICKNESS_METRICS, "Thickness")
     pixel_counts_checked = validate_fibronectin(fibronectin, fn_columns)
@@ -243,33 +313,15 @@ def validate_and_merge(
             "ranges."
         ),
     )
+    return pixel_counts_checked
 
-    used_groups = {well_map[well] for well in image_counts}
-    group_order = [
-        group
-        for group in dict.fromkeys(well_map.values())
-        if group in used_groups
-    ]
-    group_wells = {
-        group: [
-            well
-            for well in well_map
-            if image_counts[well] and well_map[well] == group
-        ]
-        for group in group_order
-    }
-    replicate = {
-        well: index
-        for wells in group_wells.values()
-        for index, well in enumerate(wells, 1)
-    }
-    plate_id = plate_label or re.sub(
-        r"_?96[_ -]?well[_ -]?plate[_ -]?template$",
-        "",
-        paths["template"].stem,
-        flags=re.IGNORECASE,
-    ).rstrip("_ -")
-    plate_id = plate_id or paths["template"].stem
+
+def _source_column_layout(tables):
+    """Map each source column to one collision-free output column."""
+    alignment_columns, alignment = tables.alignment_columns, tables.alignment
+    thickness_columns, thickness = tables.thickness_columns, tables.thickness
+    fn_columns, fibronectin = tables.fn_columns, tables.fibronectin
+    metric = tables.metric
     columns = [
         "Image_ID",
         "Alignment_Source_Row",
@@ -344,6 +396,49 @@ def validate_and_merge(
             if source == "Alignment" and column == metric:
                 output_metric = output_column
     columns += thickness_labels
+    return columns, thickness_labels, field_map, extra_values, output_metric
+
+
+def _merge_observations(tables, plate, paths, plate_label, fn_threshold):
+    """
+    Join matched images and retain the original well and image order.
+    """
+    alignment, thickness = tables.alignment, tables.thickness
+    fibronectin, angle_label = tables.fibronectin, tables.angle_label
+    well_map, image_counts = plate.well_map, plate.image_counts
+    used_groups = {well_map[well] for well in image_counts}
+    group_order = [
+        group
+        for group in dict.fromkeys(well_map.values())
+        if group in used_groups
+    ]
+    group_wells = {
+        group: [
+            well
+            for well in well_map
+            if image_counts[well] and well_map[well] == group
+        ]
+        for group in group_order
+    }
+    replicate = {
+        well: index
+        for wells in group_wells.values()
+        for index, well in enumerate(wells, 1)
+    }
+    plate_id = plate_label or re.sub(
+        r"_?96[_ -]?well[_ -]?plate[_ -]?template$",
+        "",
+        paths["template"].stem,
+        flags=re.IGNORECASE,
+    ).rstrip("_ -")
+    plate_id = plate_id or paths["template"].stem
+    (
+        columns,
+        thickness_labels,
+        field_map,
+        extra_values,
+        output_metric,
+    ) = _source_column_layout(tables)
     thickness_lookup = {row["image_id"]: row for row in thickness}
     fn_lookup = {row["image_id"]: row for row in fibronectin}
     field_map.extend(
@@ -425,6 +520,24 @@ def validate_and_merge(
             row["Image_ID"],
         )
     )
+    return _MergedObservations(
+        columns,
+        merged,
+        output_metric,
+        group_order,
+        group_wells,
+        plate_id,
+        field_map,
+    )
+
+
+def _filtered_views(observations, fn_threshold, log):
+    """Flag individual images and log empty or single-image groups."""
+    merged = observations.rows
+    group_order, group_wells = (
+        observations.group_order,
+        observations.group_wells,
+    )
     retained, excluded, group_counts, well_counts = filter_counts(
         merged, group_order, group_wells
     )
@@ -453,6 +566,34 @@ def validate_and_merge(
             "Single-image filtered groups",
             ", ".join(singletons) + "; one point, no box.",
         )
+    return retained, excluded, group_counts, well_counts
+
+
+def _quality_checks(
+    tables,
+    plate,
+    observations,
+    fn_threshold,
+    pixel_counts_checked,
+    retained,
+    excluded,
+    group_counts,
+):
+    """
+    Describe validated inputs and derived views without new metrics.
+    """
+    alignment, thickness = tables.alignment, tables.thickness
+    fibronectin, metric = tables.fibronectin, tables.metric
+    angle_label = tables.angle_label
+    matched_count, image_counts = plate.matched_count, plate.image_counts
+    unused_wells = plate.unused_wells
+    merged, group_order = observations.rows, observations.group_order
+    empty_groups = [
+        row["Group"] for row in group_counts if not row["Retained_Images"]
+    ]
+    singletons = [
+        row["Group"] for row in group_counts if row["Retained_Images"] == 1
+    ]
     checks = [
         (
             "Overall validation status",
@@ -575,26 +716,70 @@ def validate_and_merge(
             ),
         ),
     ]
+    return [dict(zip(["Check", "Value", "Details"], row)) for row in checks]
+
+
+def validate_and_merge(
+    paths: ReportInputs,
+    sheet_name: str | None,
+    plate_label: str,
+    output: Path,
+    log: EventLogger,
+    fn_threshold: float,
+) -> ReportData:
+    """
+    Validate sources and plate coverage, then derive annotated views.
+    """
+    fn_threshold = validate_fn_threshold(fn_threshold)
+    tables = _read_matched_tables(paths, log)
+    plate = _read_annotated_plate(
+        paths,
+        sheet_name,
+        tables.alignment,
+        output,
+        log,
+    )
+    pixel_counts_checked = _validate_measurements(tables, log)
+    observations = _merge_observations(
+        tables,
+        plate,
+        paths,
+        plate_label,
+        fn_threshold,
+    )
+    retained, excluded, group_counts, well_counts = _filtered_views(
+        observations,
+        fn_threshold,
+        log,
+    )
+    checks = _quality_checks(
+        tables,
+        plate,
+        observations,
+        fn_threshold,
+        pixel_counts_checked,
+        retained,
+        excluded,
+        group_counts,
+    )
     return {
-        "columns": columns,
-        "rows": merged,
-        "metric": output_metric,
-        "angle_label": angle_label,
+        "columns": observations.columns,
+        "rows": observations.rows,
+        "metric": observations.metric,
+        "angle_label": tables.angle_label,
         "retained_rows": retained,
         "excluded_rows": excluded,
         "fn_threshold": fn_threshold,
         "group_filter_counts": group_counts,
         "well_filter_counts": well_counts,
-        "group_order": group_order,
-        "group_wells": group_wells,
-        "well_counts": dict(image_counts),
-        "well_map": well_map,
-        "plate_matrix": grid,
-        "plate_id": plate_id,
-        "template_sheet": selected,
+        "group_order": observations.group_order,
+        "group_wells": observations.group_wells,
+        "well_counts": dict(plate.image_counts),
+        "well_map": plate.well_map,
+        "plate_matrix": plate.matrix,
+        "plate_id": observations.plate_id,
+        "template_sheet": plate.sheet,
         "thickness_units": dict(THICKNESS_UNITS),
-        "qc": [
-            dict(zip(["Check", "Value", "Details"], row)) for row in checks
-        ],
-        "field_map": field_map,
+        "qc": checks,
+        "field_map": observations.field_map,
     }

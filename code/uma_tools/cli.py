@@ -6,12 +6,12 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from .common.version import package_version
+from . import package_version
 
 
 def _shutdown_imagej_workers() -> None:
-    """Delegate legacy worker cleanup to runtime infrastructure."""
-    from .runtime.imagej import shutdown_imagej_workers
+    """Close the shared ImageJ worker pool after a command."""
+    from .imagej import shutdown_imagej_workers
 
     shutdown_imagej_workers()
 
@@ -61,7 +61,7 @@ def alignment(argv: Sequence[str] | None = None) -> int:
         help="Alignment angle in degrees (default: 15)",
     )
     args = parser.parse_args(argv)
-    from .assays.alignment import main_fibronectin_processing
+    from .alignment_analysis import main_fibronectin_processing
 
     return _run_imagej_command(
         main_fibronectin_processing, args.input, args.angle_value
@@ -73,27 +73,27 @@ def thickness(argv: Sequence[str] | None = None) -> int:
     parser = _image_parser("Fibronectin thickness analysis")
     args = parser.parse_args(argv)
     print(f"UMA-tools {package_version()} — thickness analysis", flush=True)
-    from .assays.thickness import main
+    from .thickness_analysis import main
 
     return _run_imagej_command(main, args.input)
 
 
 def area(argv: Sequence[str] | None = None) -> int:
     """Run area and record its runtime shutdown status."""
-    from .assays.area import main
+    from .area_analysis import main
 
     return main() if argv is None else main(argv)
 
 
 def collect_results(argv: Sequence[str] | None = None) -> int:
     """Collect summaries without loading scientific runtimes."""
-    from .collection import main
+    from .collect_results import main
 
     return main() if argv is None else main(argv)
 
 
 def report(argv: Sequence[str] | None = None) -> int:
     """Create plots and an Excel report without starting Fiji."""
-    from .reporting.workflow import main
+    from .report import main
 
     return main() if argv is None else main(argv)

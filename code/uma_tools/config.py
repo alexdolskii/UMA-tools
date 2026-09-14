@@ -7,7 +7,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .errors import ValidationError
+
+class ValidationError(ValueError):
+    """Carry an input error and optional diagnostic records."""
+
+    def __init__(self, message: str, details: list | None = None) -> None:
+        super().__init__(message)
+        self.details = details or []
 
 
 def reject_metadata_json(

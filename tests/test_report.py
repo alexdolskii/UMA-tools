@@ -18,9 +18,10 @@ from unittest.mock import patch
 
 import openpyxl
 
-from uma_tools.reporting import collected_inputs, dependencies, validation
-from uma_tools.reporting import workflow as report
-from uma_tools.reporting.models import ValidationError
+from uma_tools import report
+from uma_tools import report_inputs as collected_inputs
+from uma_tools import report_validation as validation
+from uma_tools.report_schema import ValidationError
 
 ALIGNMENT_METRIC = "Percentage_Fibers_Aligned_Within_15_Degree"
 ALIGNMENT_SUFFIX = "_processed_orientation_distribution.csv"
@@ -384,7 +385,7 @@ class CombinedSelectionTests(ReportFixture):
 class MergeValidationTests(ReportFixture):
     @classmethod
     def setUpClass(cls):
-        dependencies.load_dependencies(EventLog())
+        report.load_dependencies(EventLog())
 
     def test_full_identity_and_exact_legacy_stem_join_without_sequence_tokens(
         self,
@@ -568,19 +569,17 @@ class ReportCommandTests(ReportFixture):
             raise RuntimeError("synthetic workbook verification failure")
 
         with (
+            patch.object(report.report_plots, "create_plots", return_value=[]),
             patch.object(
-                report.plot_renderer, "create_plots", return_value=[]
+                report.report_workbook, "build_workbook", return_value=workbook
             ),
             patch.object(
-                report.workbook_export, "build_workbook", return_value=workbook
-            ),
-            patch.object(
-                report.workbook_export,
+                report.report_workbook,
                 "verify_workbook",
                 side_effect=fail_verification,
             ) as verification,
             patch.object(
-                report.report_io,
+                report.report_inputs,
                 "save_details",
                 side_effect=OSError("synthetic diagnostics write failure"),
             ) as details,
@@ -611,7 +610,7 @@ class ReportCommandTests(ReportFixture):
         paths = self.inputs()
         config = self.config([self.source])
         with patch.object(
-            report.dependencies,
+            report,
             "load_dependencies",
             side_effect=RuntimeError("synthetic dependency failure"),
         ):
@@ -643,7 +642,7 @@ class ReportCommandTests(ReportFixture):
         paths = self.inputs()
         config = self.config([self.source])
         with patch.object(
-            report.dependencies,
+            report,
             "load_dependencies",
             side_effect=KeyboardInterrupt,
         ):
@@ -860,9 +859,7 @@ class ReportCommandTests(ReportFixture):
         config = self.config([self.source])
         result = subprocess.run(
             [
-                sys.executable,
-                "-m",
-                "uma_tools.reporting.workflow",
+                str(Path(sys.executable).parent / "uma_report"),
                 "-i",
                 str(config),
             ],
@@ -907,11 +904,11 @@ class ReportCommandTests(ReportFixture):
         self.assertEqual(result, 1)
 
     def test_help_and_version_outside_repository_do_not_import_imagej(self):
-        script = Path(__file__).resolve().parents[1] / "code" / "5_report.py"
+        script = Path(sys.executable).parent / "uma_report"
         for argument in ("--help", "--version"):
             with self.subTest(argument=argument):
                 completed = subprocess.run(
-                    [sys.executable, str(script), argument],
+                    [str(script), argument],
                     cwd=self.root,
                     capture_output=True,
                     text=True,
@@ -924,9 +921,9 @@ class ReportCommandTests(ReportFixture):
                 )
                 self.assertIn("report", completed.stdout.lower())
         code = (
-            "import runpy,sys; sys.argv=['uma_report','--help']; "
-            "\ntry: runpy.run_module("
-            "'uma_tools.reporting.workflow',run_name='__main__')"
+            "import sys; from uma_tools import cli; "
+            "sys.argv=['uma_report','--help']; "
+            "\ntry: cli.report()"
             "\nexcept SystemExit as error: assert error.code == 0"
             "\nassert 'imagej' not in sys.modules "
             "and 'scyjava' not in sys.modules"

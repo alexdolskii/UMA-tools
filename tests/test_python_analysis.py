@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 import tifffile
 
-from uma_tools.assays import alignment, thickness
+from uma_tools import alignment_analysis as alignment
+from uma_tools import thickness_analysis as thickness
 
 
 class PythonAnalysisTests(unittest.TestCase):

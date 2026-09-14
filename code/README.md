@@ -2,95 +2,89 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.7**.
+development; the current Python package version is **0.2.8**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
 
-## Commands and launchers
+## Five commands
 
-Run these stages individually in order with the same JSON. Before reporting,
+Run the stages individually in order with the same JSON. Before reporting,
 place the plate template in the selected completed `Combined_Results` directory.
 
-| Stage | Installed command | Launcher |
+| Stage | Installed command | Implementation in `uma_tools` |
 |---|---|---|
-| Alignment | `uma_alignment` | `1_alignment.py` |
-| Thickness | `uma_thickness` | `2_thickness.py` |
-| Fibronectin area | `area_analysis` | `3_area.py` |
-| Collect results | `uma_collect_results` | `4_collect_results.py` |
-| Report | `uma_report` | `5_report.py` |
+| Alignment | `uma_alignment` | `alignment_analysis.py` |
+| Thickness | `uma_thickness` | `thickness_analysis.py` |
+| Fibronectin area | `area_analysis` | `area_analysis.py` |
+| Collect results | `uma_collect_results` | `collect_results.py` |
+| Report | `uma_report` | `report.py` |
 
-The numbered files are thin launchers for the same command implementations.
-They accept identical arguments, for example, from the repository root:
+For example:
 
 ```bash
-python code/1_alignment.py -i input_paths.json -a 15
+uma_alignment -i input_paths.json -a 15
 ```
 
-All five launchers and installed commands support `--help` and `--version`
-without starting Fiji. Version 0.2.7 removes the old unnumbered launchers and
-compatibility import modules. Replace calls such as
-`python code/alignment_analysis.py` with `uma_alignment` or
-`python code/1_alignment.py`; arguments stay the same.
+All five commands support `--help` and `--version` without starting Fiji.
+Version 0.2.8 removes duplicate script launchers and nested package layers.
+Use the installed commands; their names, arguments, and calculations are
+unchanged. Runtime dependencies are unchanged from versions 0.2.5–0.2.7.
 
-## Module responsibilities
+## One package directory
 
-Reusable code belongs in the importable `uma_tools` package:
+The `code` directory contains this README and `uma_tools`, a package with
+19 Python files. Its modules contain implementations rather than compatibility
+adapters. `cli.py` routes commands directly to the five analysis/workflow
+modules listed above; shared helpers are beside them in the same directory.
 
-| Location | Responsibility |
+The remaining modules have these responsibilities:
+
+| Module | Responsibility |
 |---|---|
-| `uma_tools/cli.py` | Command arguments and completion status |
-| `uma_tools/assays/` | Alignment, thickness, and area processing and measurements |
-| `uma_tools/runtime/` | Shared headless Fiji initialization and worker cleanup |
-| `uma_tools/collection.py` | Result selection and image correspondence |
-| `uma_tools/reporting/` | Input validation, plate mapping, plots, and Excel output |
-| `uma_tools/reporting/collected_inputs.py` | Select and archive collected report inputs; distinct from running result collection |
-| `uma_tools/common/` | Configuration, file operations, output directories, logs, errors, version, and shared data definitions |
+| `cli.py` | Command arguments, dispatch, and completion status |
+| `__init__.py` | Package identity and installed version |
+| `config.py` | JSON input folders and configuration errors |
+| `files.py` | Filename labels, CSV/JSON writing, and checksums |
+| `run.py` | Output directories, timestamps, and scoped logs |
+| `contracts.py` | Shared assay names, columns, and data definitions |
+| `imagej.py` | Headless Fiji initialization and worker cleanup |
+| `area_imagej.py` | SUM32 projection, threshold bounds, masks, and area measurements |
+| `report_inputs.py` | Select, verify, and archive collected report inputs |
+| `report_tables.py` | Read summary tables and the plate template |
+| `report_validation.py` | Match images, validate annotations, and apply the FN coverage filter |
+| `report_schema.py` | Report constants, data types, and validation errors |
+| `report_plots.py` | Generate the report figures |
+| `report_workbook.py` | Build and verify the Excel workbook |
 
-The `code` directory contains only the five numbered launchers, this README,
-and the package. Each launcher calls `uma_tools.cli`, which calls the relevant
-implementation directly. Reporting separates workflow, validation, plotting,
-and workbook generation; scientific dependencies load when needed.
-
-For custom Python integrations, replace old compatibility imports with these
-module locations:
-
-| Removed module | Implementation |
-|---|---|
-| `uma_tools.alignment_analysis` | `uma_tools.assays.alignment` |
-| `uma_tools.thickness_analysis` | `uma_tools.assays.thickness` |
-| `uma_tools.area_analysis` | `uma_tools.assays.area` |
-| `uma_tools.collect_results` | `uma_tools.collection` |
-| `uma_tools.report` | `uma_tools.reporting.workflow` |
-| `uma_tools.report_rendering` or `uma_tools.reporting.engine` | Import the needed functions from `reporting.plots`, `reporting.workbook`, `reporting.validation`, or the other focused reporting modules |
-
-The command interfaces remain unchanged. Runtime dependencies also remain
-unchanged from 0.2.5 and 0.2.6; updating the installed package is sufficient.
+For custom Python integrations, import implementations directly, for example
+`from uma_tools import alignment_analysis` or
+`from uma_tools.report_plots import create_plots`. Earlier nested module paths
+and compatibility adapters are no longer supported.
 
 ## Behavior to preserve
 
 - Keep scientific calculations, operation order, thresholds, units, CSV
-  columns, and report contents stable during structural changes. Numerical
-  regression checks are required for processing changes.
-- Use JSON `folder_paths` with absolute image-folder paths. For existing
-  relative paths, area resolves against the JSON directory; the other stages
-  resolve against the working directory. Shared helpers preserve this policy.
+  columns, and report contents stable during structural changes.
+- Use JSON `folder_paths` with absolute image-folder paths. Existing relative
+  paths resolve against the JSON directory for area and against the working
+  directory for the other stages.
 - Collection chooses the latest valid result for each assay independently.
   Reporting selects the latest completed collection, then requires all three
-  summaries and one plate template there. Neither stage silently drops
-  unmatched images; reporting does not fall back to an older collection.
+  summaries and one plate template. Neither stage silently drops unmatched
+  images; reporting does not fall back to an older collection.
 - Preserve filename identities and explicit CSV/JSON writing policies.
   Exclude hidden files, macOS `._` files, and directories named like images.
-- Give every run a new output directory and logs. Keep diagnostics with the
-  run and close its log handlers before the next source folder.
-- Dispose Fiji and close workers at the command boundary. Reusable processing
-  functions must not terminate Python or close resources needed by later folders.
+- Give every run a new output directory and logs. Close its log handlers
+  before the next source folder, and keep diagnostics with the run.
+- Dispose Fiji and close workers at the command boundary. Reusable functions
+  must not terminate Python or close resources needed by later folders.
 
 ## Development checks
 
 Run from the repository root after installing UMA-tools. Runtime requirements
 are in [`environment_uma.yaml`](../environment_uma.yaml) and
-[`pyproject.toml`](../pyproject.toml); the development checkers are separate:
+[`pyproject.toml`](../pyproject.toml); development checkers are separate:
 
 ```bash
 python -m pip install -r requirements-dev.txt
@@ -101,12 +95,10 @@ python -m unittest discover -s tests -v
 ```
 
 Use four-space indentation, `snake_case`, `UPPER_CASE` constants, 79-character
-code lines, 72-character comments/docstrings, and explicit module interfaces.
-The two pycodestyle exceptions match formatter slice spacing and PEP 8's
-preferred break before binary operators. Required headless Matplotlib import
-ordering uses a narrowly documented exception.
+code lines, and 72-character comments/docstrings. The pycodestyle exceptions
+match formatter slice spacing and PEP 8's break before binary operators.
 
-Enable the additional Fiji checks with:
+Enable real Fiji checks with:
 
 ```bash
 UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
@@ -115,5 +107,3 @@ UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
 The [CI workflow](../.github/workflows/core-assays.yml) runs style, command,
 numerical, and process-exit checks on Linux and macOS. Fiji tests use synthetic
 TIFF data and require Java, Maven, and the initial component download.
-Representative experimental ND2/TIFF data still need validation for their
-channel order and calibration.

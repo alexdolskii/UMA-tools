@@ -18,17 +18,18 @@ import numpy as np
 import pandas as pd
 import tifffile
 
-from uma_tools import collection as collector
-from uma_tools.assays import alignment, thickness
+from uma_tools import alignment_analysis as alignment
+from uma_tools import collect_results as collector
+from uma_tools import thickness_analysis as thickness
 
 FIXTURES = Path(__file__).with_name("fixtures")
 REPOSITORY = Path(__file__).resolve().parents[1]
 ENTRY_POINTS = (
-    ("1_alignment.py", "uma_alignment"),
-    ("2_thickness.py", "uma_thickness"),
-    ("3_area.py", "area_analysis"),
-    ("4_collect_results.py", "uma_collect_results"),
-    ("5_report.py", "uma_report"),
+    ("alignment", "uma_alignment"),
+    ("thickness", "uma_thickness"),
+    ("area", "area_analysis"),
+    ("collect_results", "uma_collect_results"),
+    ("report", "uma_report"),
 )
 
 
@@ -153,32 +154,65 @@ class FrozenAlignmentTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
-    def test_numbered_scripts_help_and_version_are_lightweight(
-        self,
-    ):
+    def test_source_package_has_only_the_flat_implementation_modules(self):
+        expected = {
+            "__init__",
+            "cli",
+            "alignment_analysis",
+            "thickness_analysis",
+            "area_analysis",
+            "collect_results",
+            "report",
+            "config",
+            "files",
+            "run",
+            "contracts",
+            "imagej",
+            "area_imagej",
+            "report_inputs",
+            "report_tables",
+            "report_validation",
+            "report_schema",
+            "report_plots",
+            "report_workbook",
+        }
+        package = REPOSITORY / "code" / "uma_tools"
+        actual = {
+            path.relative_to(package).with_suffix("").as_posix()
+            for path in package.rglob("*.py")
+        }
+        self.assertEqual(actual, expected)
+        self.assertEqual(list((REPOSITORY / "code").glob("*.py")), [])
+
+    def test_installed_entry_points_help_and_version_are_lightweight(self):
         driver = """
-import runpy
+from importlib.metadata import distribution
 import sys
-path, argument = sys.argv[1:]
-sys.argv = [path, argument]
+command, function, argument = sys.argv[1:]
+entry = next(
+    entry for entry in distribution("uma-tools").entry_points
+    if entry.group == "console_scripts" and entry.name == command
+)
+assert entry.value == "uma_tools.cli:" + function, entry.value
+sys.argv = [command, argument]
 try:
-    runpy.run_path(path, run_name="__main__")
+    entry.load()()
 except SystemExit as error:
     assert error.code in (None, 0), error.code
-for name in ("imagej", "jpype", "matplotlib.pyplot"):
+for name in ("imagej", "jpype", "numpy", "pandas", "matplotlib.pyplot"):
     assert name not in sys.modules, name
 """
         with tempfile.TemporaryDirectory() as cwd:
-            for filename, _ in ENTRY_POINTS:
+            for function, command in ENTRY_POINTS:
                 for argument in ("--help", "--version"):
-                    with self.subTest(file=filename, argument=argument):
-                        path = REPOSITORY / "code" / filename
+                    with self.subTest(command=command, argument=argument):
                         completed = subprocess.run(
                             [
                                 sys.executable,
                                 "-c",
                                 driver,
-                                str(path),
+                                command,
+                                function,
                                 argument,
                             ],
                             cwd=cwd,
@@ -206,18 +240,17 @@ for name in ("imagej", "jpype", "matplotlib.pyplot"):
                     self.assertEqual(completed.returncode, 2, completed.stderr)
                     self.assertIn("--input", completed.stderr)
 
-    def test_numbered_commands_reach_canonical_analyses_without_adapters(self):
+    def test_installed_commands_reach_real_modules_without_old_packages(self):
         """Exercise launch, argument routing, and exit status in isolation."""
         driver = """
-import runpy
+from importlib.metadata import distribution
 import sys
 import types
 
-path, module_name, function_name, result = sys.argv[1:]
+command, module_name, function_name, result = sys.argv[1:]
 for removed in (
-    "alignment_analysis", "thickness_analysis", "area_analysis",
-    "collect_results", "report", "report_rendering",
-    "reporting.engine", "reporting.collection",
+    "assays", "common", "runtime", "reporting", "collection",
+    "report_rendering",
 ):
     sys.modules["uma_tools." + removed] = None
 module = types.ModuleType(module_name)
@@ -230,39 +263,38 @@ def calculate(*args):
 
 setattr(module, function_name, calculate)
 sys.modules[module_name] = module
-sys.argv = [path, "-i", "routing path.json"]
-try:
-    runpy.run_path(path, run_name="__main__")
-except SystemExit as error:
-    assert error.code == int(result), error.code
-else:
-    raise AssertionError("The launcher did not propagate its exit status")
+sys.argv = [command, "-i", "routing path.json"]
+entry = next(
+    entry for entry in distribution("uma-tools").entry_points
+    if entry.group == "console_scripts" and entry.name == command
+)
+assert entry.load()() == int(result)
 expected = {
-    "uma_tools.assays.alignment": ("routing path.json", 15),
-    "uma_tools.assays.thickness": ("routing path.json",),
+    "uma_tools.alignment_analysis": ("routing path.json", 15),
+    "uma_tools.thickness_analysis": ("routing path.json",),
 }.get(module_name, ())
 assert calls == [expected], calls
 for heavy in ("imagej", "matplotlib.pyplot"):
     assert heavy not in sys.modules, heavy
 """
         targets = (
-            ("assays.alignment", "main_fibronectin_processing", 0),
-            ("assays.thickness", "main", 0),
-            ("assays.area", "main", 3),
-            ("collection", "main", 3),
-            ("reporting.workflow", "main", 3),
+            ("alignment_analysis", "main_fibronectin_processing", 0),
+            ("thickness_analysis", "main", 0),
+            ("area_analysis", "main", 3),
+            ("collect_results", "main", 3),
+            ("report", "main", 3),
         )
         with tempfile.TemporaryDirectory() as cwd:
-            for (filename, _), (module, entry, status) in zip(
+            for (_, command), (module, entry, status) in zip(
                 ENTRY_POINTS, targets
             ):
-                with self.subTest(command=filename):
+                with self.subTest(command=command):
                     completed = subprocess.run(
                         [
                             sys.executable,
                             "-c",
                             driver,
-                            str(REPOSITORY / "code" / filename),
+                            command,
                             f"uma_tools.{module}",
                             entry,
                             str(status),

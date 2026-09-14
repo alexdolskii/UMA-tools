@@ -2,7 +2,6 @@
 """Collect the latest valid UMA summaries for each JSON source folder.
 
 Usage: uma_collect_results -i input_paths.json
-       python code/4_collect_results.py -i input_paths.json
 
 Selection is independent for each assay. Image-set mismatches never
 trigger a search for older matching runs. CSV bytes are preserved.
@@ -24,18 +23,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .common.config import read_config
-from .common.contracts import (
+from . import package_version
+from .config import ValidationError, read_config
+from .contracts import (
     ALIGNMENT_SUFFIX,
     ASSAY_TIMESTAMP_PATTERN,
     IMAGE_EXTENSIONS,
     SUMMARY_NAMES,
     THICKNESS_METRICS,
 )
-from .common.errors import ValidationError
-from .common.files import safe_label, save_csv, save_json, sha256_file
-from .common.run import close_logger, make_logger, unique_output, utc_now
-from .common.version import package_version
+from .files import safe_label, save_csv, save_json, sha256_file
+from .run import close_logger, make_logger, unique_output, utc_now
 
 SCRIPT_VERSION = "1.0.0"
 SELECTION_COLUMNS = [

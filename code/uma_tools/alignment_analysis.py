@@ -8,14 +8,11 @@ from pathlib import Path
 
 import matplotlib
 
-from ..common.config import load_json
-from ..common.run import scoped_file_log, unique_output
-from ..runtime.imagej import (
-    ImageJInitializationError as ImageJInitializationError,
-)
-from ..runtime.imagej import (
+from .config import load_json
+from .imagej import (
     initialize_imagej,
 )
+from .run import scoped_file_log, unique_output
 
 # Select the backend before pyplot and image-processing imports.
 matplotlib.use("Agg")

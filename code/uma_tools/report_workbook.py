@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .constants import (
+from .report_schema import (
     EVENT_COLUMNS,
     FN_INCLUDED_FLAG,
     FN_LOW_FLAG,
@@ -17,8 +17,9 @@ from .constants import (
     FN_REASON_COLUMN,
     SCRIPT_VERSION,
     SHEET_NAMES,
+    ReportData,
+    ValidationError,
 )
-from .models import ReportData, ValidationError
 
 if TYPE_CHECKING:
     from openpyxl import Workbook
@@ -108,27 +109,11 @@ def title_sheet(sheet, title):
         )
 
 
-def build_workbook(
-    data: ReportData,
-    plots: list[dict[str, Any]],
-    events: list[dict[str, Any]],
-    run_id: str,
-) -> Workbook:
-    import openpyxl
+def _write_plot_sheets(workbook, data, plots):
+    """Embed every plot with its original group and replicate counts."""
     from openpyxl.drawing.image import Image
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font
 
-    workbook = openpyxl.Workbook()
-    workbook.remove(workbook.active)
-    for name in SHEET_NAMES:
-        sheet = workbook.create_sheet(name)
-        sheet.sheet_view.showGridLines = False
-    workbook.properties.title = "Alignment, Thickness, and Fibronectin Report"
-    workbook.properties.creator = (
-        "Alignment, Thickness, and Fibronectin Python Report"
-    )
-    workbook.properties.version = SCRIPT_VERSION
     group_rows = []
     max_replicates = max(map(len, data["group_wells"].values()))
     group_columns = ["Group"] + [
@@ -233,6 +218,13 @@ def build_workbook(
         sheet.sheet_properties.pageSetUpPr.fitToPage = True
         sheet.print_area = f"A1:P{group_start + len(group_rows) + 1}"
 
+
+def _write_measurement_sheets(workbook, data):
+    """
+    Export full, retained and excluded observations without rounding.
+    """
+    from openpyxl.styles import PatternFill
+
     widths = [
         62
         if column
@@ -276,6 +268,9 @@ def build_workbook(
                         row_index, data["columns"].index(column) + 1
                     ).fill = PatternFill("solid", fgColor="FDE9E7")
 
+
+def _write_filter_summary(workbook, data):
+    """Record image exclusions by group and original replicate well."""
     filter_sheet = workbook["Filter Summary"]
     title_sheet(filter_sheet, "Fibronectin coverage filter")
     put_cell(
@@ -318,6 +313,14 @@ def build_workbook(
     )
     filter_sheet.freeze_panes = "B8"
 
+
+def _write_plate_map(workbook, data):
+    """
+    Render the literal worksheet annotations in their original cells.
+    """
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
     plate_sheet = workbook["Plate Map"]
     title_sheet(plate_sheet, "96-well plate map")
     put_cell(
@@ -355,6 +358,13 @@ def build_workbook(
         ),
     ).font = Font(name="Arial", size=10, italic=True)
 
+
+def _write_quality_sheets(workbook, data, events, run_id):
+    """
+    Keep validation results and the complete event log in the export.
+    """
+    from openpyxl.styles import Font
+
     qc_sheet = workbook["QC"]
     title_sheet(qc_sheet, "Validation and run details")
     put_cell(
@@ -375,6 +385,34 @@ def build_workbook(
         workbook["Run Log"], EVENT_COLUMNS, events, widths=[28, 14, 32, 130]
     )
     workbook["Run Log"].freeze_panes = "A2"
+
+
+def build_workbook(
+    data: ReportData,
+    plots: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    run_id: str,
+) -> Workbook:
+    """
+    Assemble the fixed sheet order from plots, measurements and QC.
+    """
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    workbook.remove(workbook.active)
+    for name in SHEET_NAMES:
+        sheet = workbook.create_sheet(name)
+        sheet.sheet_view.showGridLines = False
+    workbook.properties.title = "Alignment, Thickness, and Fibronectin Report"
+    workbook.properties.creator = (
+        "Alignment, Thickness, and Fibronectin Python Report"
+    )
+    workbook.properties.version = SCRIPT_VERSION
+    _write_plot_sheets(workbook, data, plots)
+    _write_measurement_sheets(workbook, data)
+    _write_filter_summary(workbook, data)
+    _write_plate_map(workbook, data)
+    _write_quality_sheets(workbook, data, events, run_id)
     return workbook
 
 
