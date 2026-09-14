@@ -1,50 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Generate native-resolution FN projections from originals and measure area.
+"""Measure FN area from original ND2/TIFF images using native SUM32 projections.
 
-Version 2.0.0 replaces measurement of contrast-scaled 8-bit alignment previews
-with projection of the original ND2/TIFF channel. SUM is the default. All
-projection methods save 32-bit floating-point TIFFs, without intensity scaling,
-resizing, denoising, or background subtraction. Binary masks use 0/255 bytes.
+Run in the UMA environment:
+    area_analysis -i input_paths.json
+    area_analysis -i input_paths.json -t 2000
+    area_analysis -i input_paths.json -t 2000 50000
 
-ImageJ startup and the existing folder_paths JSON structure are unchanged:
-    imagej.init('sc.fiji:fiji', mode='headless')
+The threshold is an inclusive LOWER [UPPER] interval in raw projection intensity
+units. The default lower bound is 2000; an omitted upper bound (or inf) uses the
+largest finite float32 value. The 1-based fibronectin channel is requested once
+unless --channel is supplied. --projection defaults to sum; --projections-only
+retains the optional inspection mode without masks or area measurements.
 
-First create SUM32 projections for inspection and threshold selection:
-    python code/Fibronectin_Area_ImageJ_v2_0_0.py -i input_paths.json --channel 4
+Every source folder in the folder_paths JSON is scanned directly for visible
+.nd2, .tif and .tiff files. Alignment/thickness outputs and _Seq identifiers are
+not required. Subfolders, including previous results, are not scanned.
+Image_ID is the complete original filename, including its extension.
 
-After selecting a threshold in ORIGINAL SUM intensity units, rerun with:
-    --threshold LOWER inf
-Replace LOWER with your measured numeric cutoff. Do not reuse 31-255 from
-contrast-scaled 8-bit previews. No intensity threshold is assumed by default.
-The upper limit 'inf' includes all finite values above the lower limit.
+Each source folder receives a unique Area_assay_results_<timestamp>_<id> folder
+with SUM32 projections, 0/255 masks, area tables, parameters, status and logs.
+Startup failures use a new results folder in an available source folder, or in
+the working directory if no source folder is available. No logs are written to
+the installed package. An image error stops its folder and retains partial
+results; other source folders continue. Command errors return a nonzero status.
 
-Original images must match the IDs of all direct *_processed.tif[f] files in
-the newest timestamped alignment folder. Those old previews define the image
-inventory only; their pixels are never used. Outputs remain in a new dated
-subfolder inside that alignment folder. Extra originals are listed in the
-inventory. Missing or ambiguous originals stop the run.
-
-Multi-series ND2 files and multiple time points are rejected because one row
-must represent one image field. Channels are numbered from 1. ND2 uses Fiji's
-Bio-Formats reader with autoscale disabled; TIFF uses ImageJ's native opener.
-One original image is loaded at a time. No additional Python packages are
-required beyond the existing PyImageJ/ScyJava/NumPy environment.
-
-SUM adds background as well as signal, and depends on the number of Z slices.
-Preserving 32-bit intensities does not establish a valid segmentation cutoff.
-The data table records projection method, Z count, channel and threshold.
+Original float intensities, native XY resolution, spatial calibration, SUM
+projection and full-frame area measurements are preserved. No resizing,
+intensity scaling, denoising or background subtraction is applied. Multi-series
+ND2, RGB-packed data and multiple time points remain unsupported. SUM includes
+background and depends on Z count; the requested/effective thresholds and Z
+count are recorded for every image. Fiji uses sc.fiji:fiji:2.14.0 in headless
+mode, matching the other UMA commands.
 """
 
 from __future__ import annotations
-
-# ======================== USER SETTINGS ========================
-INPUT_PATHS_FILE = "input_paths.json"
-FIBRONECTIN_CHANNEL = None  # One-based index; None asks in an interactive terminal.
-PROJECTION_METHOD = "sum"  # "sum", "mean", or "max"; all outputs are 32-bit.
-THRESHOLD_LOWER = 2000  # None saves projections only. Set a raw-intensity cutoff after inspection.
-THRESHOLD_UPPER = None  # None means no upper cutoff. Never assume an 8-bit maximum of 255.
-# ====================== END USER SETTINGS =======================
 
 import argparse
 import csv
@@ -54,7 +44,6 @@ import json
 import math
 import os
 import platform
-import re
 import struct
 import sys
 import traceback
@@ -62,14 +51,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-SCRIPT_VERSION = "2.0.0"
-ALIGNMENT_FOLDER_PATTERN = re.compile(
-    r"^Alignment_assay_results_angle_(?P<angle>[0-9]+(?:[_.][0-9]+)?)_"
-    r"(?P<timestamp>[0-9]{8}_[0-9]{6})$"
-)
-PROJECTION_SUFFIXES = ("_processed.tif", "_processed.tiff")
+SCRIPT_VERSION = "2.1.0"
+FIJI_ENDPOINT = "sc.fiji:fiji:2.14.0"
+DEFAULT_THRESHOLD_LOWER = 2000.0
 ORIGINAL_EXTENSIONS = (".nd2", ".tif", ".tiff")
-SEQUENCE_PATTERN = re.compile(r"_Seq[0-9]{4}(?=[_.]|$)")
 EVENT_COLUMNS = ["Timestamp_UTC", "Level", "Stage", "Message"]
 FLOAT32_MAX = 3.4028234663852886e38
 MANIFEST_COLUMNS = ["File_Name", "Image_ID", "Selected", "Reason", "Path", "Bytes", "SHA256"]
@@ -79,8 +64,7 @@ PROJECTION_COLUMNS = [
     "Source_Timepoints", "Projection_Method", "Projection_Min", "Projection_Max",
     "Total_Pixels", "Image_Area", "Area_Unit", "Pixel_Width", "Pixel_Height", "Pixel_Unit",
     "Source_Original_Path", "Source_Projection_Path", "Projection_SHA256",
-    "Source_Alignment_Folder", "Alignment_Timestamp", "Alignment_Reference_File",
-    "Source_Reader", "Source_SHA256", "Program_Version", "Run_ID"
+    "Source_Folder", "Source_Reader", "Source_SHA256", "Program_Version", "Run_ID"
 ]
 SUMMARY_COLUMNS = PROJECTION_COLUMNS + [
     "FN_Positive_Pixels", "FN_Area_Percent", "FN_Area", "Threshold_Lower", "Threshold_Upper",
@@ -97,14 +81,20 @@ class ImageJInitializationError(Exception):
     """Exception raised for unsuccessful initialization of ImageJ."""
 
 
+def package_version():
+    try:
+        return importlib.metadata.version("uma-tools")
+    except importlib.metadata.PackageNotFoundError:
+        return "not installed"
+
+
 def initialize_imagej():
-    """Initialize ImageJ exactly as in the supplied alignment program."""
+    """Initialize the same headless Fiji endpoint as alignment and thickness."""
     print("Initializing ImageJ...", flush=True)
     try:
-        # Import after the run log is opened so startup failures are retained.
         import imagej
 
-        ij = imagej.init('sc.fiji:fiji', mode='headless')
+        ij = imagej.init(FIJI_ENDPOINT, mode="headless")
     except Exception as error:
         raise ImageJInitializationError(f"Failed to initialize ImageJ: {error}") from error
     print("ImageJ initialization completed.", flush=True)
@@ -120,7 +110,7 @@ def new_output_folder(parent):
     base = f"{stamp}_{os.getpid()}"
     for counter in range(10000):
         run_id = base + (f"_{counter:03d}" if counter else "")
-        path = parent / f"Fibronectin_Area_results_v{SCRIPT_VERSION.replace('.', '_')}_{run_id}"
+        path = parent / f"Area_assay_results_{run_id}"
         try:
             path.mkdir()
             return run_id, path
@@ -151,11 +141,15 @@ def sha256_file(path):
 
 
 class RunLog:
-    def __init__(self, directory):
-        self.text_stream = (directory / "run.log").open("w", encoding="utf-8")
-        self.csv_stream = (directory / "run_log.csv").open("w", encoding="utf-8-sig", newline="")
+    def __init__(self, directory, append=False):
+        mode = "a" if append else "w"
+        csv_path = directory / "run_log.csv"
+        needs_header = not append or not csv_path.exists() or csv_path.stat().st_size == 0
+        self.text_stream = (directory / "run.log").open(mode, encoding="utf-8")
+        self.csv_stream = csv_path.open(mode, encoding="utf-8-sig", newline="")
         self.writer = csv.DictWriter(self.csv_stream, fieldnames=EVENT_COLUMNS)
-        self.writer.writeheader()
+        if needs_header:
+            self.writer.writeheader()
         self.csv_stream.flush()
 
     def event(self, level, stage, message):
@@ -177,29 +171,22 @@ def resolve_path(value, relative_to):
     return (path if path.is_absolute() else relative_to / path).resolve()
 
 
-def read_source_folders(args, script_dir):
-    """Use the existing folder_paths JSON contract or one explicit folder."""
+def read_source_folders(args):
+    """Read explicit source paths without depending on the installed package."""
     if args.folder is not None:
-        folders = [resolve_path(args.folder, script_dir)]
+        folders = [resolve_path(args.folder, Path.cwd())]
         input_json = None
     else:
-        # Explicit CLI paths follow the shell's working directory. The default
-        # location remains beside the script for existing launches without -i.
-        if args.input is not None:
-            input_json = resolve_path(args.input, Path.cwd())
-        else:
-            input_json = resolve_path(INPUT_PATHS_FILE, script_dir)
+        if Path(args.input).name.startswith("._"):
+            raise ValidationError(f"macOS metadata files cannot be used as input: {args.input}")
+        input_json = resolve_path(args.input, Path.cwd())
+        if input_json.name.startswith("._"):
+            raise ValidationError(f"macOS metadata files cannot be used as input: {input_json}")
         try:
             with input_json.open(encoding="utf-8-sig") as stream:
                 value = json.load(stream)
         except FileNotFoundError as error:
-            raise ValidationError(
-                f"Input JSON was not found: {input_json}\n"
-                f"Working directory: {Path.cwd()}\n"
-                "Paths supplied with -i/--input are relative to the working directory. "
-                "Without -i, input_paths.json is expected beside the script. "
-                "Supply the actual JSON path with -i."
-            ) from error
+            raise ValidationError(f"Input JSON was not found: {input_json}") from error
         values = value.get("folder_paths") if isinstance(value, dict) else None
         if not isinstance(values, list) or not values:
             raise ValidationError("The JSON must contain a nonempty folder_paths list.")
@@ -211,107 +198,57 @@ def read_source_folders(args, script_dir):
     return folders, input_json
 
 
-def select_latest_alignment(source_folder):
-    """Select by the upstream timestamp; do not fall back from a newer run."""
-    if not source_folder.is_dir():
-        raise ValidationError(f"Source folder does not exist: {source_folder}")
-    candidates = []
-    for path in source_folder.iterdir():
-        if not path.is_dir():
-            continue
-        match = ALIGNMENT_FOLDER_PATTERN.fullmatch(path.name)
-        if not match:
-            continue
-        try:
-            stamp = datetime.strptime(match["timestamp"], "%Y%m%d_%H%M%S")
-        except ValueError:
-            continue
-        candidates.append((stamp, path, match["timestamp"], match["angle"]))
-    if not candidates:
-        raise ValidationError(
-            "No Alignment_assay_results_angle_<angle>_YYYYMMDD_HHMMSS folder "
-            f"was found directly inside: {source_folder}"
-        )
-    candidates.sort(key=lambda item: (item[0], item[1].name))
-    newest = candidates[-1][0]
-    tied = [item for item in candidates if item[0] == newest]
-    if len(tied) != 1:
-        raise ValidationError("Several alignment folders share the latest timestamp: "
-                              + ", ".join(item[1].name for item in tied)
-                              + ". No folder was selected automatically.")
-    selected = tied[0]
-    records = [{"Folder": str(item[1]), "Timestamp": item[2], "Angle_Label": item[3],
-                "Selected": item[1] == selected[1]} for item in candidates]
-    return selected[1], selected[2], records
-
-
-def projection_files(alignment_folder):
-    """Read the direct grayscale projections, not orientation preview images."""
-    files = sorted(path for path in alignment_folder.iterdir()
-                   if path.is_file() and not path.name.startswith(".")
-                   and path.name.lower().endswith(PROJECTION_SUFFIXES))
+def original_inventory(source_folder):
+    """Select every visible original image directly in the supplied folder."""
+    files = sorted(path for path in source_folder.iterdir()
+                   if not path.name.startswith(".") and path.is_file()
+                   and path.suffix.lower() in ORIGINAL_EXTENSIONS)
     if not files:
-        raise ValidationError(
-            f"The latest alignment folder has no direct *_processed.tif/.tiff projections: {alignment_folder}. "
-            "No older alignment run was substituted."
-        )
-    return files
+        raise ValidationError(f"No visible ND2/TIF/TIFF images found in: {source_folder}")
+    return [{"File_Name": path.name, "Image_ID": path.name, "Selected": True,
+             "Reason": "DIRECT_SOURCE_IMAGE", "Path": str(path),
+             "Bytes": path.stat().st_size, "SHA256": ""} for path in files]
 
 
-def save_startup_error(error, script_dir):
-    """Retain failures that occur before an alignment output directory is available."""
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-    path = script_dir / f"Fibronectin_Area_startup_error_v{SCRIPT_VERSION.replace('.', '_')}_{stamp}_{os.getpid()}.log"
-    try:
-        with path.open("x", encoding="utf-8") as stream:
-            stream.write(f"UTC: {utc_now()}\nVersion: {SCRIPT_VERSION}\nError: {error}\n\n")
-            stream.write(traceback.format_exc())
-        print(f"Startup error log: {path}", file=sys.stderr, flush=True)
-    except OSError:
-        print("Could not save a startup error log beside the program.", file=sys.stderr, flush=True)
-
-
-
-
-def image_id(name):
-    matches = list(SEQUENCE_PATTERN.finditer(name))
-    if len(matches) != 1:
-        raise ValidationError(f"Filename must contain exactly one _Seq#### identifier: {name}")
-    return name[:matches[0].end()]
-
-
-def original_inventory(source_folder, alignment_folder):
-    """Use the latest alignment run's complete image set, matched to originals."""
-    references = projection_files(alignment_folder)
-    reference_map = {}
-    for path in references:
-        key = image_id(path.name)
-        if key in reference_map:
-            raise ValidationError(f"Duplicate image ID in alignment projections: {key}")
-        reference_map[key] = path
-    original_map, inventory = {}, []
-    for path in sorted(source_folder.iterdir()):
-        if (not path.is_file() or path.name.startswith('.') or path.suffix.lower() not in ORIGINAL_EXTENSIONS
-                or path.name.lower().endswith(PROJECTION_SUFFIXES)):
-            continue
+def save_startup_error(error, folders, args):
+    """Create a results directory for failures before image processing starts."""
+    parents = [folder for folder in folders if folder.is_dir()]
+    parents.append(Path.cwd())
+    for parent in dict.fromkeys(parents):
         try:
-            key = image_id(path.name)
-        except ValidationError:
-            key = ""
-        selected = bool(key) and key in reference_map
-        entry = {"File_Name": path.name, "Image_ID": key, "Selected": selected,
-                 "Reason": "MATCHED_TO_ALIGNMENT" if selected else "NOT_IN_SELECTED_ALIGNMENT",
-                 "Path": str(path), "Bytes": path.stat().st_size, "SHA256": ""}
-        inventory.append(entry)
-        if selected:
-            if key in original_map:
-                raise ValidationError(f"More than one original matches {key}: {original_map[key]['Path']} and {path}")
-            original_map[key] = entry
-    missing = sorted(set(reference_map) - set(original_map))
-    if missing:
-        raise ValidationError("Original ND2/TIFF is missing for alignment image(s): " + "; ".join(missing))
-    selected_entries = [original_map[key] for key in reference_map]
-    return selected_entries, inventory, reference_map
+            run_id, output = new_output_folder(parent)
+        except OSError:
+            continue
+        log = None
+        try:
+            log = RunLog(output)
+            log.event("ERROR", "Startup", str(error) or "Run interrupted.")
+            (output / "traceback.txt").write_text(traceback.format_exc(), encoding="utf-8")
+            save_csv(output / "errors.csv", ["File_Name", "Stage", "Issue"],
+                     [{"File_Name": "", "Stage": "Startup", "Issue": str(error) or "Run interrupted."}])
+            state = "CANCELLED" if isinstance(error, KeyboardInterrupt) else "ERROR"
+            save_json(output / "run_status.json",
+                      {"run_id": run_id, "script_version": SCRIPT_VERSION,
+                       "package_version": package_version(), "status": state,
+                       "stage": "Startup", "started_utc": utc_now(), "ended_utc": utc_now(),
+                       "processed_images": 0, "error": str(error) or "Run interrupted.",
+                       "run_directory": str(output)})
+            save_json(output / "run_parameters.json",
+                      {"run_id": run_id, "script_version": SCRIPT_VERSION,
+                       "package_version": package_version(), "arguments": vars(args),
+                       "python": platform.python_version(), "platform": platform.platform(),
+                       "python_executable": sys.executable, "imagej_endpoint": FIJI_ENDPOINT})
+            print(f"Startup diagnostics: {output}", file=sys.stderr, flush=True)
+            return output
+        except OSError as log_error:
+            print(f"Could not write startup diagnostics in {output}: {log_error}",
+                  file=sys.stderr, flush=True)
+        finally:
+            if log is not None:
+                log.close()
+    print("Could not create a writable results directory for startup diagnostics.",
+          file=sys.stderr, flush=True)
+    return None
 
 
 def float32_limit(value, label):
@@ -347,7 +284,7 @@ class ImageJEngine:
     """Read original fields, project the chosen channel, and threshold float pixels."""
 
     def __init__(self, log):
-        log.event("INFO", "ImageJ initialization", "Starting imagej.init('sc.fiji:fiji', mode='headless').")
+        log.event("INFO", "ImageJ initialization", f"Starting imagej.init('{FIJI_ENDPOINT}', mode='headless').")
         self.ij = initialize_imagej()
         try:
             import numpy as np
@@ -366,7 +303,7 @@ class ImageJEngine:
             self.versions = {"ImageJ1": str(self.IJ.getVersion()), "Java": str(system.getProperty('java.version')),
                              "pyimagej": importlib.metadata.version('pyimagej'),
                              "scyjava": importlib.metadata.version('scyjava'), "numpy": np.__version__,
-                             "imagej_endpoint": "sc.fiji:fiji", "imagej_mode": "headless"}
+                             "imagej_endpoint": FIJI_ENDPOINT, "imagej_mode": "headless"}
         except Exception:
             self.close()
             raise
@@ -581,8 +518,10 @@ class ImageJEngine:
 
     def close(self):
         if self.ij is not None:
-            self.ij.context().dispose()
-            self.ij = None
+            try:
+                self.ij.dispose()
+            finally:
+                self.ij = None
 
 
 def verify_table(path, expected, fieldnames):
@@ -598,55 +537,42 @@ def verify_table(path, expected, fieldnames):
                 raise RuntimeError(f"CSV export changed {key} for {record['Image_ID']}.")
 
 
-def process_folder(source_folder, channel, method, limits, engine_holder, input_json):
-    selection_error = None
-    alignment_folder = alignment_timestamp = None
-    selection = []
-    try:
-        alignment_folder, alignment_timestamp, selection = select_latest_alignment(source_folder)
-    except (ValidationError, OSError) as error:
-        selection_error = error
-    if alignment_folder is None and not source_folder.is_dir():
-        raise selection_error
-    run_id, output = new_output_folder(alignment_folder or source_folder)
+def process_folder(source_folder, channel, method, limits, engine_holder, input_json, outputs):
+    if not source_folder.is_dir():
+        raise ValidationError(f"Source folder does not exist: {source_folder}")
+    run_id, output = new_output_folder(source_folder)
+    outputs.append(output)
     log = RunLog(output)
     mode = 'AREA_MEASUREMENT' if limits is not None else 'PROJECTIONS_ONLY'
     status = {"run_id": run_id, "script_version": SCRIPT_VERSION, "status": "RUNNING", "mode": mode,
               "started_utc": utc_now(), "source_folder": str(source_folder),
-              "alignment_folder": str(alignment_folder) if alignment_folder else None,
-              "run_directory": str(output), "stage": "Selection", "processed_images": 0}
+              "run_directory": str(output), "stage": "Original inventory", "processed_images": 0, "skipped_images": 0,
+              "package_version": package_version()}
     parameters = {**status, "channel_index": channel, "projection_method": method.upper(), "projection_bit_depth": 32,
                   "intensity_scaling": "None", "resizing": "None; native XY resolution",
                   "background_subtraction": "None", "denoising": "None", "threshold": limits,
                   "threshold_policy": "Explicit inclusive raw float32 limits; no auto-threshold and no 8-bit rescaling",
                   "mask_values": [0, 255], "mask_bit_depth": 8, "denominator": "Full native-resolution XY image",
-                  "selection_rule": "Latest alignment timestamp; strict Image_ID match to original files",
+                  "selection_rule": "Every visible ND2/TIF/TIFF file directly in the source folder",
                   "input_json": str(input_json) if input_json else None,
                   "python": platform.python_version(), "platform": platform.platform(), "python_executable": sys.executable,
-                  "imagej_endpoint": "sc.fiji:fiji", "imagej_mode": "headless", "excluded_alignment_images": 0}
+                  "imagej_endpoint": FIJI_ENDPOINT, "imagej_mode": "headless"}
     current_file = ''
     final_projection_manifest = final_summary = None
     try:
         save_json(output / 'run_status.json', status)
         save_json(output / 'run_parameters.json', parameters)
         log.event('STARTED', 'Run', f"Version {SCRIPT_VERSION}; {mode}; {method.upper()}32; channel {channel}")
-        if selection_error is not None:
-            raise selection_error
-        save_json(output / 'alignment_selection.json', selection)
         log.event('INFO', 'Rules', 'Original intensities and XY resolution are preserved. SUM also sums background. No denoising is applied.')
         log.event('INFO', 'Threshold', json.dumps(limits) if limits else 'Not supplied: projections only; no FN area table or masks will be created.')
         status['stage'] = 'Original inventory'
-        selected, inventory, references = original_inventory(source_folder, alignment_folder)
-        save_csv(output / 'input_manifest.csv', MANIFEST_COLUMNS, inventory)
-        ignored = [entry for entry in inventory if not entry['Selected']]
-        if ignored:
-            log.event('WARNING', 'Extra originals', f"{len(ignored)} original file(s) are outside the selected alignment image set; see input_manifest.csv.")
+        selected = original_inventory(source_folder)
+        save_csv(output / 'input_manifest.csv', MANIFEST_COLUMNS, selected)
+        log.event('INFO', 'Inventory', f"{len(selected)} original image(s); subfolders and hidden files are not processed.")
         for index, entry in enumerate(selected, 1):
             log.event('INFO', 'Fingerprint', f"{index}/{len(selected)} {entry['File_Name']}")
             entry['SHA256'] = sha256_file(Path(entry['Path']))
-        save_csv(output / 'input_manifest.csv', MANIFEST_COLUMNS, inventory)
-        save_csv(output / 'alignment_image_inventory.csv', ['Image_ID', 'Alignment_Reference_File', 'Path'],
-                 [{'Image_ID': key, 'Alignment_Reference_File': path.name, 'Path': str(path)} for key, path in references.items()])
+        save_csv(output / 'input_manifest.csv', MANIFEST_COLUMNS, selected)
         status.update(input_images=len(selected), stage='ImageJ initialization')
         save_json(output / 'run_status.json', status)
         if engine_holder[0] is None:
@@ -678,8 +604,7 @@ def process_folder(source_folder, channel, method, limits, engine_holder, input_
                 projection_hash = engine.save_projection(projection, projection_path)
                 row = {'File_Name': path.name, 'Image_ID': entry['Image_ID'], **measured,
                        'Source_Original_Path': str(path), 'Source_Projection_Path': str(projection_path),
-                       'Projection_SHA256': projection_hash, 'Source_Alignment_Folder': str(alignment_folder),
-                       'Alignment_Timestamp': alignment_timestamp, 'Alignment_Reference_File': references[entry['Image_ID']].name,
+                       'Projection_SHA256': projection_hash, 'Source_Folder': str(source_folder),
                        'Source_Reader': reader_name, 'Source_SHA256': entry['SHA256'], 'Program_Version': SCRIPT_VERSION, 'Run_ID': run_id}
                 projection_rows.append(row)
                 save_csv(projection_partial, PROJECTION_COLUMNS, projection_rows)
@@ -697,10 +622,9 @@ def process_folder(source_folder, channel, method, limits, engine_holder, input_
                 engine.release(projection)
                 engine.release(original)
         status['stage'] = 'Final verification'
-        current_selected, _, current_references = original_inventory(source_folder, alignment_folder)
-        if ([entry['Path'] for entry in current_selected] != [entry['Path'] for entry in selected]
-                or current_references != references):
-            raise ValidationError('The original or alignment image inventory changed during processing.')
+        current_selected = original_inventory(source_folder)
+        if [entry['Path'] for entry in current_selected] != [entry['Path'] for entry in selected]:
+            raise ValidationError('The original image inventory changed during processing.')
         for entry in selected:
             if sha256_file(Path(entry['Path'])) != entry['SHA256']:
                 raise ValidationError('An original image changed during processing: ' + entry['File_Name'])
@@ -709,7 +633,7 @@ def process_folder(source_folder, channel, method, limits, engine_holder, input_
             log.event('WARNING', 'SUM comparability', f"Different Z counts: {z_counts}. A common SUM threshold is Z-count dependent. No automatic normalization was applied.")
         verify_table(projection_partial, projection_rows, PROJECTION_COLUMNS)
         if len(projection_rows) != len(selected):
-            raise RuntimeError('Not every selected alignment image received an original projection.')
+            raise RuntimeError('Not every input image received an original projection.')
         if limits is not None:
             verify_table(summary_partial, summary_rows, SUMMARY_COLUMNS)
             if len(summary_rows) != len(selected):
@@ -724,7 +648,7 @@ def process_folder(source_folder, channel, method, limits, engine_holder, input_
         status.update(status='SUCCESS', stage='Completed', ended_utc=utc_now(),
                       generated_projections=len(projection_rows), generated_masks=len(summary_rows),
                       projection_manifest=str(final_projection_manifest), summary=str(final_summary) if final_summary else None,
-                      excluded_alignment_images=0)
+                      failed_images=0, unprocessed_images=0)
         status.pop('current_file', None)
         save_json(output / 'run_status.json', status)
         log.event('SUCCESS', 'Run', f"{len(projection_rows)} original images projected; {len(summary_rows)} area measurements. Output: {output}")
@@ -739,7 +663,9 @@ def process_folder(source_folder, channel, method, limits, engine_holder, input_
         save_csv(output / 'errors.csv', ['File_Name', 'Stage', 'Issue'],
                  [{'File_Name': current_file, 'Stage': status['stage'], 'Issue': message}])
         (output / 'traceback.txt').write_text(traceback.format_exc(), encoding='utf-8')
-        status.update(status=state, ended_utc=utc_now(), error=message)
+        failed_images = int(bool(current_file) and status['stage'] == 'Original projection')
+        status.update(status=state, ended_utc=utc_now(), error=message, failed_images=failed_images,
+                      unprocessed_images=max(0, status.get('input_images', 0) - status['processed_images'] - failed_images))
         save_json(output / 'run_status.json', status)
         log.event('FAILED', 'Run', f"Partial results and diagnostics retained: {output}")
         if isinstance(error, KeyboardInterrupt):
@@ -749,61 +675,124 @@ def process_folder(source_folder, channel, method, limits, engine_holder, input_
         log.close()
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Create native-resolution 32-bit FN projections from originals and optionally measure area.')
-    source = parser.add_mutually_exclusive_group()
-    source.add_argument('-i', '--input', help='Existing folder_paths JSON; an explicit relative -i path is resolved from the working directory.')
-    source.add_argument('--folder', help='One original-image folder containing alignment output; a relative path is resolved beside the script.')
-    parser.add_argument('--channel', type=int, default=FIBRONECTIN_CHANNEL, help='Fibronectin channel, numbered from 1; prompt if omitted.')
-    parser.add_argument('--projection', choices=['sum', 'mean', 'max'], default=PROJECTION_METHOD, help='Default: sum. Every output is a 32-bit TIFF.')
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Measure FN area from original ND2/TIFF images using native-resolution SUM32 projections.")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {package_version()} (area script {SCRIPT_VERSION})")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("-i", "--input", help="JSON containing folder_paths; relative JSON paths use the working directory.")
+    source.add_argument("--folder", help="One original-image folder; relative paths use the working directory.")
+    parser.add_argument("--channel", type=int, help="Fibronectin channel, numbered from 1; prompt once if omitted.")
+    parser.add_argument("--projection", choices=["sum", "mean", "max"], default="sum",
+                        help="Default: sum. Every output is a native-resolution 32-bit TIFF.")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--threshold', nargs=2, metavar=('LOWER', 'UPPER'), help='Explicit raw-projection intensity limits. Use inf for no upper cutoff.')
-    mode.add_argument('--projections-only', action='store_true', help='Save 32-bit projections without masks or an area summary.')
-    return parser.parse_args()
+    mode.add_argument("-t", "--threshold", nargs="+", metavar="VALUE",
+                      help="Inclusive LOWER [UPPER] in raw projection units. Default LOWER: 2000. "
+                           "Omit UPPER or use inf for the largest finite float32 value.")
+    mode.add_argument("--projections-only", action="store_true",
+                      help="Save 32-bit projections without masks or an area summary.")
+    return parser.parse_args(argv)
 
 
-def main():
-    args = parse_args()
-    script_dir = Path(__file__).resolve().parent
-    holder = [None]
+def finish_imagej(holder, outputs):
+    """Dispose the context and the same ImageJ worker pool as thickness."""
+    errors = []
     try:
+        if holder[0] is not None:
+            holder[0].close()
+    except (Exception, KeyboardInterrupt):
+        errors.append(traceback.format_exc())
+    try:
+        if __package__:
+            from .cli import _shutdown_imagej_workers
+        else:
+            from cli import _shutdown_imagej_workers
+        _shutdown_imagej_workers()
+    except (Exception, KeyboardInterrupt):
+        errors.append(traceback.format_exc())
+
+    for output in outputs:
+        log = None
+        try:
+            log = RunLog(output, append=True)
+            if errors:
+                log.event("ERROR", "ImageJ shutdown", "Context or worker shutdown failed; see shutdown_traceback.txt.")
+                (output / "shutdown_traceback.txt").write_text("\n".join(errors), encoding="utf-8")
+                status_path = output / "run_status.json"
+                if status_path.exists():
+                    status = json.loads(status_path.read_text(encoding="utf-8"))
+                    status.update(shutdown_status="ERROR", ended_utc=utc_now())
+                    if status["status"] == "SUCCESS":
+                        status.update(status="ERROR", stage="ImageJ shutdown")
+                    save_json(status_path, status)
+            else:
+                log.event("INFO", "ImageJ shutdown", "ImageJ context and workers closed; returning to the terminal.")
+        except OSError as error:
+            errors.append(f"Could not record shutdown in {output}: {error}")
+        finally:
+            if log is not None:
+                log.close()
+    if errors:
+        print("ImageJ shutdown failed:\n" + "\n".join(errors), file=sys.stderr, flush=True)
+    return not errors
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    holder, outputs, folders = [None], [], []
+    exit_code = 0
+    try:
+        folders, input_json = read_source_folders(args)
+        bounds = args.threshold if args.threshold is not None else [DEFAULT_THRESHOLD_LOWER]
+        if not 1 <= len(bounds) <= 2:
+            raise ValidationError("Use -t LOWER or -t LOWER UPPER.")
+        lower = bounds[0]
+        upper = bounds[1] if len(bounds) == 2 else None
+        limits = None if args.projections_only else threshold_settings(lower, upper)
         channel = args.channel
         if channel is None:
-            if not sys.stdin.isatty():
-                raise ValidationError('Supply --channel with the one-based fibronectin channel index.')
-            channel = int(input('Enter the fibronectin channel index (starting from 1): ').strip())
+            try:
+                channel = int(input("Enter fibronectin channel index (starting from 1): ").strip())
+            except EOFError as error:
+                raise ValidationError("Supply --channel when interactive input is unavailable.") from error
         if isinstance(channel, bool) or not isinstance(channel, int) or channel < 1:
-            raise ValidationError('The fibronectin channel must be an integer greater than or equal to 1.')
-        if args.projection not in ('sum', 'mean', 'max'):
-            raise ValidationError('Projection must be sum, mean, or max.')
-        lower, upper = args.threshold if args.threshold is not None else (THRESHOLD_LOWER, THRESHOLD_UPPER)
-        limits = None if args.projections_only else threshold_settings(lower, upper)
-        folders, input_json = read_source_folders(args, script_dir)
-        print(f"FN {SCRIPT_VERSION}: {args.projection.upper()}32; channel {channel}; "
-              + ('area measurement with explicit raw threshold.' if limits is not None else 'projections only; no area cutoff supplied.'), flush=True)
+            raise ValidationError("The fibronectin channel must be an integer greater than or equal to 1.")
+        print(f"UMA-tools {package_version()}; area {SCRIPT_VERSION}: {args.projection.upper()}32; channel {channel}; "
+              + (f"threshold {limits['lower']:.9g} to {limits['upper']:.9g}."
+                 if limits is not None else "projections only."), flush=True)
         completed = failed = 0
         for folder in folders:
             try:
-                ok, _ = process_folder(folder, channel, args.projection, limits, holder, input_json)
+                ok, _ = process_folder(folder, channel, args.projection, limits, holder, input_json, outputs)
                 completed += int(ok)
                 failed += int(not ok)
             except (ValidationError, OSError) as error:
                 failed += 1
                 print(f"Cannot process {folder}: {error}", file=sys.stderr, flush=True)
-                save_startup_error(error, script_dir)
+                output = save_startup_error(error, [folder], args)
+                if output is not None:
+                    outputs.append(output)
         print(f"Finished: {completed} successful folder(s), {failed} failed folder(s).", flush=True)
-        return 0 if failed == 0 else 1
-    except KeyboardInterrupt:
-        print('Processing cancelled.', file=sys.stderr, flush=True)
-        return 130
+        exit_code = 0 if failed == 0 else 1
+    except KeyboardInterrupt as error:
+        print("Processing cancelled.", file=sys.stderr, flush=True)
+        if not outputs:
+            output = save_startup_error(error, folders, args)
+            if output is not None:
+                outputs.append(output)
+        exit_code = 130
     except Exception as error:
         print(f"Cannot start: {error}", file=sys.stderr, flush=True)
-        save_startup_error(error, script_dir)
-        return 2 if isinstance(error, (ValidationError, OSError, ValueError)) else 1
+        output = save_startup_error(error, folders, args)
+        if output is not None:
+            outputs.append(output)
+        exit_code = 2 if isinstance(error, (ValidationError, OSError, ValueError)) else 1
     finally:
-        if holder[0] is not None:
-            holder[0].close()
+        if not finish_imagej(holder, outputs) and exit_code == 0:
+            exit_code = 1
+    return exit_code
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

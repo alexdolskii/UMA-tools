@@ -36,6 +36,13 @@ class CommandTests(unittest.TestCase):
                 cli.thickness()
         module.main.assert_called_once_with("a b.json")
 
+    def test_area_preserves_analysis_exit_status(self):
+        module = types.ModuleType("uma_tools.area_analysis")
+        module.main = Mock(return_value=1)
+        with patch.dict(sys.modules, {module.__name__: module}):
+            self.assertEqual(cli.area(), 1)
+        module.main.assert_called_once_with()
+
     def test_thickness_cleanup_preserves_analysis_error(self):
         module = types.ModuleType("uma_tools.thickness_analysis")
         module.main = Mock(side_effect=ValueError("original analysis error"))
@@ -95,7 +102,7 @@ class CommandTests(unittest.TestCase):
                     self.assertIn("ValueError: deliberate analysis failure", result.stderr)
 
     def test_help_does_not_import_imagej(self):
-        for function in ("alignment", "thickness"):
+        for function in ("alignment", "thickness", "area"):
             script = (
                 "import sys; from uma_tools import cli; sys.argv=['assay','--help']; "
                 "\ntry: getattr(cli, " + repr(function) + ")()"
@@ -123,7 +130,7 @@ class CommandTests(unittest.TestCase):
         self.assertIn("uma_thickness", result.stdout)
 
     def test_installed_commands_outside_repository(self):
-        for command in ("uma_alignment", "uma_thickness"):
+        for command in ("uma_alignment", "uma_thickness", "area_analysis"):
             executable = os.path.join(os.path.dirname(sys.executable), command)
             result = subprocess.run([executable, "--help"], cwd="/tmp",
                                     capture_output=True, text=True, timeout=30)

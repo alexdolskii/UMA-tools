@@ -38,7 +38,10 @@ Using standard ImageJ/FIJI operations, we treat the fibronectin layer as a true 
 - Outputs: per-image TIFF masks and thickness maps; CSV with area, mean/SD, min/median/max local thickness.
 - Notes: assumes a consistent channel order across all images in a run.
 
-## 4. Nuclei Counts & Layer Prediction (3D)
+## 4. Fibronectin Area — native-resolution SUM projection
+The area assay projects the selected channel from original ND2/TIFF stacks into a 32-bit SUM image and applies an inclusive raw-intensity threshold. It reports FN-positive pixels, FN area, and the percentage of the full XY image occupied by FN. Original XY resolution and spatial calibration are retained. Each input folder is analyzed directly; filenames do not require a `_Seq####` identifier.
+
+## 5. Nuclei Counts & Layer Prediction (3D)
 The three analysis steps and their configuration are located in [alternative_nuclei_layers_assay](alternative_assays/alternative_nuclei_layers_assay). Each script uses the `nuclei_layers.json` next to it by default; `-i` selects a different configuration file.
 
 Because fibroblast/ECM 3D units often exhibit strong background and debris that confound classical ImageJ thresholding, we perform StarDist 3D segmentation to robustly detect nuclei and extract their XYZ coordinates. We then apply scikit-learn spatial clustering to approximate nuclear “layers,” reporting both the layer count and per-nucleus membership. Note: for new cell types or staining conditions, you will likely need to train a custom StarDist model and point the script to it; step-by-step training and integration instructions are available on protocols.io.
@@ -55,7 +58,7 @@ Alternative nuclei-layer assays, marker-intensity analysis, data visualization t
 
 # Installation and commands for the main assays
 
-The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment` and `uma_thickness` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
+The main programs in `code` use their own Conda environment, **uma_tools**, on macOS and Linux. Installing this repository registers `uma_alignment`, `uma_thickness`, and `area_analysis` in that environment. The original Windows workflow and the tools in `alternative_assays` are separate approaches and are not included in this environment's supported scope.
 
 ## Install
 
@@ -72,11 +75,11 @@ python -m pip install .
 python -m pip check
 ```
 
-If `uma_tools` already exists, choose a new environment name with `conda env create -n uma_tools_v2 -f environment_uma.yaml`, then activate that name before installing the package. No existing FIA-tools environment needs to be changed.
+For an existing UMA environment, activate its actual name (for example, `conda activate uma_tools_new`) and update the package as described below. Adding the area command does not require recreating the environment. To deliberately create a separate environment, use `conda env create -n uma_tools_v2 -f environment_uma.yaml` and activate that name before installing the package.
 
-The environment specifies Python 3.10, OpenJDK 11, Maven, NumPy 1.26.4, PyImageJ 1.5.0, scyjava 1.10.0, jgo 1.0.4, and OrientationPy 0.3.0. scikit-image is installed automatically. TensorFlow and StarDist are not needed for these two assays. See [environment_uma.yaml](environment_uma.yaml) and [pyproject.toml](pyproject.toml) for the full requirements.
+The environment specifies Python 3.10, OpenJDK 11, Maven, NumPy 1.26.4, PyImageJ 1.5.0, scyjava 1.10.0, jgo 1.0.4, and OrientationPy 0.3.0. scikit-image is installed automatically. Area uses the existing NumPy, PyImageJ, and scyjava dependencies. TensorFlow and StarDist are not needed for these three assays. See [environment_uma.yaml](environment_uma.yaml) and [pyproject.toml](pyproject.toml) for the full requirements.
 
-Both programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route.
+All three programs initialize the fixed Fiji Maven endpoint `sc.fiji:fiji:2.14.0` in headless mode. The first analysis run downloads and caches Java components, including Fiji plugins, and requires access to Maven/SciJava repositories. A separate GUI installation of Fiji is not required for this route.
 
 `uv.lock` records the Python dependency resolution. It does not install Java or Maven and does not replace the Conda setup above.
 
@@ -102,6 +105,7 @@ Activate the environment in each new terminal session:
 conda activate uma_tools
 uma_alignment --help
 uma_thickness --help
+area_analysis --help
 ```
 
 Fibronectin alignment, using the default 15-degree range:
@@ -126,27 +130,52 @@ uma_thickness -i "/absolute/path/input_paths.json"
 
 The program asks for the file type (`.nd2` or `.tiff`), the fibronectin channel index, and confirmation. As in alignment, the channel prompt is `Enter fibronectin channel index (starting from 1):`. Enter `1` for a single-channel image. The channel count is read from each image, and the selected index is checked before extraction. These terminal questions are intentional; headless means no Fiji windows, not unattended execution.
 
-Each assay retains its timestamped results directories and `log.log` files within the input folders. Alignment produces `Analysis/Alignment_Summary.csv`; thickness produces `Thickness_Summary.csv` with `Area`, `StdDev`, `Min`, `Max`, and `Median`. Image processing excludes macOS metadata files.
+Alignment and thickness retain their timestamped results directories and `log.log` files within the input folders. Alignment produces `Analysis/Alignment_Summary.csv`; thickness produces `Thickness_Summary.csv` with `Area`, `StdDev`, `Min`, `Max`, and `Median`. Image processing excludes macOS metadata files.
+
+Fibronectin area, typically run after alignment and thickness:
+
+```bash
+area_analysis -i "/absolute/path/input_paths.json" -t 2000
+```
+
+The channel prompt is `Enter fibronectin channel index (starting from 1):`. It appears once for the entire command; enter `1` for a single-channel image. `--channel 3` supplies the index without a prompt. The actual channel count is checked in each original image.
+
+The threshold syntax is `-t LOWER [UPPER]` or `--threshold LOWER [UPPER]`. Both endpoints are included in the mask:
+
+| Arguments | Raw SUM intensity included in the mask |
+|---|---|
+| No `-t` | 2000 through the maximum finite float32 value |
+| `-t 3000` | 3000 through the maximum finite float32 value |
+| `-t 2000 50000` | 2000 through 50000 |
+| `-t 2000 inf` | 2000 through the maximum finite float32 value |
+
+The default upper bound is `3.4028234663852886e38`, not the maximum observed in one image. Bounds must be nonnegative, finite float32-representable values with UPPER >= LOWER; `inf` is accepted as an upper-bound shorthand. Effective float32 bounds and the original requested bounds are recorded. SUM also adds background and depends on Z count; the program does not normalize intensities or choose a threshold automatically.
+
+Area reads every visible `.nd2`, `.tif`, and `.tiff` file directly in each JSON folder. It can run independently of alignment and thickness. Subfolders and previous result directories are excluded. `File_Name` and `Image_ID` retain the complete original filename, including its extension, so filenames without `_Seq####` and files with the same stem but different extensions remain distinguishable. ND2 files with multiple series, multiple time points, RGB-packed images, and invalid channels are rejected with diagnostics.
+
+Every run creates `Area_assay_results_<timestamp>_<id>` inside each source folder. It contains `Projections_32bit`, `Masks`, `Fibronectin_Area_Summary.csv`, `FN_Projection_Manifest.csv`, `input_manifest.csv`, `run_parameters.json`, `run_status.json`, `run.log`, and `run_log.csv`. `FN_Area_Percent` uses the entire native-resolution XY frame as its denominator. `FN_Area` uses the original pixel calibration (square micrometers when calibrated in micrometers; square pixels for uncalibrated images). Masks are 8-bit TIFFs with values 0 and 255; saved SUM projections remain 32-bit float TIFFs.
+
+An image error stops its source folder, retains partial CSVs plus `errors.csv` and `traceback.txt`, and allows the next JSON folder to run. Failures before processing create their own results directory in an available source folder, or in the working directory if no source folder is available. No logs are written beside the installed package. Area disposes ImageJ and closes the same worker pool as thickness before returning to the terminal. Any failed folder or shutdown error yields a nonzero process status.
+
+The existing optional `--projection mean` / `--projection max` and `--projections-only` modes remain available. The default workflow is SUM with area measurement. `--projections-only` cannot be combined with `-t` and produces no masks or area summary.
 
 The direct script interface remains available:
 
 ```bash
 python code/alignment_analysis.py -i "/absolute/path/input_paths.json" -a 15
 python code/thickness_analysis.py -i "/absolute/path/input_paths.json"
+python code/area_analysis.py -i "/absolute/path/input_paths.json" -t 2000
 ```
 
-After updating the checkout, run `python -m pip install .` again in the active environment to update the installed commands.
-
-To install the thickness calibration and command-exit fixes and the single channel prompt, update the
-`UMA-tools-V2` checkout in your active UMA environment:
+To install the area command and the previous thickness fixes, update the `UMA-tools-V2` checkout in your active UMA environment. An editable installation keeps subsequent Python source edits linked to the checkout:
 
 ```bash
-git pull --ff-only
-python -m pip install --no-deps .
-uma_thickness --version
+git pull --ff-only &&
+"$CONDA_PREFIX/bin/python" -m pip install --no-deps -e . &&
+"$CONDA_PREFIX/bin/area_analysis" --version
 ```
 
-The version should be `0.2.2` or later. Updating files with Git alone does not
+The version should be `0.2.3` or later; the area script version is reported separately as `2.1.0`. Registering a new command or changing package metadata still requires reinstalling the package, including for editable installs. Updating files with Git alone does not
 replace a previously installed, non-editable package. Thickness runs report the
 package version, implementation path, and reslice/projection calibration so the
 installed implementation and spatial scale can be checked. For input calibrated
@@ -168,7 +197,7 @@ Enable the additional Fiji integration tests explicitly:
 UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
 ```
 
-These integration tests process small synthetic TIFF stacks without a display, check output tables and metadata-file exclusion, compare calibrated masks, thickness maps, and measurements against the original projection macro, and compare direct Local Thickness results with the original menu command. Separate child processes verify that the thickness command exits after Java work on both success and failure. They require Java, Maven, and network access for the initial Fiji download. Synthetic TIFF tests do not establish accuracy on every experimental dataset; representative ND2 files and their channel/calibration metadata must also be validated on the target machine.
+These integration tests process small synthetic TIFF stacks without a display, check output tables and metadata-file exclusion, compare calibrated masks, thickness maps, and measurements against the original projection macro, and compare direct Local Thickness results with the original menu command. Area command tests compare real SUM32 values and masks with known multichannel data, verify lower/upper threshold boundaries and calibrated area, check repeated runs without alignment folders, and exercise failure logging while continuing to another source folder. Separate child processes verify that thickness and area return to the terminal with the appropriate success/failure status. They require Java, Maven, and network access for the initial Fiji download. Synthetic TIFF tests do not establish accuracy on every experimental dataset; representative ND2 files and their channel/calibration metadata must also be validated on the target machine.
 
 The [main-assay workflow](.github/workflows/core-assays.yml) builds the environment and runs these tests on Ubuntu and macOS. Check the latest GitHub Actions results before treating a platform as validated; a configured workflow alone is not evidence of a successful run.
 

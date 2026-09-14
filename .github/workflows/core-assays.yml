@@ -51,6 +51,8 @@ jobs:
           mvn -version
           uma_alignment --help
           uma_thickness --help
+          area_analysis --help
+          area_analysis --version
       - name: Test commands and headless TIFF processing
         env:
           UMA_RUN_IMAGEJ_TESTS: '1'

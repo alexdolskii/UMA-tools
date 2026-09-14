@@ -59,3 +59,9 @@ def thickness():
                 raise
             # Keep the original analysis exception and its nonzero exit status.
             logging.exception("Could not close ImageJ workers after analysis failed.")
+
+
+def area():
+    """Run the standalone area command and preserve its process exit status."""
+    from .area_analysis import main
+    return main()
