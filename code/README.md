@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.8**.
+development; the current Python package version is **0.2.9**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -27,14 +27,24 @@ uma_alignment -i input_paths.json -a 15
 ```
 
 All five commands support `--help` and `--version` without starting Fiji.
-Version 0.2.8 removes duplicate script launchers and nested package layers.
-Use the installed commands; their names, arguments, and calculations are
-unchanged. Runtime dependencies are unchanged from versions 0.2.5–0.2.7.
+Use the installed commands. Version 0.2.9 adds optional report statistics;
+the image assay commands and measurements are unchanged. Runtime dependencies
+are unchanged from versions 0.2.5–0.2.8.
+
+```bash
+uma_report -i input_paths.json --fn-threshold 20 --stats-unit well
+```
+
+Omit `--stats-unit` to disable tests, or select `image` for exploratory tests
+on individual images. Statistics use only FN-filtered data. Solid fills
+define comparison blocks, and bold condition names identify each block's
+control. See the [statistics rules](../README.md#optional-report-statistics)
+for template validation, correction families, and interpretation.
 
 ## One package directory
 
 The `code` directory contains this README and `uma_tools`, a package with
-19 Python files. Its modules contain implementations rather than compatibility
+20 Python files. Its modules contain implementations rather than compatibility
 adapters. `cli.py` routes commands directly to the five analysis/workflow
 modules listed above; shared helpers are beside them in the same directory.
 
@@ -54,6 +64,7 @@ The remaining modules have these responsibilities:
 | `report_tables.py` | Read summary tables and the plate template |
 | `report_validation.py` | Match images, validate annotations, and apply the FN coverage filter |
 | `report_schema.py` | Report constants, data types, and validation errors |
+| `report_statistics.py` | Validate color/bold controls and calculate optional Welch/Holm comparisons |
 | `report_plots.py` | Generate the report figures |
 | `report_workbook.py` | Build and verify the Excel workbook |
 

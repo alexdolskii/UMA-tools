@@ -11,7 +11,7 @@ from .contracts import EVENT_COLUMNS as EVENT_COLUMNS
 from .contracts import THICKNESS_METRICS as THICKNESS_METRICS
 from .contracts import THICKNESS_UNITS as THICKNESS_UNITS
 
-SCRIPT_VERSION = "4.0.0"
+SCRIPT_VERSION = "4.1.0"
 FN_METRIC = "FN_Area_Percent"
 FN_THRESHOLD_COLUMN = "FN_Area_Threshold_Percent"
 FN_LOW_FLAG = "Below_FN_Threshold"
@@ -53,6 +53,7 @@ SHEET_NAMES = [
     "Min Plot",
     "Max Plot",
     "Median Plot",
+    "Fibronectin Filtered",
     "Alignment Filtered",
     "Area Filtered",
     "StdDev Filtered",
@@ -133,6 +134,7 @@ class ReportData(TypedDict):
     thickness_units: dict[str, str]
     qc: list[dict[str, Any]]
     field_map: list[dict[str, str]]
+    statistics: dict[str, Any] | None
 
 
 class ReportInputs(TypedDict):

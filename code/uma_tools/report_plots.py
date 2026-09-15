@@ -1,5 +1,5 @@
 """
-Render the original 13 plot views with stable points, colors, and axes.
+Render fourteen image views and optional filtered-data statistics.
 """
 
 from __future__ import annotations
@@ -212,6 +212,131 @@ def _verify_points(
     return actual_points, actual_red
 
 
+def _plot_statistics(data, field, filtered):
+    """Select supplied comparisons without recalculating p-values."""
+    statistics = data.get("statistics")
+    if statistics is None:
+        return None, "Statistical tests disabled.", []
+    stats_unit = statistics["unit"]
+    if not filtered:
+        return (
+            stats_unit,
+            "No tests on this full-data view; statistics use FN-filtered "
+            "data only.",
+            [],
+        )
+    test_unit = (
+        "one mean per well, with equal well weights"
+        if stats_unit == "well"
+        else "individual images; images within a well are dependent"
+    )
+    note = (
+        f"Two-sided Welch tests: {test_unit}. Holm adjustment across "
+        "all seven metrics and treatment-versus-control comparisons "
+        "within each color block. Adjusted p: * <0.05; ** <0.01; "
+        "*** <0.001; ns: ≥0.05. Not tested: insufficient or "
+        "undefined test data. Technical comparisons within one plate."
+    )
+    if field == FN_METRIC:
+        note += " FN% comparisons describe retained images only."
+    comparisons = [
+        dict(comparison)
+        for comparison in statistics["comparisons"]
+        if comparison["Metric"] == field
+    ]
+    return stats_unit, note, comparisons
+
+
+def _comparison_layout(comparisons, groups):
+    """Reuse bracket levels when comparison spans do not overlap."""
+    positions = {group: index for index, group in enumerate(groups, 1)}
+    levels = []
+    layout = []
+    for comparison in comparisons:
+        missing = [
+            comparison[role]
+            for role in ("Control", "Treatment")
+            if comparison[role] not in positions
+        ]
+        if missing:
+            if comparison["Status"] != "Not tested":
+                raise RuntimeError(
+                    "A tested comparison contains a condition with no "
+                    "source images."
+                )
+            layout.append(
+                {
+                    **comparison,
+                    "Annotation": "Not tested",
+                    "Annotation_Reason": (
+                        "Condition(s) have no source images and are not "
+                        "plotted: " + ", ".join(missing)
+                    ),
+                    "Bracket_Level": None,
+                    "Bracket_Left": None,
+                    "Bracket_Right": None,
+                }
+            )
+            continue
+        control = positions[comparison["Control"]]
+        treatment = positions[comparison["Treatment"]]
+        left, right = sorted((control, treatment))
+        if left == right:
+            raise RuntimeError("A statistical comparison needs two groups.")
+        for level, occupied in enumerate(levels):
+            if all(right < start or left > end for start, end in occupied):
+                occupied.append((left, right))
+                break
+        else:
+            level = len(levels)
+            levels.append([(left, right)])
+        label = (
+            comparison["Significance"]
+            if comparison["Status"] == "Tested"
+            else "Not tested"
+        )
+        if label not in {"*", "**", "***", "ns", "Not tested"}:
+            raise RuntimeError("Unexpected statistical plot annotation.")
+        layout.append(
+            {
+                **comparison,
+                "Annotation": label,
+                "Bracket_Level": level,
+                "Bracket_Left": left,
+                "Bracket_Right": right,
+            }
+        )
+    return layout, len(levels)
+
+
+def _draw_comparisons(axis, comparisons, level_count):
+    """Keep comparison brackets separate from calibrated data axes."""
+    axis.set_axis_off()
+    axis.set_ylim(0, level_count + 0.25)
+    for comparison in comparisons:
+        if comparison["Bracket_Level"] is None:
+            continue
+        left = comparison["Bracket_Left"]
+        right = comparison["Bracket_Right"]
+        bottom = comparison["Bracket_Level"] + 0.12
+        top = bottom + 0.23
+        axis.plot(
+            [left, left, right, right],
+            [bottom, top, top, bottom],
+            color="#334155",
+            linewidth=1,
+        )
+        axis.text(
+            (left + right) / 2,
+            top + 0.04,
+            comparison["Annotation"],
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="#334155",
+        )
+
+
 def _render_plot(
     data,
     directory,
@@ -233,14 +358,31 @@ def _render_plot(
     threshold, groups = data["fn_threshold"], data["group_order"]
     max_replicates = len(colors)
     rows = data["retained_rows"] if filtered else data["rows"]
+    stats_unit, stats_note, comparisons = _plot_statistics(
+        data, field, filtered
+    )
+    comparisons, comparison_levels = _comparison_layout(comparisons, groups)
+    if any(row["Bracket_Level"] is None for row in comparisons):
+        stats_note += (
+            " Comparisons involving conditions with no source images "
+            "are listed in the Statistics sheet."
+        )
     counts = {
         group: sum(row["Group"] == group for row in rows) for group in groups
+    }
+    well_counts = {
+        group: len({row["Well"] for row in rows if row["Group"] == group})
+        for group in groups
     }
     labels = [
         textwrap.fill(
             group, width=26, break_long_words=True, break_on_hyphens=False
         )
-        + f"\nn={counts[group]}"
+        + (
+            f"\nn_images={counts[group]}; n_wells={well_counts[group]}"
+            if stats_unit is not None
+            else f"\nn={counts[group]}"
+        )
         for group in groups
     ]
     width = max(14.2, 1.2 * len(labels))
@@ -255,6 +397,10 @@ def _render_plot(
         + 0.28 * (legend_rows - 1)
         + 0.2 * max(label.count("\n") for label in labels)
     )
+    annotation_height = 0.38 * comparison_levels
+    caption_height = 0.58 if stats_unit is not None else 0
+    base_height = height
+    height += annotation_height + caption_height
     view = f"FN area ≥ {threshold:g}%" if filtered else "All images"
     title = f"{base_title} — {view}"
     with plt.rc_context(
@@ -265,7 +411,19 @@ def _render_plot(
             "text.parse_math": False,
         }
     ):
-        fig, axis = plt.subplots(figsize=(width, height), dpi=160)
+        if comparison_levels:
+            fig, (comparison_axis, axis) = plt.subplots(
+                2,
+                1,
+                figsize=(width, height),
+                dpi=160,
+                sharex=True,
+                gridspec_kw={
+                    "height_ratios": [annotation_height, base_height],
+                },
+            )
+        else:
+            fig, axis = plt.subplots(figsize=(width, height), dpi=160)
         try:
             boxes, box_groups = _draw_boxes(axis, rows, groups, field)
             plotted_ids, red_ids = _draw_points(
@@ -289,6 +447,10 @@ def _render_plot(
             upper = shared_upper[field]
             axis.set_ylim(0, upper)
             axis.set_xlim(0.4, len(labels) + 0.6)
+            if comparison_levels:
+                _draw_comparisons(
+                    comparison_axis, comparisons, comparison_levels
+                )
             axis.set_ylabel(
                 "Fibronectin-positive area (%)"
                 if name == "Fibronectin"
@@ -377,22 +539,30 @@ def _render_plot(
                     f"{len(data['excluded_rows'])} below the FN threshold."
                 )
             )
+            caption = (
+                count_note
+                + " Point fill identifies the original technical-replicate "
+                "well. Points and boxes always represent images.\n"
+                "Boxes: 1.5×IQR whiskers; n=1: point only; n=0: no point "
+                "or box.\n"
+                + textwrap.fill(stats_note, width=max(100, int(width * 13)))
+            )
             fig.text(
                 0.5,
                 0.026,
-                count_note
-                + (
-                    " Point fill identifies the original "
-                    "technical-replicate well.\n"
-                    "Boxes: 1.5×IQR whiskers; n=1: point only; n=0: no "
-                    "point or box. No statistical tests."
-                ),
+                caption,
                 ha="center",
                 fontsize=9,
                 color="#475569",
             )
             fig.tight_layout(
-                rect=(0.015, 0.08, 0.985, 0.90 - 0.03 * (legend_rows - 1))
+                h_pad=0.2,
+                rect=(
+                    0.015,
+                    0.08 + caption_height / height,
+                    0.985,
+                    0.90 - 0.03 * (legend_rows - 1),
+                ),
             )
             stem = (
                 "fibronectin_boxplot"
@@ -421,6 +591,10 @@ def _render_plot(
                 "height": height,
                 "group_order": groups,
                 "group_counts": counts,
+                "group_well_counts": well_counts,
+                "statistics_unit": stats_unit,
+                "statistics_note": stats_note,
+                "statistical_comparisons": comparisons,
                 "box_groups": box_groups,
                 "empty_groups": [
                     group for group in groups if counts[group] == 0
@@ -452,8 +626,8 @@ def create_plots(
     data: ReportData, directory: Path, log: EventLogger
 ) -> list[dict[str, Any]]:
     """
-    Build seven full-data and six filtered plots with stable colors and
-    axes.
+    Build seven full-data and seven filtered plots with stable colors
+    and axes.
     """
     directory.mkdir()
     max_replicates = max(map(len, data["group_wells"].values()))
@@ -468,9 +642,7 @@ def create_plots(
         for name, field, _, _ in specs
     }
     x_positions = _point_positions(data, max_replicates)
-    jobs = [(spec, False) for spec in specs] + [
-        (spec, True) for spec in specs[1:]
-    ]
+    jobs = [(spec, False) for spec in specs] + [(spec, True) for spec in specs]
     plots = []
     for (name, field, base_title, unit), filtered in jobs:
         plots.append(
@@ -485,6 +657,6 @@ def create_plots(
                 log,
             )
         )
-    if [plot["sheet"] for plot in plots] != SHEET_NAMES[:13]:
-        raise RuntimeError("The required 13-plot order was not preserved.")
+    if [plot["sheet"] for plot in plots] != SHEET_NAMES[:14]:
+        raise RuntimeError("The required 14-plot order was not preserved.")
     return plots

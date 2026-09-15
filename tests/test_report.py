@@ -43,6 +43,7 @@ PLOT_SHEETS = [
     "Min Plot",
     "Max Plot",
     "Median Plot",
+    "Fibronectin Filtered",
     "Alignment Filtered",
     "Area Filtered",
     "StdDev Filtered",
@@ -663,7 +664,7 @@ class ReportCommandTests(ReportFixture):
     def test_cli_continues_after_latest_failure_and_exports_report(
         self,
     ):
-        """Exercise the installed command and all 13 figures exactly once."""
+        """Exercise the installed command and all 14 figures exactly once."""
         names = (
             "empty_WellB02.nd2",
             "equal_WellC02.nd2",
@@ -718,7 +719,9 @@ class ReportCommandTests(ReportFixture):
         self.assertEqual(
             status["status"], "SUCCESS", result.stdout + result.stderr
         )
-        self.assertEqual(status["generated_plots"], 13)
+        self.assertEqual(status["generated_plots"], 14)
+        self.assertIsNone(status["stats_unit"])
+        self.assertFalse((output / "statistics.csv").exists())
         self.assertEqual(status["total_images"], 5)
         self.assertEqual(status["included_images"], 3)
         self.assertEqual(status["excluded_images"], 2)
@@ -755,7 +758,7 @@ class ReportCommandTests(ReportFixture):
             (output / "plot_manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual([plot["sheet"] for plot in plots], PLOT_SHEETS)
-        self.assertEqual(len(list(output.rglob("*.png"))), 13)
+        self.assertEqual(len(list(output.rglob("*.png"))), 14)
         by_sheet = {plot["sheet"]: plot for plot in plots}
         for plot in plots:
             filtered = plot["view"] == "Filtered"
@@ -844,7 +847,7 @@ class ReportCommandTests(ReportFixture):
                         if name.startswith("xl/media/")
                     ]
                 ),
-                13,
+                14,
             )
         for filename, count in (
             ("merged_data.csv", 5),

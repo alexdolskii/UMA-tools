@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.8**; this is separate from the V2
+The current Python package version is **0.2.9**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -22,8 +22,9 @@ Compared with the [earlier workflow](https://github.com/alexdolskii/UMA-tools/tr
 
 The modular code preserves the established calculations, units, parameters,
 and output columns. Current alignment uses OrientationPy; the historical
-OrientationJ approach is linked below. Version 0.2.8 simplifies the package
-into one directory with 19 Python files and removes duplicate launchers.
+OrientationJ approach is linked below. Version 0.2.9 adds optional comparisons
+against plate controls and a filtered FN coverage plot. Image measurements
+are unchanged.
 
 ## Install on macOS or Linux
 
@@ -126,6 +127,8 @@ Key parameters:
   uses 2000 as the lower bound.
 - Report: `--fn-threshold 20` filters images with FN coverage **below 20%** from
   the filtered results; exactly 20% is retained. It does not recalculate masks.
+- Report statistics are disabled unless `--stats-unit well` or
+  `--stats-unit image` is supplied. The modes are described below.
 
 All five commands support `--help` and `--version`. Run stages individually;
 a command does not run earlier stages automatically. Module responsibilities
@@ -143,7 +146,7 @@ Source image folders are processed separately. Hidden files, including macOS
 | Thickness | Masks, thickness maps, and `Thickness_Summary.csv` |
 | Area | Native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
 | Collection | `Combined_Results_<source_folder_name>_<timestamp>` inside each image folder; separate CSVs prefixed with that folder's name |
-| Report | `UMA_Report_<source_folder_name>_<timestamp>` inside the selected collection; one Excel workbook, 13 plots, raw/filtered/excluded tables, and input copies |
+| Report | `UMA_Report_<source_folder_name>_<timestamp>` inside the selected collection; one Excel workbook, 14 plots, raw/filtered/excluded tables, and input copies; optional statistics |
 
 Collection selects the newest valid result independently for each assay,
 skipping newer invalid runs. **Selected tables must describe the same images**;
@@ -155,6 +158,60 @@ inputs are missing or inconsistent; it does not fall back to another collection.
 For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 `Max`, and `Median` are in µm. Area coverage is a percentage of the full XY image.
 
+## Optional report statistics
+
+Without `--stats-unit`, reporting requires only the condition names in the
+plate template. It produces seven full-data and seven FN-filtered plots,
+without statistical tests, stars, or `ns`.
+
+To enable comparisons, format the occupied well cells in the same template:
+
+- Apply one identical **solid fill** to each comparison block, including its
+  control. Exact stored color codes must match; theme colors and their tints
+  are respected, so different shades form different blocks.
+- Make the **entire condition name bold in every control well cell**. Each
+  color must have exactly one control condition; its other conditions must
+  not be bold. Cell positions do not define pairs.
+- Use consistent color and bold formatting for all wells of one condition.
+  Blank cells are ignored. Conditional formatting in the plate grid and
+  partially formatted text are not supported. Invalid designs produce
+  diagnostics instead of guessed controls.
+
+```bash
+uma_report -i input_paths.json --fn-threshold 20 --stats-unit well
+```
+
+`well` uses one mean of the retained images per well, with equal weight for
+each well. Alternatively, `--stats-unit image` uses individual retained
+images. This exploratory mode treats images as independent despite shared
+wells; p-values can overstate evidence, and Holm does not correct that
+dependence. Both modes describe technical comparisons within one plate,
+not reproducibility across biological experiments.
+
+Each noncontrol condition is compared only with its own control using a
+two-sided Welch t-test. Tests use only FN-filtered data, for alignment, FN%,
+and all five thickness metrics. Holm correction includes every planned
+comparison across the seven metrics within each color block. For three
+conditions versus one control, this is 21 hypotheses per block.
+
+Fewer than two observations per arm in the selected mode, or undefined
+variance, yields `Not tested` with a reason; unavailable tests remain in the
+planned correction family. There is no automatic switch between units.
+Filtered FN% results describe only images that passed the FN filter.
+
+Filtered plots show adjusted significance: `*` for p < 0.05, `**` for p < 0.01,
+`***` for p < 0.001, and `ns` otherwise. Points remain individual images;
+captions identify the test unit and show image and well counts. Full-data
+plots retain technical-well colors and red low-FN outlines. The selected
+mode is recorded in the logs and run metadata.
+
+Enabled statistics add `Well Means`, `Statistics`, and `Comparison Design`
+Excel sheets and corresponding CSVs. The statistics include counts, means,
+treatment-minus-control differences, nominal 95% Welch confidence intervals,
+raw and adjusted p-values, and reasons for unavailable tests. Confidence
+intervals are not adjusted for multiple comparisons. Differences in alignment
+and FN% are expressed in percentage points.
+
 ## Update an existing installation
 
 From your repository root on `UMA-tools-V2`, activate your existing environment
@@ -165,11 +222,12 @@ git pull --ff-only
 conda activate uma_tools_new
 python -m pip install --no-deps -e .
 python -m pip check
-uma_alignment --version
+uma_report --version
 ```
 
-An environment already set up for 0.2.5, 0.2.6, or 0.2.7 needs no dependency
-changes for 0.2.8. The version command should report `uma_alignment 0.2.8`.
+An environment already set up for 0.2.5–0.2.8 needs no dependency changes for
+0.2.9: SciPy and openpyxl are already included. The version command should
+report `uma_report 0.2.9 (report 4.1.0)`.
 For older environments, first update with
 `conda env update -n uma_tools_new -f environment_uma.yaml`.
 Recreating the environment is unnecessary. Editable installation (`-e`) makes

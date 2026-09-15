@@ -1,5 +1,5 @@
 """
-Build and verify the 20-sheet workbook with embedded plot snapshots.
+Build and verify measurement, plot, and optional statistics sheets.
 """
 
 from __future__ import annotations
@@ -23,6 +23,18 @@ from .report_schema import (
 
 if TYPE_CHECKING:
     from openpyxl import Workbook
+
+
+STATISTICS_SHEETS = ["Well Means", "Statistics", "Comparison Design"]
+STATISTICS_TABLE_START = 14
+
+
+def workbook_sheet_names(data):
+    """Include statistical exports only when tests were requested."""
+    names = list(SHEET_NAMES)
+    if data.get("statistics") is not None:
+        names.extend(STATISTICS_SHEETS)
+    return names
 
 
 def put_cell(sheet, row, column, value):
@@ -109,6 +121,19 @@ def title_sheet(sheet, title):
         )
 
 
+def _plot_statistics_note(data, plot):
+    """Distinguish displayed images from the units used in tests."""
+    statistics = data.get("statistics")
+    if statistics is None:
+        return "Statistics disabled; no tests or significance labels."
+    if plot["view"] != "Filtered":
+        return "Tests use filtered data only; see the filtered plots."
+    return (
+        f"Welch + Holm; unit: {statistics['unit']}. "
+        "Points represent images; see Statistics for both well/image counts."
+    )
+
+
 def _write_plot_sheets(workbook, data, plots):
     """Embed every plot with its original group and replicate counts."""
     from openpyxl.drawing.image import Image
@@ -171,7 +196,7 @@ def _write_plot_sheets(workbook, data, plots):
                 "FN filter / statistics",
                 f"{plot['view']}; cutoff {data['fn_threshold']:g}%; "
                 f"{plot['red_outline_count']} red outlines. "
-                "No statistical tests.",
+                + _plot_statistics_note(data, plot),
             ),
         ]
         for row_number, (label, value) in enumerate(notes, 4):
@@ -357,6 +382,207 @@ def _write_plate_map(workbook, data):
             "shifting or renaming."
         ),
     ).font = Font(name="Arial", size=10, italic=True)
+    statistics = data.get("statistics")
+    if statistics is not None:
+        _apply_comparison_styles(plate_sheet, statistics["design"])
+
+
+def _comparison_fill(record):
+    """Rebuild a validated fill while retaining its exact tint."""
+    from openpyxl.styles import Color, PatternFill
+
+    color_type = record["Color_Type"]
+    value = record["Color_Value"]
+    if color_type in ("theme", "indexed"):
+        value = int(value)
+    elif color_type == "auto":
+        value = bool(value)
+    color = Color(**{color_type: value}, tint=record["Color_Tint"])
+    return PatternFill(patternType=record["Fill_Type"], fgColor=color)
+
+
+def _comparison_rgb(workbook, record):
+    """Resolve the fill for text contrast, retaining stored colors."""
+    from colorsys import hls_to_rgb, rgb_to_hls
+    from xml.etree import ElementTree
+
+    from openpyxl.writer.theme import theme_xml
+
+    value = record["Color_Value"]
+    if record["Color_Type"] == "theme":
+        names = [
+            "lt1",
+            "dk1",
+            "lt2",
+            "dk2",
+            "accent1",
+            "accent2",
+            "accent3",
+            "accent4",
+            "accent5",
+            "accent6",
+            "hlink",
+            "folHlink",
+        ]
+        namespace = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        theme = ElementTree.fromstring(workbook.loaded_theme or theme_xml)
+        color = theme.find(f".//{{{namespace}}}{names[int(value)]}")
+        value = next(iter(color)).attrib
+        value = value.get("lastClr", value.get("val", "FFFFFF"))
+    elif record["Color_Type"] == "indexed":
+        value = workbook._colors[int(value)]
+    channels = tuple(
+        int(value[-6:][index : index + 2], 16) / 255 for index in (0, 2, 4)
+    )
+    hue, luminance, saturation = rgb_to_hls(*channels)
+    tint = record["Color_Tint"]
+    luminance = (
+        luminance * (1 + tint) if tint < 0 else luminance * (1 - tint) + tint
+    )
+    return hls_to_rgb(hue, luminance, saturation)
+
+
+def _comparison_text_color(workbook, record):
+    """Choose white or dark text using luminance contrast."""
+
+    def luminance(channels):
+        linear = [
+            value / 12.92
+            if value <= 0.04045
+            else ((value + 0.055) / 1.055) ** 2.4
+            for value in channels
+        ]
+        return sum(
+            value * weight
+            for value, weight in zip(linear, (0.2126, 0.7152, 0.0722))
+        )
+
+    background = luminance(_comparison_rgb(workbook, record))
+    dark = luminance((31 / 255, 41 / 255, 55 / 255))
+    white_contrast = 1.05 / (background + 0.05)
+    dark_contrast = (max(background, dark) + 0.05) / (
+        min(background, dark) + 0.05
+    )
+    return "FFFFFF" if white_contrast > dark_contrast else "1F2937"
+
+
+def _apply_comparison_styles(sheet, design):
+    """Retain input control emphasis and colors on the map."""
+    from copy import copy
+
+    from openpyxl.utils.cell import coordinate_to_tuple
+
+    for record in design:
+        row, column = coordinate_to_tuple(record["Excel_Cell"])
+        cell = sheet.cell(row + 5, column)
+        cell.fill = _comparison_fill(record)
+        font = copy(cell.font)
+        font.bold = record["Is_Control"]
+        font.color = _comparison_text_color(sheet.parent, record)
+        cell.font = font
+
+
+def _statistics_tables(data):
+    """Share table contracts between writing and verification."""
+    statistics = data.get("statistics")
+    if statistics is None:
+        return []
+    return [
+        ("Well Means", statistics["well_columns"], statistics["well_means"]),
+        (
+            "Statistics",
+            statistics["comparison_columns"],
+            statistics["comparisons"],
+        ),
+        (
+            "Comparison Design",
+            statistics["design_columns"],
+            statistics["design"],
+        ),
+    ]
+
+
+def _statistics_notes(data):
+    """Explain units, selection, multiplicity, and interval coverage."""
+    statistics = data["statistics"]
+    return [
+        ("Method / unit", f"{statistics['method']}; {statistics['unit']}"),
+        (
+            "Population",
+            "Technical replicates within one plate; biological replication "
+            "is not established by these comparisons.",
+        ),
+        (
+            "FN selection",
+            f"Only images with FN% >= {data['fn_threshold']:g}. "
+            "FN% results describe this selected population.",
+        ),
+        (
+            "Comparisons",
+            "Each treatment vs its bold control within the same fill color; "
+            "two-sided tests. Both well and image counts are reported.",
+        ),
+        (
+            "Multiplicity",
+            "Holm correction over all planned treatment-control comparisons "
+            "and all seven metrics within each color block.",
+        ),
+        (
+            "Confidence intervals",
+            "Difference = treatment minus control. Ordinary 95% Welch "
+            "confidence intervals are unadjusted for multiple comparisons. "
+            "Alignment and FN% differences are in percentage points.",
+        ),
+        ("Interpretation", statistics["note"]),
+        (
+            "Significance",
+            "Adjusted p: *** < 0.001; ** < 0.01; * < 0.05; ns >= 0.05. "
+            "Not tested is distinct from ns; unavailable numbers are blank.",
+        ),
+    ]
+
+
+def _write_statistics_sheets(workbook, data):
+    """Export the auditable comparison design and unrounded results."""
+    from openpyxl.styles import Alignment, Font
+
+    for name, columns, rows in _statistics_tables(data):
+        sheet = workbook[name]
+        title_sheet(sheet, name)
+        sheet.sheet_properties.tabColor = "8064A2"
+        for row_number, (label, value) in enumerate(
+            _statistics_notes(data), 4
+        ):
+            put_cell(sheet, row_number, 1, label).font = Font(
+                name="Arial", size=10, bold=True, color="475569"
+            )
+            sheet.merge_cells(
+                start_row=row_number,
+                start_column=4,
+                end_row=row_number,
+                end_column=8,
+            )
+            cell = put_cell(sheet, row_number, 4, value)
+            cell.font = Font(name="Arial", size=10, color="1F2937")
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+            sheet.row_dimensions[row_number].height = 36
+        widths = [
+            48 if column in ("Metric", "Reason") else 30 for column in columns
+        ]
+        write_table(
+            sheet, columns, rows, start=STATISTICS_TABLE_START, widths=widths
+        )
+        sheet.freeze_panes = f"D{STATISTICS_TABLE_START + 1}"
+        sheet.print_title_rows = (
+            f"{STATISTICS_TABLE_START}:{STATISTICS_TABLE_START}"
+        )
+        for index, column in enumerate(columns, 1):
+            if column in ("P_Raw", "P_Holm"):
+                for row_number in range(
+                    STATISTICS_TABLE_START + 1,
+                    STATISTICS_TABLE_START + len(rows) + 1,
+                ):
+                    sheet.cell(row_number, index).number_format = "0.0000E+00"
 
 
 def _write_quality_sheets(workbook, data, events, run_id):
@@ -400,7 +626,7 @@ def build_workbook(
 
     workbook = openpyxl.Workbook()
     workbook.remove(workbook.active)
-    for name in SHEET_NAMES:
+    for name in workbook_sheet_names(data):
         sheet = workbook.create_sheet(name)
         sheet.sheet_view.showGridLines = False
     workbook.properties.title = "Alignment, Thickness, and Fibronectin Report"
@@ -408,12 +634,99 @@ def build_workbook(
         "Alignment, Thickness, and Fibronectin Python Report"
     )
     workbook.properties.version = SCRIPT_VERSION
+    statistics = data.get("statistics")
+    if statistics is not None and statistics.get("template_theme"):
+        workbook.loaded_theme = statistics["template_theme"]
+    if statistics is not None and statistics.get("template_palette"):
+        workbook._colors = list(statistics["template_palette"])
     _write_plot_sheets(workbook, data, plots)
     _write_measurement_sheets(workbook, data)
     _write_filter_summary(workbook, data)
     _write_plate_map(workbook, data)
     _write_quality_sheets(workbook, data, events, run_id)
+    _write_statistics_sheets(workbook, data)
     return workbook
+
+
+def _same_excel_value(expected, actual):
+    """Allow Excel float precision while retaining types and blanks."""
+    if isinstance(expected, bool):
+        return isinstance(actual, bool) and actual == expected
+    if isinstance(expected, (int, float)):
+        return (
+            isinstance(actual, (int, float))
+            and not isinstance(actual, bool)
+            and math.isfinite(expected)
+            and math.isclose(expected, actual, rel_tol=1e-12, abs_tol=1e-12)
+        )
+    if expected == "":
+        return actual in (None, "")
+    return actual == expected
+
+
+def _verify_table(sheet, columns, records, start=1):
+    """Check exported values against their unrounded source records."""
+    saved_rows = list(
+        sheet.iter_rows(
+            min_row=start,
+            max_row=sheet.max_row,
+            max_col=len(columns),
+            values_only=True,
+        )
+    )
+    header = list(saved_rows[0]) if saved_rows else []
+    if header != columns or sheet.max_row != start + len(records):
+        raise RuntimeError(
+            f"{sheet.title} headers or record count changed during export."
+        )
+    for row_number, (source, saved) in enumerate(
+        zip(records, saved_rows[1:]), start + 1
+    ):
+        for column, actual in zip(columns, saved):
+            expected = source.get(column)
+            if not _same_excel_value(expected, actual):
+                raise RuntimeError(
+                    f"{sheet.title} export changed {column} at "
+                    f"row {row_number}: {expected!r} -> {actual!r}"
+                )
+
+
+def _verify_plate_map(workbook, data):
+    """Verify plate annotations and comparison formatting."""
+    from openpyxl.utils.cell import coordinate_to_tuple
+
+    sheet = workbook["Plate Map"]
+    cells = list(sheet.iter_rows(min_row=6, max_row=14, max_col=13))
+    for values, saved in zip(data["plate_matrix"], cells):
+        for expected, cell in zip(values, saved):
+            if not _same_excel_value(expected, cell.value):
+                raise RuntimeError("Plate Map annotations changed on export.")
+    statistics = data.get("statistics")
+    if statistics is None:
+        return
+    if (
+        statistics.get("template_theme")
+        and workbook.loaded_theme != (statistics["template_theme"])
+    ):
+        raise RuntimeError("Plate Map color theme changed during export.")
+    if (
+        statistics.get("template_palette")
+        and list(workbook._colors) != (statistics["template_palette"])
+    ):
+        raise RuntimeError("Plate Map indexed palette changed during export.")
+    for record in statistics["design"]:
+        row, column = coordinate_to_tuple(record["Excel_Cell"])
+        cell = cells[row - 1][column - 1]
+        expected = _comparison_fill(record)
+        if (
+            cell.fill.patternType != expected.patternType
+            or cell.fill.fgColor != expected.fgColor
+            or bool(cell.font.bold) != record["Is_Control"]
+        ):
+            raise RuntimeError(
+                "Plate Map comparison formatting changed for "
+                f"{record['Well']}."
+            )
 
 
 def verify_workbook(
@@ -427,7 +740,7 @@ def verify_workbook(
 
     workbook = openpyxl.load_workbook(path, data_only=False, read_only=True)
     try:
-        if workbook.sheetnames != SHEET_NAMES:
+        if workbook.sheetnames != workbook_sheet_names(data):
             raise RuntimeError(
                 (
                     "Workbook sheet names or order do not match the required "
@@ -439,31 +752,12 @@ def verify_workbook(
             ("Filtered Data", data["retained_rows"]),
             ("Excluded Data", data["excluded_rows"]),
         ):
-            rows = list(workbook[sheet_name].values)
-            if list(rows[0]) != data["columns"] or len(rows) - 1 != len(
-                records
-            ):
-                raise RuntimeError(
-                    f"{sheet_name} headers or record count "
-                    "changed during export."
-                )
-            for source, saved in zip(records, rows[1:]):
-                for column, actual in zip(data["columns"], saved):
-                    expected = source[column]
-                    if isinstance(expected, bool):
-                        ok = isinstance(actual, bool) and actual == expected
-                    elif isinstance(expected, (int, float)):
-                        ok = isinstance(actual, (int, float)) and math.isclose(
-                            expected, actual, rel_tol=1e-12, abs_tol=1e-12
-                        )
-                    else:
-                        ok = actual == expected
-                    if not ok:
-                        raise RuntimeError(
-                            f"{sheet_name} export changed {column} "
-                            f"for {source['Image_ID']}: "
-                            f"{expected!r} -> {actual!r}"
-                        )
+            _verify_table(workbook[sheet_name], data["columns"], records)
+        for sheet_name, columns, records in _statistics_tables(data):
+            _verify_table(
+                workbook[sheet_name], columns, records, STATISTICS_TABLE_START
+            )
+        _verify_plate_map(workbook, data)
         for row in data["rows"]:
             expected_low = row[FN_METRIC] < data["fn_threshold"]
             if row[FN_LOW_FLAG] != expected_low or row[FN_INCLUDED_FLAG] != (
@@ -493,11 +787,14 @@ def verify_workbook(
         images = [
             name for name in archive.namelist() if name.startswith("xl/media/")
         ]
-        if len(images) != 13:
+        plot_count = sum(
+            name.endswith((" Plot", " Filtered")) for name in SHEET_NAMES
+        )
+        if len(images) != plot_count:
             raise RuntimeError(
-                f"Expected 13 embedded plots; found {len(images)}."
+                f"Expected {plot_count} embedded plots; found {len(images)}."
             )
-        for index in range(1, 14):
+        for index in range(1, plot_count + 1):
             if b"<drawing " not in archive.read(
                 f"xl/worksheets/sheet{index}.xml"
             ):

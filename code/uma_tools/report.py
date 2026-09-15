@@ -42,7 +42,9 @@ from .report_schema import (
 )
 
 
-def load_dependencies(log: EventLogger) -> dict[str, str]:
+def load_dependencies(
+    log: EventLogger, stats_unit: str | None = None
+) -> dict[str, str]:
     """
     Load libraries and record versions without injecting module globals.
 
@@ -58,6 +60,8 @@ def load_dependencies(log: EventLogger) -> dict[str, str]:
         importlib.import_module("openpyxl")
         # Openpyxl uses Pillow when embedding the generated PNG images.
         importlib.import_module("PIL.Image")
+        if stats_unit is not None:
+            importlib.import_module("scipy.stats")
     except ImportError as error:
         raise RuntimeError(
             "A report dependency is unavailable. Install the dependencies "
@@ -67,6 +71,8 @@ def load_dependencies(log: EventLogger) -> dict[str, str]:
         name: importlib.metadata.version(name)
         for name in ("numpy", "matplotlib", "openpyxl", "Pillow")
     }
+    if stats_unit is not None:
+        versions["scipy"] = importlib.metadata.version("scipy")
     log.event("INFO", "Dependencies", json.dumps(versions))
     return versions
 
@@ -186,6 +192,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
 
 def run_parameters(status, args):
     """Describe the run and unchanged analysis and display policies."""
+    stats_unit = getattr(args, "stats_unit", None)
     return {
         **status,
         "python": platform.python_version(),
@@ -213,7 +220,23 @@ def run_parameters(status, args):
             "Image-level points; wells are technical replicates; "
             "biological replicate is blank"
         ),
-        "statistical_tests": "Not performed",
+        "stats_unit": stats_unit,
+        "statistical_tests": (
+            "Two-sided Welch t-tests against the control; Holm correction "
+            "over all seven metrics within each template color"
+            if stats_unit is not None
+            else "Not performed"
+        ),
+        "statistics_scope": (
+            "FN-filtered images only; within-plate technical comparisons"
+            if stats_unit is not None
+            else "Disabled"
+        ),
+        "confidence_intervals": (
+            "Nominal 95% Welch intervals; not multiplicity-adjusted"
+            if stats_unit is not None
+            else "Not calculated"
+        ),
         "quartiles": "Linear interpolation (R type 7)",
         "whiskers": "1.5 x IQR",
         "thickness_units": dict(THICKNESS_UNITS),
@@ -247,6 +270,58 @@ def save_report_tables(data, directory):
     report_inputs.save_csv(
         directory / "qc.csv", ["Check", "Value", "Details"], data["qc"]
     )
+    statistics = data.get("statistics")
+    if statistics is not None:
+        for filename, rows_key, columns_key in (
+            ("well_means.csv", "well_means", "well_columns"),
+            ("statistics.csv", "comparisons", "comparison_columns"),
+            ("comparison_design.csv", "design", "design_columns"),
+        ):
+            report_inputs.save_csv(
+                directory / filename,
+                statistics[columns_key],
+                statistics[rows_key],
+            )
+
+
+def prepare_statistics(data, template, unit, log):
+    """Run explicitly requested tests and describe them in report QC."""
+    if unit is None:
+        log.event("INFO", "Statistics", "Disabled; --stats-unit not supplied")
+        return
+    from .report_statistics import calculate_statistics
+
+    statistics = calculate_statistics(data, template, unit, log)
+    data["statistics"] = statistics
+    for check in data["qc"]:
+        if check["Check"] == "Statistical tests":
+            check.update(
+                Value=statistics["method"], Details=statistics["note"]
+            )
+    tested = sum(
+        row["Status"] == "Tested" for row in statistics["comparisons"]
+    )
+    data["qc"].extend(
+        [
+            {
+                "Check": "Statistics unit",
+                "Value": unit,
+                "Details": (
+                    "One mean per retained well; equal well weights"
+                    if unit == "well"
+                    else "Individual images; shared-well dependence ignored"
+                ),
+            },
+            {
+                "Check": "Statistical comparisons",
+                "Value": tested,
+                "Details": (
+                    f"{len(statistics['comparisons'])} planned; "
+                    "unavailable comparisons remain in the Holm family"
+                ),
+            },
+        ]
+    )
 
 
 def save_verified_workbook(data, plots, log, run_id, candidate, final_path):
@@ -258,14 +333,15 @@ def save_verified_workbook(data, plots, log, run_id, candidate, final_path):
         log.event(
             "PASS",
             "Workbook verification",
-            "All data, 20 sheets, and 13 embedded plots verified",
+            f"All data, {len(workbook.sheetnames)} sheets, "
+            f"and {len(plots)} embedded plots verified",
         )
         completion_time = report_inputs.utc_now()
         message = (
             f"{len(data['rows'])} images; "
             f"{len(data['retained_rows'])} retained; "
             f"{len(data['excluded_rows'])} excluded from filtered views; "
-            f"13 plots. Workbook: {final_path.name}"
+            f"{len(plots)} plots. Workbook: {final_path.name}"
         )
         completion = dict(
             zip(
@@ -379,6 +455,7 @@ def process_folder(source, input_json, args):
         "combined_results_folder": str(combined),
         "input_json": str(input_json),
         "run_directory": str(directory),
+        "stats_unit": getattr(args, "stats_unit", None),
     }
     candidate, final_path = None, None
 
@@ -421,7 +498,9 @@ def process_folder(source, input_json, args):
             },
         )
         stage("Dependencies")
-        parameters["dependency_versions"] = load_dependencies(log)
+        parameters["dependency_versions"] = load_dependencies(
+            log, status["stats_unit"]
+        )
         save_json(directory / "run_parameters.json", parameters)
         stage("Input validation")
         data = report_validation.validate_and_merge(
@@ -432,6 +511,24 @@ def process_folder(source, input_json, args):
             log,
             threshold,
         )
+        stage("Statistics")
+        prepare_statistics(
+            data, snapshots["template"], status["stats_unit"], log
+        )
+        if data["statistics"] is not None:
+            statistics = data["statistics"]
+            parameters.update(
+                statistics_method=statistics["method"],
+                statistics_note=statistics["note"],
+                comparison_blocks=statistics["blocks"],
+            )
+            status.update(
+                planned_comparisons=len(statistics["comparisons"]),
+                tested_comparisons=sum(
+                    row["Status"] == "Tested"
+                    for row in statistics["comparisons"]
+                ),
+            )
         parameters.update(
             alignment_metric=data["metric"],
             alignment_angle=data["angle_label"],
@@ -473,7 +570,7 @@ def process_folder(source, input_json, args):
             stage="Completed",
             ended_utc=completion_time,
             workbook=str(final_path),
-            generated_plots=13,
+            generated_plots=len(plots),
         )
         save_json(directory / "run_status.json", status)
         print(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
@@ -513,6 +610,16 @@ def main(argv=None):
         help=(
             "FN coverage cutoff in percent, 0-100 (default: 20); equality is "
             "retained"
+        ),
+    )
+    parser.add_argument(
+        "--stats-unit",
+        choices=("well", "image"),
+        default=None,
+        help=(
+            "Optional statistics after FN filtering: well uses one mean per "
+            "well; image treats images as independent (exploratory). "
+            "Omit to disable tests. Requires color blocks and bold controls."
         ),
     )
     parser.add_argument(

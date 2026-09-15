@@ -173,6 +173,7 @@ class EntryPointTests(unittest.TestCase):
             "report_tables",
             "report_validation",
             "report_schema",
+            "report_statistics",
             "report_plots",
             "report_workbook",
         }

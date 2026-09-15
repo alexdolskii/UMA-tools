@@ -687,8 +687,8 @@ def _quality_checks(
         ),
         (
             "Generated plots",
-            13,
-            "One FN plot, six all-image plots, and six filtered plots",
+            14,
+            "Seven full-data plots and seven FN-filtered plots",
         ),
         (
             "Template wells without images",
@@ -698,7 +698,7 @@ def _quality_checks(
         (
             "Statistical tests",
             "Not performed",
-            "No p-values or summary-statistics tables",
+            "Disabled unless --stats-unit well or image is supplied",
         ),
         (
             "Biological replicates",
@@ -782,4 +782,5 @@ def validate_and_merge(
         "thickness_units": dict(THICKNESS_UNITS),
         "qc": checks,
         "field_map": observations.field_map,
+        "statistics": None,
     }
