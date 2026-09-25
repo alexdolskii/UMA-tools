@@ -225,6 +225,8 @@ for name in ("imagej", "jpype", "numpy", "pandas", "matplotlib.pyplot"):
                             completed.returncode, 0, completed.stderr
                         )
                         self.assertTrue(completed.stdout.strip())
+                        if argument == "--help":
+                            self.assertIn("--input", completed.stdout)
 
     def test_installed_commands_keep_argument_error_exit_status(self):
         with tempfile.TemporaryDirectory() as cwd:

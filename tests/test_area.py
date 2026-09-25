@@ -43,16 +43,11 @@ class AreaInputTests(unittest.TestCase):
             self.assertEqual(len(area.original_inventory(root)), 3)
 
     def test_metadata_json_is_rejected_before_opening(self):
+        # The path does not exist; a ValidationError (not FileNotFoundError)
+        # proves the check happens before any attempt to open the file.
         args = area.parse_args(["-i", "._input_paths.json"])
-        with patch.object(
-            Path,
-            "open",
-            side_effect=AssertionError("Metadata JSON was opened"),
-        ):
-            with self.assertRaisesRegex(
-                area.ValidationError, "macOS metadata"
-            ):
-                area.read_source_folders(args)
+        with self.assertRaisesRegex(area.ValidationError, "macOS metadata"):
+            area.read_source_folders(args)
 
     def test_invalid_bounds_create_source_folder_diagnostics_without_java(
         self,

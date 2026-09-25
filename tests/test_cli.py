@@ -197,33 +197,6 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("uma_thickness", result.stdout)
 
-    def test_installed_commands_outside_repository(self):
-        for command in (
-            "uma_alignment",
-            "uma_thickness",
-            "area_analysis",
-            "uma_collect_results",
-            "uma_report",
-        ):
-            executable = os.path.join(os.path.dirname(sys.executable), command)
-            result = subprocess.run(
-                [executable, "--help"],
-                cwd="/tmp",
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("--input", result.stdout)
-            result = subprocess.run(
-                [executable],
-                cwd="/tmp",
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            self.assertEqual(result.returncode, 2, result.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()

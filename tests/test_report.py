@@ -557,7 +557,8 @@ class MergeValidationTests(ReportFixture):
 
 class ReportCommandTests(ReportFixture):
     def test_diagnostics_write_failure_still_removes_unverified_workbook(self):
-        self.inputs()
+        paths = self.inputs()
+        combined = paths["template"].parent
         config = self.config([self.source])
         workbook = openpyxl.Workbook()
         self.addCleanup(workbook.close)
@@ -589,14 +590,15 @@ class ReportCommandTests(ReportFixture):
                 contextlib.redirect_stdout(io.StringIO()),
                 contextlib.redirect_stderr(io.StringIO()),
             ):
-                success, output = report.process_folder(
+                result = report.process_folder(
                     self.source,
                     config,
                     Namespace(fn_threshold=20, sheet=None, plate_id=""),
                 )
+        output = next(combined.glob("UMA_Report_*"))
         verification.assert_called_once()
         details.assert_called_once()
-        self.assertFalse(success)
+        self.assertIs(result, report.ReportStatus.ERROR)
         status = json.loads(
             (output / "run_status.json").read_text(encoding="utf-8")
         )
@@ -896,7 +898,9 @@ class ReportCommandTests(ReportFixture):
                 Path, "read_text", autospec=True, side_effect=guarded_read
             ),
             patch.object(
-                report, "diagnostic_failure", return_value=(False, None)
+                report,
+                "diagnostic_failure",
+                return_value=report.ReportStatus.ERROR,
             ),
         ):
             with (

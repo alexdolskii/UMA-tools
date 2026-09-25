@@ -439,16 +439,13 @@ class CollectionTests(unittest.TestCase):
     def test_metadata_json_rejected_before_read_and_startup_errors_logged(
         self,
     ):
+        # The path does not exist; a ValidationError (not FileNotFoundError)
+        # proves the check happens before any attempt to read the file.
         metadata = self.root / "._input.json"
-        with patch.object(
-            Path,
-            "read_text",
-            side_effect=AssertionError("Must not read metadata JSON"),
+        with self.assertRaisesRegex(
+            collector.ValidationError, "metadata JSON"
         ):
-            with self.assertRaisesRegex(
-                collector.ValidationError, "metadata JSON"
-            ):
-                collector.read_config(metadata)
+            collector.read_config(metadata)
         previous = Path.cwd()
         try:
             os.chdir(self.root)

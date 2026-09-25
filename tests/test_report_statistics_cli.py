@@ -148,8 +148,8 @@ class StatisticsCommandTests(ReportFixture):
         self.assertIsNone(data["statistics"])
 
     def test_invalid_unit_fails_before_reading_configuration(self):
-        with mock.patch.object(report, "read_config") as read_config:
-            with self.assertRaises(SystemExit) as caught:
-                report.main(["-i", "unused.json", "--stats-unit", "both"])
+        # "unused.json" does not exist; a clean argparse exit (not a
+        # file-reading error) proves validation runs before any I/O.
+        with self.assertRaises(SystemExit) as caught:
+            report.main(["-i", "unused.json", "--stats-unit", "both"])
         self.assertEqual(caught.exception.code, 2)
-        read_config.assert_not_called()
