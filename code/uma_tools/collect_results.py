@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import enum
 import hashlib
 import io
 import json
@@ -35,7 +36,6 @@ from .contracts import (
 from .files import safe_label, save_csv, save_json, sha256_file
 from .run import close_logger, make_logger, unique_output, utc_now
 
-SCRIPT_VERSION = "1.0.0"
 SELECTION_COLUMNS = [
     "Analysis",
     "Run_Directory",
@@ -57,6 +57,20 @@ CHECK_COLUMNS = [
     "Check",
     "Details",
 ]
+
+
+class CollectStatus(enum.Enum):
+    """Outcome of collect_folder, matching its run_status.json values."""
+
+    SUCCESS = "SUCCESS"
+    SUCCESS_WITH_MISSING_ANALYSES = "SUCCESS_WITH_MISSING_ANALYSES"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
+
+    @property
+    def succeeded(self) -> bool:
+        return self.name.startswith("SUCCESS")
 
 
 @dataclass(frozen=True)
@@ -464,7 +478,6 @@ def collect_folder(source, input_json):
     logger = make_logger(output)
     status = {
         "status": "RUNNING",
-        "script_version": SCRIPT_VERSION,
         "package_version": package_version(),
         "started_utc": utc_now(),
         "input_json": str(input_json),
@@ -482,8 +495,7 @@ def collect_folder(source, input_json):
     try:
         save_json(output / "run_status.json", status)
         logger.info(
-            "UMA results collector %s (package %s). Source: %s",
-            SCRIPT_VERSION,
+            "UMA results collector %s. Source: %s",
             package_version(),
             source,
         )
@@ -563,7 +575,7 @@ def collect_folder(source, input_json):
             )
         status["ended_utc"] = utc_now()
         save_json(output / "run_status.json", status)
-        return status["status"].startswith("SUCCESS"), output
+        return CollectStatus(status["status"])
     except (Exception, KeyboardInterrupt) as error:
         remove_copies(output, label)
         status.update(
@@ -582,14 +594,13 @@ def collect_folder(source, input_json):
         save_json(output / "run_status.json", status)
         if isinstance(error, KeyboardInterrupt):
             raise
-        return False, output
+        return CollectStatus(status["status"])
     finally:
         close_logger(logger)
 
 
 def diagnostic_failure(source, input_json, error):
     """Keep CWD startup diagnostics if source output is impossible."""
-    output = None
     try:
         label = (
             safe_label(source.name)
@@ -605,7 +616,7 @@ def diagnostic_failure(source, input_json, error):
                 output / "run_status.json",
                 {
                     "status": "ERROR",
-                    "script_version": SCRIPT_VERSION,
+                    "package_version": package_version(),
                     "ended_utc": utc_now(),
                     "source_folder": str(source)
                     if source is not None
@@ -622,7 +633,7 @@ def diagnostic_failure(source, input_json, error):
             f"ERROR: {error}. Could not save diagnostics: {diagnostic_error}",
             file=sys.stderr,
         )
-    return False, output
+    return CollectStatus.ERROR
 
 
 def main(argv=None):
@@ -640,7 +651,7 @@ def main(argv=None):
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {package_version()} (collector {SCRIPT_VERSION})",
+        version=f"%(prog)s {package_version()}",
     )
     args = parser.parse_args(argv)
     input_json = Path(args.input).expanduser().absolute()
@@ -662,15 +673,15 @@ def main(argv=None):
             continue
         seen.add(canonical)
         try:
-            success, _ = collect_folder(source, input_json)
+            result = collect_folder(source, input_json)
         except KeyboardInterrupt:
             print("Collection interrupted.", file=sys.stderr)
             return 130
         except Exception as error:
             diagnostic_failure(source, input_json, error)
-            success = False
-        succeeded += int(success)
-        failed += int(not success)
+            result = CollectStatus.ERROR
+        succeeded += int(result.succeeded)
+        failed += int(not result.succeeded)
     print(
         f"Collection finished: {succeeded} folder(s) succeeded; "
         f"{failed} failed.",

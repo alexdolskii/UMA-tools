@@ -9,13 +9,13 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import package_version
 from .report_schema import (
     EVENT_COLUMNS,
     FN_INCLUDED_FLAG,
     FN_LOW_FLAG,
     FN_METRIC,
     FN_REASON_COLUMN,
-    SCRIPT_VERSION,
     SHEET_NAMES,
     ReportData,
     ValidationError,
@@ -597,7 +597,7 @@ def _write_quality_sheets(workbook, data, events, run_id):
         qc_sheet,
         4,
         1,
-        f"Run ID: {run_id}; Python report version {SCRIPT_VERSION}",
+        f"Run ID: {run_id}; Python report version {package_version()}",
     ).font = Font(name="Arial", size=10)
     write_table(
         qc_sheet,
@@ -633,7 +633,7 @@ def build_workbook(
     workbook.properties.creator = (
         "Alignment, Thickness, and Fibronectin Python Report"
     )
-    workbook.properties.version = SCRIPT_VERSION
+    workbook.properties.version = package_version()
     statistics = data.get("statistics")
     if statistics is not None and statistics.get("template_theme"):
         workbook.loaded_theme = statistics["template_theme"]

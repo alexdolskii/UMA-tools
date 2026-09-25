@@ -13,6 +13,7 @@ runtime is started.
 from __future__ import annotations
 
 import argparse
+import enum
 import importlib
 import importlib.metadata
 import json
@@ -35,11 +36,19 @@ from .config import read_config
 from .files import safe_label, save_json
 from .report_schema import (
     EVENT_COLUMNS,
-    SCRIPT_VERSION,
     THICKNESS_UNITS,
     EventLogger,
     ValidationError,
 )
+
+
+class ReportStatus(enum.Enum):
+    """Outcome of process_folder, matching its run_status.json values."""
+
+    SUCCESS = "SUCCESS"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
 
 
 def load_dependencies(
@@ -155,15 +164,17 @@ def diagnostic_failure(source, input_json, error, buffered=None):
             if buffered is not None:
                 buffered.replay(log)
             log.event("FAILED", "Startup", str(error))
+            status = (
+                "VALIDATION_FAILED"
+                if isinstance(error, (ValidationError, ValueError))
+                else "ERROR"
+            )
             save_json(
                 directory / "run_status.json",
                 {
                     "run_id": run_id,
-                    "script_version": SCRIPT_VERSION,
                     "package_version": package_version(),
-                    "status": "VALIDATION_FAILED"
-                    if isinstance(error, (ValidationError, ValueError))
-                    else "ERROR",
+                    "status": status,
                     "ended_utc": report_inputs.utc_now(),
                     "source_folder": str(source)
                     if source is not None
@@ -178,7 +189,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
                 [{"Stage": "Startup", "Issue": str(error)}],
             )
             log.event("INFO", "Diagnostics", directory)
-            return False, directory
+            return ReportStatus(status)
         except OSError:
             continue
         finally:
@@ -187,7 +198,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
     print(
         f"Could not start report or save diagnostics: {error}", file=sys.stderr
     )
-    return False, None
+    return ReportStatus.ERROR
 
 
 def run_parameters(status, args):
@@ -445,7 +456,6 @@ def process_folder(source, input_json, args):
     log = report_inputs.RunLog(directory)
     status = {
         "run_id": run_id,
-        "script_version": SCRIPT_VERSION,
         "package_version": package_version(),
         "status": "RUNNING",
         "stage": "Initialization",
@@ -468,8 +478,7 @@ def process_folder(source, input_json, args):
         log.event(
             "STARTED",
             "Run",
-            f"UMA-tools {package_version()}, report {SCRIPT_VERSION}; "
-            f"source {source}",
+            f"UMA-tools {package_version()}; source {source}",
         )
         log.event("INFO", "Output", directory)
         buffered.replay(log)
@@ -574,7 +583,7 @@ def process_folder(source, input_json, args):
         )
         save_json(directory / "run_status.json", status)
         print(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
-        return True, directory
+        return ReportStatus.SUCCESS
     except (Exception, KeyboardInterrupt) as error:
         record_run_failure(
             error,
@@ -586,7 +595,7 @@ def process_folder(source, input_json, args):
         )
         if isinstance(error, KeyboardInterrupt):
             raise
-        return False, directory
+        return ReportStatus(status["status"])
     finally:
         best_effort("close report logs", log.close)
 
@@ -635,7 +644,7 @@ def main(argv=None):
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {package_version()} (report {SCRIPT_VERSION})",
+        version=f"%(prog)s {package_version()}",
     )
     args = parser.parse_args(argv)
     input_json = Path(args.input).expanduser().absolute()
@@ -652,15 +661,15 @@ def main(argv=None):
                 print(f"Skipping duplicate JSON folder: {source}", flush=True)
                 continue
             seen.add(canonical)
-            success, _ = process_folder(source, input_json, args)
+            result = process_folder(source, input_json, args)
         except KeyboardInterrupt:
             print("Report generation interrupted.", file=sys.stderr)
             return 130
         except Exception as error:
             diagnostic_failure(source, input_json, error)
-            success = False
-        succeeded += int(success)
-        failed += int(not success)
+            result = ReportStatus.ERROR
+        succeeded += int(result is ReportStatus.SUCCESS)
+        failed += int(result is not ReportStatus.SUCCESS)
     print(
         f"Reports finished: {succeeded} folder(s) succeeded; {failed} failed.",
         flush=True,
