@@ -1,0 +1,43 @@
+name: Test
+
+on:
+  push:
+    branches: [main, UMA-tools-V2]
+  pull_request:
+    branches: [main, UMA-tools-V2]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          auto-activate-base: false
+          activate-environment: uma_tools
+          environment-file: environment_uma.yaml
+
+      - name: Install the package
+        run: python -m pip install .
+
+      - name: Run the test suite
+        # This suite uses unittest, not pytest; no test runner is
+        # declared in requirements-dev.txt.
+        env:
+          UMA_RUN_IMAGEJ_TESTS: "1"
+          MPLBACKEND: Agg
+        run: python -m unittest discover -s tests -v

@@ -1,0 +1,84 @@
+name: Build Conda Environment
+
+on:
+  push:
+    branches: [main, UMA-tools-V2]
+    paths:
+      - "environment_uma.yaml"
+      - ".github/workflows/build-env.yml"
+  pull_request:
+    paths:
+      - "environment_uma.yaml"
+      - ".github/workflows/build-env.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda (via Miniforge + mamba)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          use-mamba: true
+          auto-activate-base: false
+          activate-environment: uma_tools
+          environment-file: environment_uma.yaml
+          cache-environment: true
+          cache-environment-key: conda-${{ runner.os }}-${{ hashFiles('environment_uma.yaml') }}
+
+      - name: Display environment info
+        run: |
+          conda info
+          conda list
+          java -version
+          mvn -version
+
+      - name: Verify key package imports
+        run: |
+          python - <<'EOF'
+          import importlib, sys
+
+          # Every module here must have a matching dependency in
+          # environment_uma.yaml; this only builds and imports that env.
+          packages = {
+              "imagej":        "pyimagej",
+              "scyjava":       "scyjava",
+              "skimage":       "scikit-image",
+              "pandas":        "pandas",
+              "matplotlib":    "matplotlib",
+              "orientationpy": "orientationpy",
+          }
+
+          failed = []
+          for module, pkg in packages.items():
+              try:
+                  importlib.import_module(module)
+                  print(f"  OK  {pkg}")
+              except ImportError as e:
+                  print(f"  FAIL {pkg}: {e}")
+                  failed.append(pkg)
+
+          if failed:
+              print(f"\nFailed imports: {failed}", file=sys.stderr)
+              sys.exit(1)
+
+          print("Environment verification passed.")
+          EOF
