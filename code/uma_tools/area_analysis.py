@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import enum
 import json
 import platform
 import sys
@@ -76,7 +77,6 @@ from .run import RunLog as _RunLog
 from .run import unique_output
 from .run import utc_now as _utc_now
 
-SCRIPT_VERSION = "2.1.0"
 ORIGINAL_EXTENSIONS = (".nd2", ".tif", ".tiff")
 EVENT_COLUMNS = ["Timestamp_UTC", "Level", "Stage", "Message"]
 MANIFEST_COLUMNS = [
@@ -132,6 +132,15 @@ SUMMARY_COLUMNS = PROJECTION_COLUMNS + [
     "Mask_Path",
     "Mask_SHA256",
 ]
+
+
+class FolderStatus(enum.Enum):
+    """Outcome of process_folder, matching its run_status.json values."""
+
+    SUCCESS = "SUCCESS"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
 
 
 def utc_now() -> str:
@@ -285,7 +294,6 @@ def save_startup_error(error, folders, args):
                 output / "run_status.json",
                 {
                     "run_id": run_id,
-                    "script_version": SCRIPT_VERSION,
                     "package_version": package_version(),
                     "status": state,
                     "stage": "Startup",
@@ -300,7 +308,6 @@ def save_startup_error(error, folders, args):
                 output / "run_parameters.json",
                 {
                     "run_id": run_id,
-                    "script_version": SCRIPT_VERSION,
                     "package_version": package_version(),
                     "arguments": vars(args),
                     "python": platform.python_version(),
@@ -396,7 +403,7 @@ def process_original_images(
                 "Source_Folder": str(source_folder),
                 "Source_Reader": reader_name,
                 "Source_SHA256": entry["SHA256"],
-                "Program_Version": SCRIPT_VERSION,
+                "Program_Version": package_version(),
                 "Run_ID": run_id,
             }
             projection_rows.append(row)
@@ -479,7 +486,6 @@ def process_folder(
     mode = "AREA_MEASUREMENT" if limits is not None else "PROJECTIONS_ONLY"
     status = {
         "run_id": run_id,
-        "script_version": SCRIPT_VERSION,
         "status": "RUNNING",
         "mode": mode,
         "started_utc": utc_now(),
@@ -525,7 +531,7 @@ def process_folder(
         log.event(
             "STARTED",
             "Run",
-            f"Version {SCRIPT_VERSION}; {mode}; "
+            f"Version {package_version()}; {mode}; "
             f"{method.upper()}32; channel {channel}",
         )
         log.event(
@@ -632,7 +638,7 @@ def process_folder(
             f"{len(projection_rows)} original images projected; "
             f"{len(summary_rows)} area measurements. Output: {output}",
         )
-        return True, output
+        return FolderStatus.SUCCESS
     except (Exception, KeyboardInterrupt) as error:
         current_file = status.get("current_file", current_file)
         state = (
@@ -686,7 +692,7 @@ def process_folder(
         )
         if isinstance(error, KeyboardInterrupt):
             raise
-        return False, output
+        return FolderStatus(state)
     finally:
         log.close()
 
@@ -701,7 +707,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {package_version()} (area script {SCRIPT_VERSION})",
+        version=f"%(prog)s {package_version()}",
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument(
@@ -847,7 +853,7 @@ def main(argv=None):
                 "greater than or equal to 1."
             )
         print(
-            f"UMA-tools {package_version()}; area {SCRIPT_VERSION}: "
+            f"UMA-tools {package_version()}: "
             f"{args.projection.upper()}32; channel {channel}; "
             + (
                 f"threshold {limits['lower']:.9g} to {limits['upper']:.9g}."
@@ -859,7 +865,7 @@ def main(argv=None):
         completed = failed = 0
         for folder in folders:
             try:
-                ok, _ = process_folder(
+                result = process_folder(
                     folder,
                     channel,
                     args.projection,
@@ -868,8 +874,8 @@ def main(argv=None):
                     input_json,
                     outputs,
                 )
-                completed += int(ok)
-                failed += int(not ok)
+                completed += int(result is FolderStatus.SUCCESS)
+                failed += int(result is not FolderStatus.SUCCESS)
             except (ValidationError, OSError) as error:
                 failed += 1
                 print(
