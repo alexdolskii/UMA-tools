@@ -23,6 +23,17 @@ class StitchingTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="uma stitch ")
         self.addCleanup(self.temporary.cleanup)
         self.folder = Path(self.temporary.name)
+        calibration = patch.object(
+            stitching,
+            "read_well_calibration",
+            return_value={
+                "pixel_size_x_um": 0.5,
+                "pixel_size_y_um": 0.25,
+                "pixel_area_um2": 0.125,
+            },
+        )
+        calibration.start()
+        self.addCleanup(calibration.stop)
 
     def frames(self, well="WellA1", indices=range(9), prefix="sample"):
         files = []
@@ -82,7 +93,20 @@ class StitchingTests(unittest.TestCase):
         (output / "old_nested" / "old.tif").write_bytes(b"old")
         with patch.object(stitching, "stitch_well"):
             stitching.process_folder(self.folder, 32.8)
-        self.assertEqual(list(output.iterdir()), [])
+        self.assertEqual(
+            [path.name for path in output.iterdir()],
+            ["stitching_metadata.json"],
+        )
+        metadata = json.loads((output / "stitching_metadata.json").read_text())
+        self.assertEqual(metadata["overlap_percent"], 32.8)
+        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(
+            [
+                item["grid_position"]
+                for item in metadata["wells"]["WellA1"]["source_frames"]
+            ],
+            [1, 2, 3, 6, 5, 4, 7, 8, 9],
+        )
         self.assertTrue(all(path.is_file() for _, path in frames))
 
     def test_invalid_folder_preserves_previous_results(self):
@@ -109,6 +133,9 @@ class StitchingTests(unittest.TestCase):
     def fake_imagej(self, channels=1, save_error=None):
         image = Mock()
         image.getNChannels.return_value = channels
+        image.getWidth.return_value = 1200
+        image.getHeight.return_value = 1200
+        image.getNSlices.return_value = 3
         ij = Mock()
         events = []
 
@@ -156,6 +183,22 @@ class StitchingTests(unittest.TestCase):
         ij.saveAs.side_effect = save
         classes = {"ij.IJ": ij, "ij.macro.Interpreter": interpreter}
         return classes, image, events
+
+    def test_metadata_records_real_dimensions_and_binds_output_pixels(self):
+        from uma_tools.files import sha256_file
+
+        files = self.frames()
+        output = stitching.reset_output_folder(self.folder)
+        classes, _, _ = self.fake_imagej()
+        record = {}
+        with patch("scyjava.jimport", side_effect=classes.__getitem__):
+            path = stitching.stitch_well(
+                self.folder, "WellA1", files, output, 32.8, record
+            )
+        self.assertEqual(record["width_px"], 1200)
+        self.assertEqual(record["height_px"], 1200)
+        self.assertEqual(record["slices"], 3)
+        self.assertEqual(record["sha256"], sha256_file(path))
 
     def test_grid_sharpen_tiff_and_temporary_file_cleanup(self):
         files = self.frames()
@@ -318,7 +361,7 @@ class StitchingTests(unittest.TestCase):
             import os
             import sys
             import jpype
-            from functional_assay import stitching
+            from functional_assay import cell_analysis, stitching
             from uma_tools import cli
 
             def java_work(*_):
@@ -344,14 +387,27 @@ class StitchingTests(unittest.TestCase):
                     if context is not None:
                         context.dispose()
 
-            stitching.process_wells_stitching = java_work
-            sys.exit(stitching.main(["-i", "input.json"]))
+            if os.environ["UMA_TEST_COMMAND"] == "uma_cell_count":
+                cell_analysis.run_analysis = java_work
+                sys.exit(cell_analysis.main(["-i", "input.json"]))
+            else:
+                stitching.process_wells_stitching = java_work
+                sys.exit(stitching.main(["-i", "input.json"]))
         """)
-        for fail in (False, True):
-            with self.subTest(analysis_fails=fail):
+        for command, fail in (
+            ("uma_stitching", False),
+            ("uma_stitching", True),
+            ("uma_cell_count", False),
+            ("uma_cell_count", True),
+        ):
+            with self.subTest(command=command, analysis_fails=fail):
                 result = subprocess.run(
                     [sys.executable, "-c", script],
-                    env=dict(os.environ, UMA_STITCH_TEST_FAILS=str(int(fail))),
+                    env=dict(
+                        os.environ,
+                        UMA_STITCH_TEST_FAILS=str(int(fail)),
+                        UMA_TEST_COMMAND=command,
+                    ),
                     cwd=self.folder,
                     capture_output=True,
                     text=True,

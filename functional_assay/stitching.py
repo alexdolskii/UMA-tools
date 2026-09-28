@@ -20,7 +20,11 @@ from typing import Any
 
 from uma_tools.cli import _run_imagej_command
 from uma_tools.config import read_config
-from uma_tools.imagej import initialize_imagej
+from uma_tools.files import save_json, sha256_file
+from uma_tools.imagej import FIJI_ENDPOINT, initialize_imagej
+from uma_tools.run import utc_now
+
+from .calibration import read_well_calibration
 
 FRAME_POSITIONS = {0: 1, 1: 2, 2: 3, 5: 4, 4: 5, 3: 6, 6: 7, 7: 8, 8: 9}
 FILENAME_PATTERN = re.compile(
@@ -90,6 +94,7 @@ def stitch_well(
     files: list[tuple[int, Path]],
     output_folder: Path,
     overlap: float,
+    record: dict | None = None,
 ) -> Path:
     """Fuse full stacks in batch mode, sharpen, and save one TIFF."""
     from scyjava import jimport
@@ -123,6 +128,14 @@ def stitch_well(
             ij.saveAs(image, "Tiff", str(output_file))
             if not output_file.is_file() or output_file.stat().st_size == 0:
                 raise OSError(f"Could not save stitched TIFF: {output_file}")
+            if record is not None:
+                record.update(
+                    output_file=output_file.name,
+                    width_px=int(image.getWidth()),
+                    height_px=int(image.getHeight()),
+                    slices=int(image.getNSlices()),
+                    sha256=sha256_file(output_file),
+                )
             print(f"Saved: {output_file} (overlap: {overlap}%)")
             return output_file
         finally:
@@ -163,9 +176,56 @@ def process_folder(folder: Path, overlap: float) -> int:
         return 0
 
     output = reset_output_folder(folder)
-    for well_id, files in valid_wells.items():
-        print(f"Stitching {well_id}...")
-        stitch_well(folder, well_id, files, output, overlap)
+    metadata = {
+        "schema_version": 1,
+        "created_utc": utc_now(),
+        "functional_assay_version": version("uma-functional-assay"),
+        "uma_tools_version": version("uma-tools"),
+        "fiji_endpoint": FIJI_ENDPOINT,
+        "overlap_percent": overlap,
+        "grid": "3x3, row-by-row, right and down",
+        "status": "running",
+        "wells": {},
+    }
+    metadata_path = output / "stitching_metadata.json"
+    save_json(metadata_path, metadata, allow_nan=False)
+    try:
+        for well_id, files in valid_wells.items():
+            print(f"Stitching {well_id}...")
+            record = {
+                "status": "running",
+                "source_frames": [
+                    {
+                        "filename": path.name,
+                        "frame_index": index,
+                        "grid_position": FRAME_POSITIONS[index],
+                    }
+                    for index, path in sorted(files)
+                ],
+            }
+            metadata["wells"][well_id] = record
+            try:
+                record["calibration"] = read_well_calibration(files)
+            except Exception as error:
+                # Preserve stitching for legacy files lacking usable scale.
+                # Cell analysis will require nine valid scales and skip them.
+                record["calibration_error"] = str(error)
+                print(f"{well_id}: calibration unavailable: {error}")
+            try:
+                stitch_well(folder, well_id, files, output, overlap, record)
+                record["status"] = "completed"
+            except Exception as error:
+                record.update(status="failed", error=str(error))
+                raise
+            finally:
+                save_json(metadata_path, metadata, allow_nan=False)
+        metadata["status"] = "completed"
+    except BaseException:
+        metadata["status"] = "failed"
+        raise
+    finally:
+        metadata["finished_utc"] = utc_now()
+        save_json(metadata_path, metadata, allow_nan=False)
     return len(valid_wells)
 
 
