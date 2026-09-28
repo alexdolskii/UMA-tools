@@ -51,6 +51,88 @@ run downloads Java components and requires access to Maven/SciJava servers;
 a separate Fiji GUI installation is unnecessary. Terminal questions still
 appear. Collection and reporting do not start Fiji.
 
+### Verify Java and Fiji after installation
+
+**Complete this check before running image analyses on a new machine or after
+updating the environment.** The tested UMA-tools setup uses **Fiji 2.14.0 with
+OpenJDK 11**. Java and Maven are included in `environment_uma.yaml`; see the
+[PyImageJ installation guidance](https://py.imagej.net/en/1.5.0/Install.html)
+for background.
+
+Activate the environment and check Java and Maven. Replace `uma_tools` with
+your environment name if different, for example `uma_tools_new`.
+
+```bash
+conda activate uma_tools
+java -version
+mvn -version
+```
+
+Both commands should report **Java 11**. The patch version may differ, for
+example `11.0.x`.
+
+Next, verify that Python can initialize Fiji using the same startup procedure
+as the analysis commands. Run this after installing the UMA-tools package
+with `python -m pip install -e .` as shown above:
+
+```bash
+python - <<'PY'
+from scyjava import jimport
+from uma_tools.imagej import initialize_imagej, shutdown_imagej_workers
+
+ij = None
+try:
+    ij = initialize_imagej()
+    system = jimport("java.lang.System")
+    print("Java version:", system.getProperty("java.version"))
+    print("Java home:", system.getProperty("java.home"))
+
+    if str(system.getProperty("java.specification.version")) != "11":
+        raise RuntimeError("Use Java 11 for the tested UMA-tools environment.")
+finally:
+    try:
+        if ij is not None:
+            ij.dispose()
+    finally:
+        shutdown_imagej_workers()
+
+print("Java/Fiji check passed.")
+PY
+```
+
+The first initialization requires internet access to download Fiji components.
+A successful check prints **`Java/Fiji check passed.`** and returns to the
+terminal. This checks the Java runtime actually used by Python, in addition
+to the Java executable found by the shell.
+
+**If Java or Maven is missing**, install it in the activated UMA environment,
+then reactivate that environment and repeat the checks:
+
+```bash
+conda install -c conda-forge "openjdk=11" maven
+conda deactivate
+conda activate uma_tools
+```
+
+Use your actual environment name in the last command.
+
+**If these packages are installed but another Java version is reported**,
+check environment activation, `JAVA_HOME`, and `PATH`. Python and Java must
+also use compatible CPU architectures.
+
+**If Fiji still fails to initialize**, run the
+[PyImageJ diagnostic check](https://py.imagej.net/en/1.5.0/Troubleshooting.html):
+
+```bash
+python -c "import imagej.doctor; imagej.doctor.checkup()"
+```
+
+Include this output and the full initialization traceback, including preceding
+Maven messages, when reporting the problem. The final
+`Failed to create a JVM with the requested environment` message alone does
+not identify the cause; dependency downloads, network access, or certificate
+errors can also prevent initialization.
+
 ## Run the five stages
 
 Use one JSON file with absolute paths to the original ND2/TIFF image folders:
