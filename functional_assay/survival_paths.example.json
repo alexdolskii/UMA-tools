@@ -1,0 +1,13 @@
+{
+  "experiment_name": "survival_assay",
+  "plate_template": "plate_map.xlsx",
+  "output_dir": ".",
+  "baseline_day": 1,
+  "difference_days": [3, 5, 7],
+  "timepoints": [
+    {"day": 1, "folder": "day 1"},
+    {"day": 3, "folder": "day 3"},
+    {"day": 5, "folder": "day 5"},
+    {"day": 7, "folder": "day 7"}
+  ]
+}

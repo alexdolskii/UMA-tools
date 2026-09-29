@@ -1,9 +1,11 @@
-# Functional assay: stitching, cell analysis, and plate reports
+# Functional assay: stitching, cell measurements, and reporting
 
-Three commands for green-labelled cancer cells: stitch nine single-channel
-ND2 Z-stacks per well, measure cell-mask area and count segmented objects,
-then compare conditions using a 96-well plate map. All three commands use
-the same UMA environment and input JSON.
+Stitch nine single-channel ND2 Z-stacks per well, then measure cell-mask
+area and count segmented objects. Two reporting commands use these results:
+`uma_functional_report` compares conditions at one time point;
+`uma_survival_report` follows the same wells across explicit experiment days.
+All four commands use the same UMA environment. The survival report uses
+a separate JSON with the day assignments and one shared plate map.
 
 ## Install and run
 
@@ -225,6 +227,123 @@ tables and plot embeddings. It needs **no Fiji, original ND2 files, or
 stitched TIFFs**. Exit code is `0` when all reports succeed, `1` if any
 folder fails, and `2` for invalid command arguments.
 
+## 4. Survival assay over multiple days
+
+Use `uma_survival_report` for **one plate imaged repeatedly**, with the same
+well identifiers and conditions across days. Run stitching and cell analysis
+with the existing `folder_paths` JSON first. No single-day report or local
+Excel file inside each `Cell_Analysis_...` is required for this step.
+
+Copy [survival_paths.example.json](survival_paths.example.json), rename it
+`survival_paths.json`, and edit the paths and days:
+
+```json
+{
+  "experiment_name": "survival_assay",
+  "plate_template": "plate_map.xlsx",
+  "output_dir": ".",
+  "baseline_day": 1,
+  "difference_days": [3, 5, 7],
+  "timepoints": [
+    {"day": 1, "folder": "day 1"},
+    {"day": 3, "folder": "day 3"},
+    {"day": 5, "folder": "day 5"},
+    {"day": 7, "folder": "day 7"}
+  ]
+}
+```
+
+- Paths can be absolute or **relative to this JSON**, regardless of the
+  terminal's working directory. In this example, place the JSON alongside
+  the day folders and the Excel map. `output_dir: "."` saves reports there.
+- `plate_template` is the exact path to your shared `.xlsx`, under any name.
+  The grid, fill colors, and bold control rules are the same as in step 3.
+  Use optional `"sheet": "Plate Map"` to select a worksheet; otherwise the
+  first sheet is read. Instructions inside the older template about
+  `Combined_Results` do not apply to this command.
+- Each `folder` is an **original image folder**, not `Cell_Analysis_...`.
+  Its latest fully completed analysis is selected independently. A missing
+  CSV in that selected run is an error; older data are not substituted.
+- Days are explicit, unique, non-negative integers, including **0**.
+  Folder names do not need to contain day numbers. Plots are ordered by day.
+- `baseline_day` must be a recorded day. `difference_days` explicitly lists
+  which other days to subtract it from. The example produces `3-1`, `5-1`,
+  and `7-1`; use baseline `0` and targets `[2, 3, 4]` for `2-0`, `3-0`, `4-0`.
+  Reusing one folder for different days is rejected.
+
+```bash
+# Six descriptive plots and tables, without statistical testing:
+uma_survival_report -i "/path/to/survival_paths.json"
+
+# Add treatment-versus-control tests of the changes:
+uma_survival_report -i "/path/to/survival_paths.json" --stats-unit well
+```
+
+For each **individual well**, the program calculates
+`change = selected-day value - baseline-day value`. It retains negative
+and zero changes. The two endpoints remain **Object Count** and **Mask Area
+(µm²)** before Watershed. There is no percent-change or control normalization.
+
+Missing measurements affect only the relevant day pair. A measured well
+without a baseline stays in the raw table, but has no calculated change.
+Each distribution shows its own `n`; missing measurements are never zeros.
+
+**Additional/unannotated wells do not stop this multi-day report.** Their
+measurements stay in `Raw_Measurements.csv` and Excel, marked `UNMAPPED`,
+with warnings identifying the day and wells. They are excluded from grouped
+plots and statistics because their condition is unknown. Annotated extra
+wells can appear in raw distributions; changes still require both days.
+The single-day `uma_functional_report` keeps its strict annotation check.
+
+### Distributions and tests
+
+Six PNGs are produced: Object Count and Mask Area, each shown **by day**,
+for the **baseline alone**, and as **changes from baseline**. Each color
+block has a panel, with condition distributions side by side within each
+day, boxplots and all well points. Hatch patterns and marker shapes identify
+conditions; the legend preserves their full names and bold control. There
+are no line plots. Raw and baseline plots are descriptive only.
+
+With `--stats-unit well`, each treatment's **per-well changes** are compared
+with the control's per-well changes using a two-sided Welch t-test.
+**Holm correction covers both endpoints, all requested difference days,
+and all planned control contrasts within each color.** For two treatments
+and three day pairs, this is 12 tests per color. The same baseline can
+contribute to several day pairs, but those days are never pooled as extra
+replicates. Untestable comparisons remain in the planned family.
+
+Only change plots carry `*`, `**`, `***`, or `ns`, based on adjusted p-values.
+Fewer than two matched wells in either arm, or zero variance in both arms,
+gives `Not tested`. The statistics table records the actual wells, counts,
+mean changes, treatment-minus-control difference, unadjusted 95% confidence
+interval, and raw/adjusted p-values. These describe technical variation
+within this plate, not biological replication.
+
+Baseline subtraction does not guarantee removal of differences in exposure,
+focus, or segmentation. Processing parameters remain in the tables; changes
+in scale, dimensions, overlap, size cutoffs, or threshold methods are logged.
+Different automatic RenyiEntropy thresholds are retained as measured.
+
+### Survival output
+
+Each run creates `Survival_Report_<experiment_name>_<UTC-timestamp>` inside
+`output_dir`, preserving earlier reports. It contains:
+
+- One Excel workbook with six embedded plots, raw measurements, per-well
+  changes, condition summaries, coverage of all 96 wells for every day,
+  selected analysis folders, the shared plate map, and run details.
+- Six PNGs: `Object_Count_...` / `Mask_Area_...` with suffixes `By_Day`,
+  `Baseline`, and `Changes`.
+- `Raw_Measurements.csv`, `Changes_by_Well.csv`, `Group_Summary.csv`,
+  `Well_Coverage.csv`, and `Selected_Analyses.csv`.
+- `Statistics.csv` and the Excel Statistics sheet only when requested.
+- Separate input copies for every day in `inputs/day_<number>/`, the JSON
+  and plate map, SHA256 checksums, plot provenance, logs, and run status.
+
+The report uses the saved summaries and completion records; it does not
+start Fiji or reopen original images. Exit codes are `0` for success,
+`1` for a report/input failure, and `2` for invalid command arguments.
+
 ## Checks
 
 ```bash
@@ -241,3 +360,7 @@ missing annotations, independent color blocks, Welch/CI calculations and
 Holm families, true zeros versus missing wells, optional statistics,
 Excel round-trip checks, plotted well counts, and command startup without
 Fiji. Synthetic test comparisons are not experimental results.
+Survival tests additionally verify explicit day assignments (including day
+zero), within-well subtraction, negative/zero changes, independent handling
+of missing pairs, unmapped extra wells, Welch confidence intervals, Holm
+across days, six complete plot exports, input preservation, and repeat runs.
