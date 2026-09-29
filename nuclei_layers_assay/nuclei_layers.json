@@ -9,5 +9,5 @@
   "z_scale_factor": 32,
   "n_tiles": [2, 4, 4],
   "downscale_factor": 2,
-  "model_path": "/path/to/model"
+  "model_path": null
 }

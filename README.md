@@ -329,9 +329,14 @@ commands, numerical regressions, and process completion on macOS and Linux.
 
 Development is paused for the
 [original Windows/OrientationJ approach](original_fibronectin_alignment_analysis/README.md)
-and [alternative assays](alternative_assays/README.md), including nuclei-layer
-analysis, marker-intensity analysis, visualization tools, and StarDist models.
+and [alternative assays](alternative_assays/README.md), including
+marker-intensity analysis and visualization tools.
 Their files remain available separately from the active V2 workflow.
+
+The separate [nuclei layers assay](nuclei_layers_assay/README.md) is being
+integrated into the UMA environment: `uma_nla_prepare` and
+`uma_nla_segment` are available. Its trained StarDist models now live in
+the same folder. Stage 3 integration is still pending.
 
 ## Protocol and contributors
 

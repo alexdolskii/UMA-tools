@@ -4,22 +4,45 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uma-nuclei-layers-assay"
-version = "0.1.0"
-description = "Nuclei channel preparation using the UMA-tools Fiji runtime"
+version = "0.2.0"
+description = "Nuclei channel preparation and StarDist 3D segmentation for UMA-tools"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
 dependencies = ["uma-tools>=0.2.9,<0.3"]
 
+[project.optional-dependencies]
+segment = [
+    "stardist==0.9.1",
+    "csbdeep==0.8.2",
+    "tensorflow==2.15.0",
+    "tifffile>=2023.7.10,<2026",
+]
+
 [project.scripts]
 uma_nla_prepare = "nuclei_layers_assay.prepare:main"
+uma_nla_segment = "nuclei_layers_assay.segment:main"
 
 [tool.setuptools]
 packages = ["nuclei_layers_assay"]
 package-dir = {nuclei_layers_assay = "."}
+include-package-data = false
+
+[tool.setuptools.package-data]
+nuclei_layers_assay = [
+    "stardist_models_nuclei_layers/*/config.json",
+    "stardist_models_nuclei_layers/*/thresholds.json",
+    "stardist_models_nuclei_layers/*/weights_best.h5",
+    "stardist_models_nuclei_layers/*/model/config.json",
+    "stardist_models_nuclei_layers/*/model/thresholds.json",
+    "stardist_models_nuclei_layers/*/model/weights_best.h5",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["fiji: real Fiji tests (set UMA_RUN_FIJI_TESTS=1)"]
+markers = [
+    "fiji: real Fiji tests (set UMA_RUN_FIJI_TESTS=1)",
+    "stardist: native model inference (set UMA_RUN_STARDIST_TESTS=1)",
+]
 
 [tool.ruff]
 target-version = "py310"
