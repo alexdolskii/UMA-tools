@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68,<81", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uma-nuclei-layers-assay"
+version = "0.1.0"
+description = "Nuclei channel preparation using the UMA-tools Fiji runtime"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = ["uma-tools>=0.2.9,<0.3"]
+
+[project.scripts]
+uma_nla_prepare = "nuclei_layers_assay.prepare:main"
+
+[tool.setuptools]
+packages = ["nuclei_layers_assay"]
+package-dir = {nuclei_layers_assay = "."}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["fiji: real Fiji tests (set UMA_RUN_FIJI_TESTS=1)"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I"]
