@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import logging
+import math
 import os
 from datetime import datetime
 from pathlib import Path
@@ -9,9 +10,22 @@ from pathlib import Path
 import pandas as pd
 from scyjava import jimport
 
-from .config import load_json
+from .config import read_config
+from .image_run import ImageRun, image_names
 from .imagej import (
     initialize_imagej,
+)
+from .progress import (
+    CANCELLATIONS,
+    ask_channel,
+    ask_choice,
+    confirm_start,
+    folder_error,
+    folder_logged,
+    folder_scope,
+    outcome,
+    phase,
+    register_sources,
 )
 from .run import scoped_file_log, unique_output
 
@@ -35,116 +49,18 @@ def import_java_classes():
 
 
 def get_file_type_choice():
-    """
-    Prompt the user to choose the file type (.nd2 or .tiff).
-
-    Returns:
-        str: The file extension chosen by the user.
-    """
-    print("\nSelect the file type to process:")
-    print("1. .nd2")
-    print("2. .tiff")
-    choice = input("Enter 1 for .nd2 or 2 for .tiff: ").strip()
-    if choice == "1":
-        return ".nd2"
-    elif choice == "2":
-        return ".tiff"
-    else:
-        raise ValueError(
-            "Invalid choice. Please run the script again and select 1 or 2."
-        )
+    """Retry unsupported choices without restarting the command."""
+    return ask_choice(
+        "Enter 1 for .nd2 or 2 for .tiff: ", {"1": ".nd2", "2": ".tiff"}
+    )
 
 
 def get_fibronectin_channel():
-    """
-    Prompt for the 1-based fibronectin channel index.
-
-    Channel availability is checked against each image during
-    processing.
-
-    Returns:
-        int: The fibronectin channel index.
-    """
-    try:
-        val = int(
-            input(
-                "Enter fibronectin channel index (starting from 1): "
-            ).strip()
-        )
-    except ValueError:
-        raise ValueError(
-            "Please enter an integer for the fibronectin channel index."
-        )
-    if val < 1:
-        raise ValueError("The fibronectin channel index must be at least 1.")
-    return val
+    return ask_channel()
 
 
 def get_folder_paths(input_file_path):
-    """
-    Reads an input JSON file containing folder paths.
-
-    Args:
-        input_file_path (str): Path to the input JSON file.
-
-    Returns:
-        List[str]: List of valid folder paths.
-
-    Raises:
-        FileNotFoundError: If the specified file does not exist.
-        ValueError: If the file does not contain folder paths or no
-        valid
-            folders.
-    """
-    if os.path.basename(input_file_path).startswith("._"):
-        raise ValueError(
-            f"macOS metadata files cannot be used as input: {input_file_path}"
-        )
-    if not os.path.isfile(input_file_path):
-        raise FileNotFoundError(f"File '{input_file_path}' does not exist.")
-
-    if not input_file_path.lower().endswith(".json"):
-        raise ValueError("Input file must be in .json format.")
-
-    data = load_json(
-        Path(input_file_path), encoding="utf-8", reject_metadata=False
-    )
-
-    folder_paths = data.get("folder_paths", [])
-    if not folder_paths:
-        raise ValueError("Input file does not contain folder paths.")
-
-    valid_folder_paths = []
-    for folder_path in folder_paths:
-        if os.path.isdir(folder_path):
-            files = [
-                f
-                for f in os.listdir(folder_path)
-                if not f.startswith(".")
-                and os.path.isfile(os.path.join(folder_path, f))
-            ]
-            num_files = len(files)
-            file_types = set(
-                [
-                    os.path.splitext(f)[1].lower()
-                    for f in files
-                    if not f.startswith(".")
-                ]
-            )
-            print(f"\nFolder: {folder_path}")
-            print(f"Number of files: {num_files}")
-            print(f"File types: {', '.join(file_types)}")
-            valid_folder_paths.append(folder_path)
-        else:
-            print(f"\nFolder '{folder_path}' does not exist.")
-
-    if not valid_folder_paths:
-        raise ValueError("No available folders for processing.")
-
-    print(
-        f"\nFound {len(valid_folder_paths)} available folders for processing."
-    )
-    return valid_folder_paths
+    return [str(path) for path in read_config(Path(input_file_path))]
 
 
 def open_fibronectin_channel(
@@ -160,7 +76,7 @@ def open_fibronectin_channel(
     channel.
     """
     # Open image
-    print("  Opening image...")
+    phase("Opening image...")
     img = ij.io().open(file_path)
     if img is None:
         _LOGGER.warning(f"Failed to open image: {filename}")
@@ -174,7 +90,7 @@ def open_fibronectin_channel(
         return
 
     # Extract fibronectin channel
-    print("  Extracting fibronectin channel...")
+    phase("Extracting fibronectin channel...")
     if fibronectin_channel > imp.getNChannels() or fibronectin_channel < 1:
         _LOGGER.warning(f"Invalid fibronectin channel for image {filename}")
         imp.close()
@@ -208,7 +124,7 @@ def reslice_and_project(IJ, imp_fibronectin, filename: str):
     Apply the original reslice macro and calibrated MAX Z projection.
     """
     # Reslice
-    print("  Performing Reslice...")
+    phase("Performing Reslice...")
     # Batch mode preserves the original macro options without GUI
     # windows.
     interpreter = jimport("ij.macro.Interpreter")()
@@ -231,7 +147,7 @@ def reslice_and_project(IJ, imp_fibronectin, filename: str):
     )
 
     # Z Project
-    print("  Performing Z projection...")
+    phase("Performing Z projection...")
     # Match the original Z Project macro: preserve spatial calibration
     # and
     # project the current time frame. The low-level doProjection() loses
@@ -258,16 +174,16 @@ def create_thickness_mask(IJ, projected_imp) -> None:
     Run the original filters and Otsu mask in their unchanged order.
     """
     # Filters and threshold
-    print("  Applying Maximum filter...")
+    phase("Applying Maximum filter...")
     IJ.run(projected_imp, "Maximum...", "radius=2")
 
-    print("  Applying Gaussian Blur...")
+    phase("Applying Gaussian Blur...")
     IJ.run(projected_imp, "Gaussian Blur...", "sigma=2 scaled")
 
-    print("  Subtracting background...")
+    phase("Subtracting background...")
     IJ.run(projected_imp, "Subtract Background...", "rolling=50 sliding")
 
-    print("  Applying threshold...")
+    phase("Applying threshold...")
     IJ.setAutoThreshold(projected_imp, "Otsu dark no-reset")
     IJ.run("Options...", "black")
     IJ.run(projected_imp, "Convert to Mask", "")
@@ -276,7 +192,7 @@ def create_thickness_mask(IJ, projected_imp) -> None:
 def calculate_local_thickness(IJ, projected_imp, filename: str):
     """Run the masked, calibrated, silent Local Thickness plugin."""
     # Run Local Thickness
-    print("  Running Local Thickness...")
+    phase("Running Local Thickness...")
     # This is the same plugin registered by the masked/calibrated/silent
     # menu
     # command, but processImage returns its result without opening a
@@ -304,7 +220,7 @@ def measure_thickness(ResultsTable, local_thickness_imp) -> dict:
     # window.
     # Preserve the original area, standard deviation, min/max and median
     # flags.
-    print("  Measuring thickness...")
+    phase("Measuring thickness...")
     measurements = jimport("ij.measure.Measurements")
     flags = (
         measurements.AREA
@@ -319,34 +235,33 @@ def measure_thickness(ResultsTable, local_thickness_imp) -> dict:
     )
     analyzer.measure()
 
-    # Extract results
     if rt is None or rt.getCounter() == 0:
-        _LOGGER.warning("No measurements.")
-        area = None
-        std_dev = None
-        min_thickness = None
-        max_thickness = None
-        median_thickness = None
-    else:
-        try:
-            row = rt.getCounter() - 1
-            area = rt.getValue("Area", row)
-            std_dev = rt.getValue("StdDev", row)
-            min_thickness = rt.getValue("Min", row)
-            max_thickness = rt.getValue("Max", row)
-            median_thickness = rt.getValue("Median", row)
-            _LOGGER.info(
-                f"  Results - Area: {area}, StdDev: {std_dev}, "
-                f"Min: {min_thickness}, Max: {max_thickness}, "
-                f"Median: {median_thickness}"
-            )
-        except Exception as e:
-            _LOGGER.error(f"Error reading measurements: {e}")
-            area = None
-            std_dev = None
-            min_thickness = None
-            max_thickness = None
-            median_thickness = None
+        raise ValueError("No thickness measurements returned")
+    row = rt.getCounter() - 1
+    area = rt.getValue("Area", row)
+    std_dev = rt.getValue("StdDev", row)
+    min_thickness = rt.getValue("Min", row)
+    max_thickness = rt.getValue("Max", row)
+    median_thickness = rt.getValue("Median", row)
+    if not all(
+        math.isfinite(value)
+        for value in (
+            area,
+            std_dev,
+            min_thickness,
+            max_thickness,
+            median_thickness,
+        )
+    ):
+        raise ValueError("Thickness measurements contain nonfinite values")
+    _LOGGER.info(
+        "Area=%s, StdDev=%s, Min=%s, Max=%s, Median=%s",
+        area,
+        std_dev,
+        min_thickness,
+        max_thickness,
+        median_thickness,
+    )
     return {
         "Area": area,
         "StdDev": std_dev,
@@ -376,43 +291,51 @@ def process_single_file(
     file_path = os.path.join(folder, filename)
     _LOGGER.info(f"Processing file: {filename}")
 
-    imp_fibronectin = open_fibronectin_channel(
-        ij, IJ, Duplicator, file_path, filename, fibronectin_channel
-    )
-    if imp_fibronectin is None:
-        return None
-    projected_imp = reslice_and_project(IJ, imp_fibronectin, filename)
-    if projected_imp is None:
-        return None
-    create_thickness_mask(IJ, projected_imp)
+    imp_fibronectin = projected_imp = local_thickness_imp = None
+    try:
+        imp_fibronectin = open_fibronectin_channel(
+            ij, IJ, Duplicator, file_path, filename, fibronectin_channel
+        )
+        if imp_fibronectin is None:
+            return None
+        projected_imp = reslice_and_project(IJ, imp_fibronectin, filename)
+        if projected_imp is None:
+            return None
+        create_thickness_mask(IJ, projected_imp)
 
-    # Save mask image
-    mask_image_path = os.path.join(results_folder, f"Mask_{filename}.tif")
-    IJ.saveAs(projected_imp, "Tiff", mask_image_path)
-    _LOGGER.info(f"Mask saved to '{mask_image_path}'.")
+        # Save mask image
+        mask_image_path = os.path.join(results_folder, f"Mask_{filename}.tif")
+        IJ.saveAs(projected_imp, "Tiff", mask_image_path)
+        _LOGGER.info(f"Mask saved to '{mask_image_path}'.")
 
-    local_thickness_imp = calculate_local_thickness(
-        IJ, projected_imp, filename
-    )
-    if local_thickness_imp is None:
-        return None
-    measurements = measure_thickness(ResultsTable, local_thickness_imp)
+        local_thickness_imp = calculate_local_thickness(
+            IJ, projected_imp, filename
+        )
+        if local_thickness_imp is None:
+            return None
+        measurements = measure_thickness(ResultsTable, local_thickness_imp)
 
-    # Save thickness image
-    thickness_path = os.path.join(
-        results_folder, f"Local_Thickness_{filename}.tif"
-    )
-    IJ.saveAs(local_thickness_imp, "Tiff", thickness_path)
-    _LOGGER.info(f"Local Thickness image saved to '{thickness_path}'.")
+        # Save thickness image
+        thickness_path = os.path.join(
+            results_folder, f"Local_Thickness_{filename}.tif"
+        )
+        IJ.saveAs(local_thickness_imp, "Tiff", thickness_path)
+        _LOGGER.info(f"Local Thickness image saved to '{thickness_path}'.")
 
-    projected_imp.close()
-    local_thickness_imp.close()
-    IJ.run("Close All")
-    print("  Closed all images.\n")
+        projected_imp.close()
+        local_thickness_imp.close()
+        IJ.run("Close All")
+        phase("Closed all images.\n")
 
-    return {"File_Name": filename, **measurements}
+        return {"File_Name": filename, **measurements}
+    finally:
+        for image in (local_thickness_imp, projected_imp, imp_fibronectin):
+            if image is not None:
+                image.close()
+        IJ.run("Close All")
 
 
+@folder_logged("folder")
 def process_single_folder(
     ij,
     IJ,
@@ -435,20 +358,7 @@ def process_single_folder(
         .tiff).
         fibronectin_channel (int): The fibronectin channel index.
     """
-    image_files = [
-        f
-        for f in os.listdir(folder)
-        if f.lower().endswith(file_extension)
-        and not f.startswith(".")
-        and os.path.isfile(os.path.join(folder, f))
-    ]
-
-    if len(image_files) == 0:
-        print(
-            f"No '{file_extension}' files found in folder '{folder}'. "
-            "Skipping."
-        )
-        return
+    image_files = image_names(folder, (file_extension,))
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     _, output = unique_output(
@@ -459,13 +369,18 @@ def process_single_folder(
     )
     results_folder = str(output)
 
-    with scoped_file_log(_LOGGER, output):
-        try:
-            _LOGGER.info(f"\nProcessing folder: {folder}")
-            _LOGGER.info(f"Results will be saved in: {results_folder}")
-
-            summary_data = []
-            for filename in image_files:
+    run = ImageRun(
+        output,
+        folder,
+        image_files,
+        {"channel_index": fibronectin_channel, "extension": file_extension},
+    )
+    with scoped_file_log(_LOGGER, output), run:
+        summary_data = []
+        summary_path = output / "Thickness_Summary.csv"
+        _LOGGER.info("Results: %s", output)
+        for filename in image_files:
+            with run.attempt(filename, "Thickness", final=True):
                 result = process_single_file(
                     ij,
                     IJ,
@@ -477,26 +392,23 @@ def process_single_folder(
                     fibronectin_channel,
                     results_folder,
                 )
-                if result is not None:
-                    summary_data.append(result)
-
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                summary_file_path = os.path.join(
-                    results_folder, "Thickness_Summary.csv"
-                )
-                summary_df.to_csv(summary_file_path, index=False)
-                _LOGGER.info(
-                    f"Folder analysis complete. "
-                    f"Data saved to '{summary_file_path}'."
-                )
-            else:
-                _LOGGER.warning(
-                    f"No data to save in summary for folder '{folder}'."
-                )
-        except BaseException:
-            _LOGGER.exception("Thickness folder analysis failed.")
-            raise
+                if result is None:
+                    raise ValueError(
+                        "Image processing returned no result; see log.log "
+                        "for the failed operation"
+                    )
+                if not all(
+                    math.isfinite(float(result[key]))
+                    for key in ("Area", "StdDev", "Min", "Max", "Median")
+                ):
+                    raise ValueError("Invalid thickness measurements")
+                # Commit a row only after its summary has been saved.
+                candidate = summary_data + [result]
+                pending = summary_path.with_suffix(".pending.csv")
+                pd.DataFrame(candidate).to_csv(pending, index=False)
+                pending.replace(summary_path)
+                summary_data = candidate
+        return run.finish(summary_path)
 
 
 def process_all_folders(
@@ -521,19 +433,27 @@ def process_all_folders(
         .tiff).
         fibronectin_channel (int): The fibronectin channel index.
     """
+    failed = 0
     for folder in folder_paths:
-        # Run analysis
-        process_single_folder(
-            ij,
-            IJ,
-            WindowManager,
-            Duplicator,
-            ResultsTable,
-            folder,
-            file_extension,
-            fibronectin_channel,
-        )
-    print("\nAll folders have been processed.")
+        try:
+            state = process_single_folder(
+                ij,
+                IJ,
+                WindowManager,
+                Duplicator,
+                ResultsTable,
+                folder,
+                file_extension,
+                fibronectin_channel,
+            )
+            failed += state != "SUCCESS"
+        except CANCELLATIONS:
+            raise
+        except Exception as error:
+            _LOGGER.exception("Folder failed: %s", folder)
+            outcome("FAILED", f"{folder}: {error}")
+            failed += 1
+    return failed
 
 
 def main(input_json_path: str) -> None:
@@ -549,43 +469,47 @@ def main(input_json_path: str) -> None:
     Args:
         input_json_path: path to a json file
     """
-    # Setting up logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
-    _LOGGER.info("Thickness implementation: %s", Path(__file__).resolve())
-
     folder_paths = get_folder_paths(input_json_path)
-    ij = initialize_imagej()
+    register_sources(folder_paths, input_json_path)
+    file_extension = get_file_type_choice()
+    fibronectin_channel = get_fibronectin_channel()
+    confirm_start()
+    ij = None
+    failed = 0
     try:
-        (IJ, ImagePlus, WindowManager, ResultsTable, Duplicator, System) = (
-            import_java_classes()
-        )
-        file_extension = get_file_type_choice()
-        fibronectin_channel = get_fibronectin_channel()
-
-        start_analysis = (
-            input("\nDo you want to start processing? (y/n): ").strip().lower()
-        )
-        if start_analysis in ("no", "n"):
-            raise ValueError("Analysis canceled by user.")
-        elif start_analysis not in ("yes", "y", "no", "n"):
-            raise ValueError("Incorrect input. Please enter y/n or yes/no")
-
-        process_all_folders(
-            ij,
-            IJ,
-            WindowManager,
-            Duplicator,
-            ResultsTable,
-            folder_paths,
-            file_extension,
-            fibronectin_channel,
-        )
-    except Exception:
-        _LOGGER.exception("Thickness analysis failed.")
-        raise
+        for folder in folder_paths:
+            try:
+                with folder_scope(folder):
+                    classes = (None,) * 6
+                    if image_names(folder, (file_extension,)):
+                        if ij is None:
+                            phase("Starting Fiji")
+                            ij = initialize_imagej()
+                        classes = import_java_classes()
+                    IJ, _, WindowManager, ResultsTable, Duplicator, _ = classes
+                    state = process_single_folder(
+                        ij,
+                        IJ,
+                        WindowManager,
+                        Duplicator,
+                        ResultsTable,
+                        folder,
+                        file_extension,
+                        fibronectin_channel,
+                    )
+                    failed += state != "SUCCESS"
+            except CANCELLATIONS:
+                raise
+            except Exception as error:
+                folder_error(folder, error)
+                failed += 1
     finally:
-        print("Disposing of ImageJ context...")
-        ij.dispose()
-    print("Thickness analysis is successfully completed.")
+        if ij is not None:
+            phase("Closing ImageJ context")
+            ij.dispose()
+    outcome(
+        "FINISHED",
+        f"Thickness: {len(folder_paths) - failed} complete; "
+        f"{failed} incomplete or failed folder(s).",
+    )
+    return int(bool(failed))

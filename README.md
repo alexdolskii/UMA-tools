@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.9**; this is separate from the V2
+The current Python package version is **0.2.10**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -216,6 +216,58 @@ All five commands support `--help` and `--version`. Run stages individually;
 a command does not run earlier stages automatically. Module responsibilities
 are documented in [`code/README.md`](code/README.md).
 
+## Progress, logs, and partial results
+
+Each command keeps a current log inside every original-image folder:
+
+| Step | Current log in `UMA_Logs/` |
+|---|---|
+| Alignment | `1_alignment.log` |
+| Thickness | `2_thickness.log` |
+| Area | `3_area.log` |
+| Collection | `4_collect_results.log` |
+| Report | `5_report.log` |
+
+A new invocation moves that step's previous log into `UMA_Logs/archive/`
+with a timestamp. Other steps' logs stay in place. Detailed result-folder
+logs are retained too. The terminal shows current activity and elapsed time,
+with warnings and final counts; redirected output contains no animated control
+codes. Full error traces belong in the logs. Prompts retry invalid answers;
+`q`, EOF or Ctrl-C cancels with exit code 130. Help and version do not start
+Fiji or create logs.
+
+An image failure does not stop other images or source folders. Successful rows
+remain available, while `run_status.json` records `PARTIAL`, every selected
+filename, its outcome, and the failed stage/reason. `image_errors.csv` lists
+failures. `SUCCESS` requires all selected images to finish; `FAILED` means
+none succeeded, and `NO_INPUT` means no matching visible images were found.
+Incomplete/error runs return a nonzero exit code, including partial runs.
+A missing or unwritable source is reported and other folders continue. If no
+source folder is available, startup diagnostics may use the working directory.
+
+**Collection selects the newest valid result for each assay, including an
+audited `PARTIAL` run.** Its parameters take precedence over an older complete
+run. Corrupt, cancelled, unfinished or invalid results are skipped with a
+reason. Legacy complete summaries remain supported; older partial outputs
+without the new image audit cannot justify exclusions.
+
+A registered failed image is excluded from **every collected CSV copy** so
+that retained images match across analyses. Original analysis files are
+preserved. Missing rows without a registered failure still fail validation;
+the collector does not search for older runs just to obtain matching images.
+An empty retained set fails collection. `processing_exclusions.csv`,
+`image_check.csv` and `selection_report.csv` record the decisions and counts.
+With no exclusions, collected summary bytes are unchanged.
+
+Reporting still requires all three summaries and one plate template in the
+latest successful collection. It uses the matched retained images, then
+applies the requested FN filter. Processing failures are distinct from
+low-FN exclusions: they appear in a separate **Processing Exclusions** Excel
+sheet, a CSV and the report log. A collection missing an assay can be saved,
+but cannot generate the three-assay report.
+
+This change does not introduce process supervision or temporary-file cleanup.
+
 ## Results and checks
 
 Each run creates a separate timestamped directory with logs and diagnostics.
@@ -308,8 +360,8 @@ uma_report --version
 ```
 
 An environment already set up for 0.2.5–0.2.8 needs no dependency changes for
-0.2.9: SciPy and openpyxl are already included. The version command should
-report `uma_report 0.2.9 (report 4.1.0)`.
+0.2.10: no additional runtime dependencies are required. The version command
+should report `uma_report 0.2.10`.
 For older environments, first update with
 `conda env update -n uma_tools_new -f environment_uma.yaml`.
 Recreating the environment is unnecessary. Editable installation (`-e`) makes
@@ -350,3 +402,4 @@ Related project: [FIA-tools](https://github.com/alexdolskii/FIA-tools).
 - [Aleksandr Dolskii](mailto:aleksandr.dolskii@fccc.edu)
 - [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com)
 - Michael Miano
+

@@ -5,6 +5,7 @@ Usage: uma_collect_results -i input_paths.json
 
 Selection is independent for each assay. Image-set mismatches never
 trigger a search for older matching runs. CSV bytes are preserved.
+Filtered copies exclude only registered failures.
 Only the Python standard library is used; ImageJ is not started.
 """
 
@@ -34,6 +35,8 @@ from .contracts import (
     THICKNESS_METRICS,
 )
 from .files import safe_label, save_csv, save_json, sha256_file
+from .image_run import SCHEMA
+from .progress import console, folder_logged, outcome, phase, register_sources
 from .run import close_logger, make_logger, unique_output, utc_now
 
 SELECTION_COLUMNS = [
@@ -60,7 +63,9 @@ CHECK_COLUMNS = [
 
 
 class CollectStatus(enum.Enum):
-    """Outcome of collect_folder, matching its run_status.json values."""
+    """
+    Outcome of collect_folder, matching its run_status.json values.
+    """
 
     SUCCESS = "SUCCESS"
     SUCCESS_WITH_MISSING_ANALYSES = "SUCCESS_WITH_MISSING_ANALYSES"
@@ -127,6 +132,23 @@ class Table:
     status_data: bytes | None
 
     @property
+    def image_records(self):
+        status = json.loads(self.status_data) if self.status_data else {}
+        return (
+            status.get("images", [])
+            if (status.get("image_status_schema") == SCHEMA)
+            else []
+        )
+
+    @property
+    def failures(self):
+        return {
+            row["File_Name"]: row
+            for row in self.image_records
+            if row["Status"] == "FAILED"
+        }
+
+    @property
     def digest(self):
         return hashlib.sha256(self.data).hexdigest()
 
@@ -174,14 +196,17 @@ def read_summary(assay, run, timestamp):
     if status_path.exists():
         status_data = status_path.read_bytes()
         status = json.loads(status_data.decode("utf-8-sig"))
-        if not isinstance(status, dict) or status.get("status") != "SUCCESS":
+        if not isinstance(status, dict) or status.get("status") not in (
+            "SUCCESS",
+            "PARTIAL",
+        ):
             state = (
                 status.get("status")
                 if isinstance(status, dict)
                 else "invalid JSON object"
             )
             raise ValidationError(
-                f"Run completion status is {state!r}, not SUCCESS"
+                f"Run completion status is {state!r}, not SUCCESS or PARTIAL"
             )
     data = path.read_bytes()
     reader = csv.DictReader(
@@ -250,7 +275,8 @@ def read_summary(assay, run, timestamp):
         rows.append(row)
     if not rows:
         raise ValidationError("CSV contains no image rows")
-    if assay.name == "Area":
+    audited = validate_image_audit(assay, status, rows, data)
+    if assay.name == "Area" and not audited:
         for field in ("input_images", "processed_images", "generated_masks"):
             if field in status and status[field] != len(rows):
                 raise ValidationError(
@@ -258,6 +284,69 @@ def read_summary(assay, run, timestamp):
                     f"run status {field}={status[field]!r}"
                 )
     return Table(assay, run, path, timestamp, data, rows, status_data)
+
+
+def validate_image_audit(assay, status, rows, data):
+    """
+    A partial CSV is usable only with complete, consistent evidence.
+    """
+    if status.get("image_status_schema") != SCHEMA:
+        if status.get("status") == "PARTIAL":
+            raise ValidationError("PARTIAL run has no supported image audit")
+        return False
+    records = status.get("images")
+    if not isinstance(records, list) or not records:
+        raise ValidationError("Image audit is empty or invalid")
+    names, successful, failed = set(), set(), set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValidationError("Invalid image audit record")
+        name = record.get("File_Name", "")
+        if not isinstance(name, str):
+            raise ValidationError("Invalid image audit filename")
+        kind, _ = image_key(assay, name)
+        if kind != "filename" or name in names:
+            raise ValidationError("Duplicate or non-original audit filename")
+        names.add(name)
+        state = record.get("Status")
+        if state == "SUCCESS":
+            successful.add(image_key(assay, name))
+        elif state == "FAILED" and record.get("Error") and record.get("Stage"):
+            failed.add(name)
+        else:
+            raise ValidationError(
+                "Image audit has unfinished/invalid outcomes"
+            )
+    if assay.name == "Alignment":
+        expected = {("stem", Path(name).stem) for _, name in successful}
+    else:
+        expected = successful
+    actual = set()
+    for row in rows:
+        kind, name = image_key(assay, row["File_Name"])
+        if assay.name == "Alignment" and kind == "filename":
+            kind, name = "stem", Path(name).stem
+        actual.add((kind, name))
+    if actual != expected or len(expected) != len(rows):
+        raise ValidationError("Summary rows disagree with successful images")
+    for field, count in (
+        ("input_images", len(records)),
+        ("processed_images", len(rows)),
+        ("failed_images", len(failed)),
+        ("unprocessed_images", 0),
+    ):
+        if type(status.get(field)) is not int or status[field] != count:
+            raise ValidationError(f"Image audit disagrees with {field}")
+    if assay.name == "Area" and status.get(
+        "generated_masks", len(rows)
+    ) != len(rows):
+        raise ValidationError("Area mask count disagrees with summary rows")
+    expected_state = "PARTIAL" if failed else "SUCCESS"
+    if status.get("status") != expected_state:
+        raise ValidationError("Run status disagrees with image outcomes")
+    if status.get("summary_sha256") != hashlib.sha256(data).hexdigest():
+        raise ValidationError("Summary fingerprint disagrees with image audit")
+    return True
 
 
 def select_latest(source, assay, records, logger):
@@ -321,7 +410,7 @@ def select_latest(source, assay, records, logger):
             table, record = valid[0]
             record.update(
                 Status="SELECTED",
-                Reason="Latest valid result for this analysis",
+                Reason="Latest valid result, including audited PARTIAL runs",
             )
             logger.info(
                 "Selected %s: %s (%d images)",
@@ -351,6 +440,7 @@ def compare_images(source, tables):
         and path.suffix.lower() in IMAGE_EXTENSIONS
     }
     for table in tables.values():
+        originals.update(row["File_Name"] for row in table.image_records)
         for row in table.rows:
             kind, name = image_key(table.assay, row["File_Name"])
             if kind == "filename":
@@ -392,7 +482,10 @@ def compare_images(source, tables):
                 errors.append(f"{analysis}: duplicate resolved image {name!r}")
             mapping[name] = source_name
     all_images = sorted(
-        set().union(*(set(mapping) for mapping in maps.values()))
+        set().union(
+            *(set(mapping) for mapping in maps.values()),
+            *(set(table.failures) for table in tables.values()),
+        )
     )
     report = []
     for name in all_images:
@@ -401,13 +494,29 @@ def compare_images(source, tables):
             for analysis, mapping in maps.items()
             if name not in mapping
         ]
+        failures = {
+            analysis: table.failures[name]
+            for analysis, table in tables.items()
+            if name in table.failures
+        }
+        unexplained = [
+            analysis for analysis in absent if analysis not in (failures)
+        ]
         check = (
             "MISMATCH"
-            if absent
-            else ("MATCH" if len(tables) > 1 else "NOT_COMPARABLE")
+            if unexplained
+            else "EXCLUDED"
+            if failures
+            else "MATCH"
+            if len(tables) > 1
+            else "NOT_COMPARABLE"
         )
-        detail = "Missing from selected " + ", ".join(absent) if absent else ""
-        if absent:
+        detail = "; ".join(
+            f"{analysis}: {record['Stage']}: {record['Error']}"
+            for analysis, record in failures.items()
+        )
+        if unexplained:
+            detail += "; Unexplained missing row in " + ", ".join(unexplained)
             errors.append(f"{name}: {detail}")
         record = {"Image_File_Name": name, "Check": check, "Details": detail}
         for assay in ASSAYS:
@@ -430,21 +539,48 @@ def remove_copies(output, label):
         target.with_name(target.name + ".partial").unlink(missing_ok=True)
 
 
-def publish_copies(output, label, tables):
+def publish_copies(output, label, tables, image_report=None):
     """Publish validated snapshots while their sources remain stable."""
     copies = []
     try:
         for table in tables.values():
             target = output / f"{label}_{table.path.name}"
             temporary = target.with_name(target.name + ".partial")
-            temporary.write_bytes(table.data)
-            if sha256_file(temporary) != table.digest:
+            data = table.data
+            if image_report is not None:
+                excluded_names = {
+                    row.get(table.assay.name + "_File_Name")
+                    for row in image_report
+                    if row["Check"] == "EXCLUDED"
+                }
+                retained = [
+                    row
+                    for row in table.rows
+                    if row["File_Name"] not in excluded_names
+                ]
+                if len(retained) != len(table.rows):
+                    buffer = io.StringIO(newline="")
+                    writer = csv.DictWriter(
+                        buffer, fieldnames=list(table.rows[0])
+                    )
+                    writer.writeheader()
+                    writer.writerows(retained)
+                    encoding = (
+                        "utf-8-sig"
+                        if data.startswith(b"\xef\xbb\xbf")
+                        else "utf-8"
+                    )
+                    data = buffer.getvalue().encode(encoding)
+            digest = hashlib.sha256(data).hexdigest()
+            temporary.write_bytes(data)
+            if sha256_file(temporary) != digest:
                 raise OSError(f"Copy verification failed: {temporary}")
             copies.append(
                 {
                     "analysis": table.assay.name,
                     "path": str(target),
-                    "sha256": table.digest,
+                    "sha256": digest,
+                    "source_sha256": table.digest,
                 }
             )
         for table in tables.values():
@@ -468,6 +604,7 @@ def publish_copies(output, label, tables):
         raise
 
 
+@folder_logged("source")
 def collect_folder(source, input_json):
     label = safe_label(source.name)
     # Do not create missing or unwritable input folders.
@@ -486,7 +623,8 @@ def collect_folder(source, input_json):
         "output_label": label,
         "run_directory": str(output),
         "selection_rule": (
-            "Latest valid result per assay, independently; run-name timestamp"
+            "Latest valid SUCCESS or audited PARTIAL per assay; "
+            "run-name timestamp"
         ),
         "copied_csvs": [],
         "errors": [],
@@ -500,7 +638,8 @@ def collect_folder(source, input_json):
             source,
         )
         logger.info("Output: %s", output)
-        for assay in ASSAYS:
+        for index, assay in enumerate(ASSAYS, 1):
+            phase(f"Selecting {assay.name} ({index}/{len(ASSAYS)})")
             try:
                 table = select_latest(source, assay, records, logger)
                 if table is not None:
@@ -536,6 +675,41 @@ def collect_folder(source, input_json):
         report, errors = compare_images(source, tables)
         errors = selection_errors + errors
         save_csv(output / "image_check.csv", CHECK_COLUMNS, report)
+        exclusions = [row for row in report if row["Check"] == "EXCLUDED"]
+        retained = [
+            row
+            for row in report
+            if row["Check"] in ("MATCH", "NOT_COMPARABLE")
+        ]
+        exclusion_rows = [
+            {
+                "Image_File_Name": row["Image_File_Name"],
+                "Reason": row["Details"],
+            }
+            for row in exclusions
+        ]
+        save_csv(
+            output / "processing_exclusions.csv",
+            ["Image_File_Name", "Reason"],
+            exclusion_rows,
+        )
+        status.update(
+            excluded_images=len(exclusions),
+            retained_images=len(retained),
+            processing_exclusions=exclusion_rows,
+            exclusions_sha256=sha256_file(
+                output / "processing_exclusions.csv"
+            ),
+        )
+        if exclusions:
+            logger.warning(
+                "Excluded %d registered failed image(s) from every copy; "
+                "%d matched images retained. See processing_exclusions.csv.",
+                len(exclusions),
+                len(retained),
+            )
+        if tables and not retained:
+            errors.append("No matched successful images remain")
         if not tables:
             errors.append("No valid analysis summaries were found")
         if errors:
@@ -562,16 +736,21 @@ def collect_folder(source, input_json):
                     "Image sets match across all %d selected analyses "
                     "(%d images).",
                     len(tables),
-                    len(report),
+                    len(retained),
                 )
-            status["copied_csvs"] = publish_copies(output, label, tables)
+            phase("Publishing verified summary copies")
+            status["copied_csvs"] = publish_copies(
+                output, label, tables, image_report=report
+            )
             status["status"] = (
                 "SUCCESS_WITH_MISSING_ANALYSES" if missing else "SUCCESS"
             )
-            logger.info(
-                "Collected %d unchanged summary CSV(s). Output: %s",
-                len(tables),
-                output,
+            outcome(
+                status["status"],
+                f"{source}: {len(tables)} analyses; "
+                f"{len(retained)} images retained; "
+                f"{len(exclusions)} excluded. "
+                f"Output: {output}",
             )
         status["ended_utc"] = utc_now()
         save_json(output / "run_status.json", status)
@@ -586,10 +765,13 @@ def collect_folder(source, input_json):
             errors=[str(error) or "Interrupted"],
             copied_csvs=[],
         )
-        logger.exception("Collection failed; no summary CSVs were collected.")
-        (output / "traceback.txt").write_text(
-            traceback.format_exc(), encoding="utf-8"
-        )
+        if isinstance(error, KeyboardInterrupt):
+            logger.warning("Collection cancelled; no summary CSVs collected.")
+        else:
+            logger.exception("Collection failed; no summary CSVs collected.")
+            (output / "traceback.txt").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
         save_csv(output / "selection_report.csv", SELECTION_COLUMNS, records)
         save_json(output / "run_status.json", status)
         if isinstance(error, KeyboardInterrupt):
@@ -629,7 +811,7 @@ def diagnostic_failure(source, input_json, error):
         finally:
             close_logger(logger)
     except OSError as diagnostic_error:
-        print(
+        console(
             f"ERROR: {error}. Could not save diagnostics: {diagnostic_error}",
             file=sys.stderr,
         )
@@ -660,6 +842,7 @@ def main(argv=None):
     except (OSError, ValueError) as error:
         diagnostic_failure(None, input_json, error)
         return 1
+    register_sources(folders, input_json)
     seen, failed, succeeded = set(), 0, 0
     for source in folders:
         try:
@@ -669,20 +852,20 @@ def main(argv=None):
             failed += 1
             continue
         if canonical in seen:
-            print(f"Skipping duplicate JSON folder: {source}", flush=True)
+            console(f"Skipping duplicate JSON folder: {source}", flush=True)
             continue
         seen.add(canonical)
         try:
             result = collect_folder(source, input_json)
         except KeyboardInterrupt:
-            print("Collection interrupted.", file=sys.stderr)
+            console("Collection interrupted.", file=sys.stderr)
             return 130
         except Exception as error:
             diagnostic_failure(source, input_json, error)
             result = CollectStatus.ERROR
         succeeded += int(result.succeeded)
         failed += int(not result.succeeded)
-    print(
+    console(
         f"Collection finished: {succeeded} folder(s) succeeded; "
         f"{failed} failed.",
         flush=True,

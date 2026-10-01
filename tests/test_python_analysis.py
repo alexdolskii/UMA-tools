@@ -34,7 +34,9 @@ class PythonAnalysisTests(unittest.TestCase):
                     self.assertEqual(
                         module.get_folder_paths(str(manifest)), [str(images)]
                     )
-                self.assertIn("Number of files: 1", output.getvalue())
+                self.assertEqual(
+                    module.image_names(images, (".tif",)), ["sample.tif"]
+                )
                 with self.assertRaises(ValueError):
                     module.get_folder_paths(str(root / "._input.json"))
 
@@ -55,6 +57,7 @@ class PythonAnalysisTests(unittest.TestCase):
                 alignment, "get_folder_paths", return_value=["images"]
             ),
             patch.object(alignment, "initialize_imagej", return_value=gateway),
+            patch.object(alignment, "image_names", return_value=["image.tif"]),
             patch("builtins.input", side_effect=["1", "y"]),
             patch.object(
                 alignment,
@@ -62,8 +65,9 @@ class PythonAnalysisTests(unittest.TestCase):
                 side_effect=RuntimeError("test failure"),
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "test failure"):
-                alignment.main_fibronectin_processing("input.json")
+            self.assertEqual(
+                alignment.main_fibronectin_processing("input.json"), 1
+            )
         gateway.dispose.assert_called_once_with()
 
     def test_thickness_disposes_imagej_after_error(self):
@@ -74,17 +78,19 @@ class PythonAnalysisTests(unittest.TestCase):
             ),
             patch.object(thickness, "initialize_imagej", return_value=gateway),
             patch.object(
+                thickness, "image_names", return_value=["image.tiff"]
+            ),
+            patch.object(
                 thickness, "import_java_classes", return_value=(Mock(),) * 6
             ),
             patch("builtins.input", side_effect=["2", "1", "y"]),
             patch.object(
                 thickness,
-                "process_all_folders",
+                "process_single_folder",
                 side_effect=RuntimeError("test failure"),
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "test failure"):
-                thickness.main("input.json")
+            self.assertEqual(thickness.main("input.json"), 1)
         gateway.dispose.assert_called_once_with()
 
     def test_orientation_and_summary_on_projection(self):

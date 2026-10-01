@@ -166,6 +166,8 @@ class EntryPointTests(unittest.TestCase):
             "config",
             "files",
             "run",
+            "progress",
+            "image_run",
             "contracts",
             "imagej",
             "area_imagej",
@@ -326,9 +328,10 @@ class ScopedAssayTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()),
                 patch.object(alignment.sj, "jimport", return_value=ij),
             ):
-                alignment.process_part1(
-                    str(root), str(output), 1, 64, 64, Mock()
-                )
+                with self.assertRaisesRegex(ValueError, "Could not open"):
+                    alignment.process_part1(
+                        str(root), str(output), 1, 64, 64, Mock()
+                    )
             ij.openImage.assert_called_once_with(str(root / "sample.nd2"))
             with (
                 contextlib.redirect_stdout(io.StringIO()),
@@ -369,6 +372,9 @@ class ScopedAssayTests(unittest.TestCase):
                     (source / "sample.nd2").touch()
 
                     def save_alignment(results, analysis, angle, metadata):
+                        alignment.active_run().records["sample.nd2"][
+                            "Status"
+                        ] = "SUCCESS"
                         target = Path(analysis) / "Alignment_Summary.csv"
                         with target.open(
                             "w", newline="", encoding="utf-8"
@@ -505,6 +511,11 @@ class ScopedAssayTests(unittest.TestCase):
                     stack.enter_context(
                         contextlib.redirect_stdout(io.StringIO())
                     )
+                    stack.enter_context(
+                        patch.object(
+                            module.ImageRun, "finish", return_value="SUCCESS"
+                        )
+                    )
                     if module is alignment:
                         stack.enter_context(
                             patch.object(
@@ -543,7 +554,7 @@ class ScopedAssayTests(unittest.TestCase):
                                 1,
                             )
 
-                    if fails:
+                    if fails and module is alignment:
                         with self.assertRaisesRegex(
                             RuntimeError, "deliberate analysis failure"
                         ):
@@ -555,7 +566,7 @@ class ScopedAssayTests(unittest.TestCase):
                 self.assertEqual(logger.level, original_level)
                 self.assertTrue(seen_handlers)
                 self.assertTrue(all(h.stream is None for h in seen_handlers))
-                logs = list(source.glob("*assay_results_*/*.log"))
+                logs = list(source.glob("*assay_results_*/log.log"))
                 self.assertEqual(len(logs), 1)
                 self.assertIn(message, logs[0].read_text(encoding="utf-8"))
                 if not fails:

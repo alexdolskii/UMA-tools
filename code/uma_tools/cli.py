@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from . import package_version
+from .progress import CANCELLATIONS, CommandSession
 
 
 def _shutdown_imagej_workers() -> None:
@@ -19,8 +20,8 @@ def _shutdown_imagej_workers() -> None:
 def _run_imagej_command(callback: Callable[..., Any], *args: Any) -> int:
     """Finish workers without masking the original analysis error."""
     try:
-        callback(*args)
-        return 0
+        result = callback(*args)
+        return result if isinstance(result, int) else 0
     finally:
         analysis_failed = sys.exc_info()[0] is not None
         try:
@@ -31,6 +32,21 @@ def _run_imagej_command(callback: Callable[..., Any], *args: Any) -> int:
             logging.exception(
                 "Could not close ImageJ workers after analysis failed."
             )
+
+
+def _invoke(step, callback, *args):
+    """Keep diagnostics active until ImageJ workers have finished."""
+    try:
+        with CommandSession(step) as session:
+            result = callback(*args)
+            session.exit_code = result if isinstance(result, int) else 0
+            return session.exit_code
+    except CANCELLATIONS:
+        print("Cancelled by user.", file=sys.stderr)
+        return 130
+    except Exception as error:
+        print(f"ERROR: {error}. See UMA_Logs for details.", file=sys.stderr)
+        return 1
 
 
 def _image_parser(description: str) -> argparse.ArgumentParser:
@@ -63,8 +79,12 @@ def alignment(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     from .alignment_analysis import main_fibronectin_processing
 
-    return _run_imagej_command(
-        main_fibronectin_processing, args.input, args.angle_value
+    return _invoke(
+        "alignment",
+        _run_imagej_command,
+        main_fibronectin_processing,
+        args.input,
+        args.angle_value,
     )
 
 
@@ -75,25 +95,25 @@ def thickness(argv: Sequence[str] | None = None) -> int:
     print(f"UMA-tools {package_version()} — thickness analysis", flush=True)
     from .thickness_analysis import main
 
-    return _run_imagej_command(main, args.input)
+    return _invoke("thickness", _run_imagej_command, main, args.input)
 
 
 def area(argv: Sequence[str] | None = None) -> int:
     """Run area and record its runtime shutdown status."""
     from .area_analysis import main
 
-    return main() if argv is None else main(argv)
+    return _invoke("area", main, *(() if argv is None else (argv,)))
 
 
 def collect_results(argv: Sequence[str] | None = None) -> int:
     """Collect summaries without loading scientific runtimes."""
     from .collect_results import main
 
-    return main() if argv is None else main(argv)
+    return _invoke("collect_results", main, *(() if argv is None else (argv,)))
 
 
 def report(argv: Sequence[str] | None = None) -> int:
     """Create plots and an Excel report without starting Fiji."""
     from .report import main
 
-    return main() if argv is None else main(argv)
+    return _invoke("report", main, *(() if argv is None else (argv,)))

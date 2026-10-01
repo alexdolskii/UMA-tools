@@ -71,6 +71,30 @@ class HeadlessTests(unittest.TestCase):
                 handler.close()
         self.temp.cleanup()
 
+    def test_bioformats_logging_restores_settings_after_an_exception(self):
+        from scyjava import jimport
+
+        from uma_tools.imagej import bioformats_log
+        from uma_tools.progress import CommandSession, folder_scope
+
+        logger = jimport("org.slf4j.LoggerFactory").getLogger("loci.formats")
+        level, additive = logger.getLevel(), logger.isAdditive()
+        appenders = list(logger.iteratorForAppenders())
+        with CommandSession(
+            "alignment", [self.folder], self.manifest
+        ) as session:
+            with folder_scope(self.folder):
+                with self.assertRaisesRegex(ValueError, "expected failure"):
+                    with bioformats_log():
+                        logger.info("native-reader-message")
+                        raise ValueError("expected failure")
+            session.exit_code = 1
+        self.assertEqual(logger.getLevel(), level)
+        self.assertEqual(logger.isAdditive(), additive)
+        self.assertEqual(list(logger.iteratorForAppenders()), appenders)
+        log = (self.folder / "UMA_Logs/1_alignment.log").read_text()
+        self.assertIn("native-reader-message", log)
+
     def test_alignment_outputs_and_metadata_filter(self):
         import pandas as pd
 

@@ -262,14 +262,14 @@ class AreaCommandImageJTests(unittest.TestCase):
             bad_status = json.loads(
                 (bad_output / "run_status.json").read_text()
             )
-            self.assertEqual(bad_status["status"], "VALIDATION_FAILED")
+            self.assertEqual(bad_status["status"], "FAILED")
             self.assertEqual(bad_status["processed_images"], 0)
             self.assertEqual(bad_status["failed_images"], 1)
             self.assertFalse(
                 (bad_output / "Fibronectin_Area_Summary.csv").exists()
             )
-            self.assertTrue((bad_output / "errors.csv").is_file())
-            self.assertTrue((bad_output / "traceback.txt").is_file())
+            self.assertTrue((bad_output / "image_errors.csv").is_file())
+            self.assertTrue((bad_output / "image_tracebacks.log").is_file())
             self.assertEqual(
                 json.loads((good_output / "run_status.json").read_text())[
                     "status"

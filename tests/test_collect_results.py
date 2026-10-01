@@ -405,11 +405,11 @@ class CollectionTests(unittest.TestCase):
         paths = self.all_runs()
         original_publish = collector.publish_copies
 
-        def change_then_publish(output, label, tables):
+        def change_then_publish(output, label, tables, **kwargs):
             paths["Thickness"].write_bytes(
                 paths["Thickness"].read_bytes() + b"\n"
             )
-            return original_publish(output, label, tables)
+            return original_publish(output, label, tables, **kwargs)
 
         with patch.object(
             collector, "publish_copies", side_effect=change_then_publish

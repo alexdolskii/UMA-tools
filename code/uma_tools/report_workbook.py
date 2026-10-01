@@ -34,6 +34,8 @@ def workbook_sheet_names(data):
     names = list(SHEET_NAMES)
     if data.get("statistics") is not None:
         names.extend(STATISTICS_SHEETS)
+    if data.get("processing_exclusions"):
+        names.append("Processing Exclusions")
     return names
 
 
@@ -645,6 +647,13 @@ def build_workbook(
     _write_plate_map(workbook, data)
     _write_quality_sheets(workbook, data, events, run_id)
     _write_statistics_sheets(workbook, data)
+    if data.get("processing_exclusions"):
+        write_table(
+            workbook["Processing Exclusions"],
+            ["Image_File_Name", "Reason"],
+            data["processing_exclusions"],
+            widths=[70, 110],
+        )
     return workbook
 
 
@@ -758,6 +767,12 @@ def verify_workbook(
                 workbook[sheet_name], columns, records, STATISTICS_TABLE_START
             )
         _verify_plate_map(workbook, data)
+        if data.get("processing_exclusions"):
+            _verify_table(
+                workbook["Processing Exclusions"],
+                ["Image_File_Name", "Reason"],
+                data["processing_exclusions"],
+            )
         for row in data["rows"]:
             expected_low = row[FN_METRIC] < data["fn_threshold"]
             if row[FN_LOW_FLAG] != expected_low or row[FN_INCLUDED_FLAG] != (

@@ -10,6 +10,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+from .progress import phase
 from .report_schema import (
     BASE_COLORS,
     FN_LOW_FLAG,
@@ -644,7 +645,10 @@ def create_plots(
     x_positions = _point_positions(data, max_replicates)
     jobs = [(spec, False) for spec in specs] + [(spec, True) for spec in specs]
     plots = []
-    for (name, field, base_title, unit), filtered in jobs:
+    for index, ((name, field, base_title, unit), filtered) in enumerate(
+        jobs, 1
+    ):
+        phase(f"Plot {index}/{len(jobs)}: {name}, filtered={filtered}")
         plots.append(
             _render_plot(
                 data,

@@ -28,10 +28,9 @@ Startup failures use a new results folder in an available source folder,
 or in
 the working directory if no source folder is available. No logs are
 written to
-the installed package. An image error stops its folder and retains
-partial
-results; other source folders continue. Command errors return a nonzero
-status.
+the installed package. An image error is recorded; other images and
+folders continue. Successful measurements remain in audited PARTIAL
+results. Incomplete commands return a nonzero exit status.
 
 Original float intensities, native XY resolution, spatial calibration,
 SUM
@@ -69,9 +68,18 @@ from .config import load_json, resolve_path
 from .files import save_csv as _save_csv
 from .files import save_json as _save_json
 from .files import sha256_file
+from .image_run import ImageRun
 from .imagej import (
     FIJI_ENDPOINT,
     shutdown_imagej_workers,
+)
+from .progress import (
+    CANCELLATIONS,
+    ask_channel,
+    console,
+    folder_logged,
+    outcome,
+    register_sources,
 )
 from .run import RunLog as _RunLog
 from .run import unique_output
@@ -135,9 +143,14 @@ SUMMARY_COLUMNS = PROJECTION_COLUMNS + [
 
 
 class FolderStatus(enum.Enum):
-    """Outcome of process_folder, matching its run_status.json values."""
+    """
+    Outcome of process_folder, matching its run_status.json values.
+    """
 
     SUCCESS = "SUCCESS"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+    NO_INPUT = "NO_INPUT"
     VALIDATION_FAILED = "VALIDATION_FAILED"
     ERROR = "ERROR"
     CANCELLED = "CANCELLED"
@@ -238,10 +251,6 @@ def original_inventory(source_folder):
         and path.is_file()
         and path.suffix.lower() in ORIGINAL_EXTENSIONS
     )
-    if not files:
-        raise ValidationError(
-            f"No visible ND2/TIF/TIFF images found in: {source_folder}"
-        )
     return [
         {
             "File_Name": path.name,
@@ -286,9 +295,7 @@ def save_startup_error(error, folders, args):
                 ],
             )
             state = (
-                "CANCELLED"
-                if isinstance(error, KeyboardInterrupt)
-                else "ERROR"
+                "CANCELLED" if isinstance(error, CANCELLATIONS) else "ERROR"
             )
             save_json(
                 output / "run_status.json",
@@ -316,12 +323,12 @@ def save_startup_error(error, folders, args):
                     "imagej_endpoint": FIJI_ENDPOINT,
                 },
             )
-            print(
+            console(
                 f"Startup diagnostics: {output}", file=sys.stderr, flush=True
             )
             return output
         except OSError as log_error:
-            print(
+            console(
                 f"Could not write startup diagnostics in {output}: "
                 f"{log_error}",
                 file=sys.stderr,
@@ -330,7 +337,7 @@ def save_startup_error(error, folders, args):
         finally:
             if log is not None:
                 log.close()
-    print(
+    console(
         "Could not create a writable results directory "
         "for startup diagnostics.",
         file=sys.stderr,
@@ -367,6 +374,7 @@ def process_original_images(
     run_id: str,
     status: dict,
     log: RunLog,
+    run: ImageRun,
 ) -> tuple[list[dict], list[dict]]:
     """
     Project and measure each original, retaining incremental CSV
@@ -382,58 +390,69 @@ def process_original_images(
         save_json(output / "run_status.json", status)
         log.event("INFO", "Image", f"{index}/{len(selected)} {path.name}")
         original = projection = None
-        try:
-            original, reader_name = engine.open_original(path, channel)
-            projection, measured = engine.project(original, channel, method)
-            engine.release(original)
-            original = None
-            projection_path = (
-                projections / f"{path.name}_FN_{method.upper()}32.tif"
-            )
-            projection_hash = engine.save_projection(
-                projection, projection_path
-            )
-            row = {
-                "File_Name": path.name,
-                "Image_ID": entry["Image_ID"],
-                **measured,
-                "Source_Original_Path": str(path),
-                "Source_Projection_Path": str(projection_path),
-                "Projection_SHA256": projection_hash,
-                "Source_Folder": str(source_folder),
-                "Source_Reader": reader_name,
-                "Source_SHA256": entry["SHA256"],
-                "Program_Version": package_version(),
-                "Run_ID": run_id,
-            }
-            projection_rows.append(row)
-            save_csv(projection_partial, PROJECTION_COLUMNS, projection_rows)
-            if limits is not None:
-                mask_path = masks / ("FN_Mask_" + projection_path.name)
-                area = engine.measure(projection, mask_path, limits)
-                summary_rows.append({**row, **area})
-                save_csv(summary_partial, SUMMARY_COLUMNS, summary_rows)
+        with run.attempt(current_file, "Projection and area", final=True):
+            try:
+                if not entry["SHA256"]:
+                    raise OSError(entry["Reason"])
+                original, reader_name = engine.open_original(path, channel)
+                projection, measured = engine.project(
+                    original, channel, method
+                )
+                engine.release(original)
+                original = None
+                projection_path = (
+                    projections / f"{path.name}_FN_{method.upper()}32.tif"
+                )
+                projection_hash = engine.save_projection(
+                    projection, projection_path
+                )
+                row = {
+                    "File_Name": path.name,
+                    "Image_ID": entry["Image_ID"],
+                    **measured,
+                    "Source_Original_Path": str(path),
+                    "Source_Projection_Path": str(projection_path),
+                    "Projection_SHA256": projection_hash,
+                    "Source_Folder": str(source_folder),
+                    "Source_Reader": reader_name,
+                    "Source_SHA256": entry["SHA256"],
+                    "Program_Version": package_version(),
+                    "Run_ID": run_id,
+                }
+                if limits is not None:
+                    mask_path = masks / ("FN_Mask_" + projection_path.name)
+                    area = engine.measure(projection, mask_path, limits)
+                    log.event(
+                        "PASS",
+                        "Area",
+                        f"{area['FN_Positive_Pixels']}/"
+                        f"{measured['Total_Pixels']} positive pixels "
+                        f"({area['FN_Area_Percent']:.6f}%).",
+                    )
                 log.event(
                     "PASS",
-                    "Area",
-                    f"{area['FN_Positive_Pixels']}/"
-                    f"{measured['Total_Pixels']} positive pixels "
-                    f"({area['FN_Area_Percent']:.6f}%).",
+                    "Projection",
+                    f"{method.upper()}32; "
+                    f"{measured['Number_of_Z_Stacks']} Z slices; "
+                    f"raw range {measured['Projection_Min']:.6g} "
+                    f"to {measured['Projection_Max']:.6g}; "
+                    "TIFF values verified.",
                 )
-            log.event(
-                "PASS",
-                "Projection",
-                f"{method.upper()}32; "
-                f"{measured['Number_of_Z_Stacks']} Z slices; "
-                f"raw range {measured['Projection_Min']:.6g} "
-                f"to {measured['Projection_Max']:.6g}; "
-                "TIFF values verified.",
-            )
-            status["processed_images"] = index
-            save_json(output / "run_status.json", status)
-        finally:
-            engine.release(projection)
-            engine.release(original)
+                candidates = projection_rows + [row]
+                save_csv(projection_partial, PROJECTION_COLUMNS, candidates)
+                if limits is not None:
+                    area_candidates = summary_rows + [{**row, **area}]
+                    save_csv(summary_partial, SUMMARY_COLUMNS, area_candidates)
+            finally:
+                engine.release(projection)
+                engine.release(original)
+            projection_rows = candidates
+            if limits is not None:
+                summary_rows = area_candidates
+    # Reconcile incremental files after a failed write or measurement.
+    save_csv(projection_partial, PROJECTION_COLUMNS, projection_rows)
+    if limits is not None:
+        save_csv(summary_partial, SUMMARY_COLUMNS, summary_rows)
     return projection_rows, summary_rows
 
 
@@ -453,7 +472,10 @@ def prepare_inventory(source_folder, output, log):
             "Fingerprint",
             f"{index}/{len(selected)} {entry['File_Name']}",
         )
-        entry["SHA256"] = sha256_file(Path(entry["Path"]))
+        try:
+            entry["SHA256"] = sha256_file(Path(entry["Path"]))
+        except OSError as error:
+            entry["Reason"] = f"UNREADABLE_INPUT: {error}"
     save_csv(output / "input_manifest.csv", MANIFEST_COLUMNS, selected)
     return selected
 
@@ -468,13 +490,16 @@ def verify_originals(source_folder, selected):
             "The original image inventory changed during processing."
         )
     for entry in selected:
-        if sha256_file(Path(entry["Path"])) != entry["SHA256"]:
+        if entry["SHA256"] and (
+            sha256_file(Path(entry["Path"])) != entry["SHA256"]
+        ):
             raise ValidationError(
                 "An original image changed during processing: "
                 + entry["File_Name"]
             )
 
 
+@folder_logged("source_folder")
 def process_folder(
     source_folder, channel, method, limits, engine_holder, input_json, outputs
 ):
@@ -552,9 +577,16 @@ def process_folder(
         )
         status["stage"] = "Original inventory"
         selected = prepare_inventory(source_folder, output, log)
-        status.update(
-            input_images=len(selected), stage="ImageJ initialization"
+        run = ImageRun(
+            output,
+            source_folder,
+            [row["File_Name"] for row in selected],
+            parameters.copy(),
+            status=status,
         )
+        if not selected:
+            return FolderStatus(run.finish())
+        status.update(stage="ImageJ initialization")
         save_json(output / "run_status.json", status)
         if engine_holder[0] is None:
             engine_holder[0] = ImageJEngine(log)
@@ -582,6 +614,7 @@ def process_folder(
             run_id,
             status,
             log,
+            run,
         )
         current_file = status.get("current_file", "")
         status["stage"] = "Final verification"
@@ -598,25 +631,23 @@ def process_folder(
                 "No automatic normalization was applied.",
             )
         verify_table(projection_partial, projection_rows, PROJECTION_COLUMNS)
-        if len(projection_rows) != len(selected):
-            raise RuntimeError(
-                "Not every input image received an original projection."
-            )
         if limits is not None:
             verify_table(summary_partial, summary_rows, SUMMARY_COLUMNS)
-            if len(summary_rows) != len(selected):
-                raise RuntimeError(
-                    "Area summary does not include every selected image."
-                )
+        if len(projection_rows) != status["processed_images"] or (
+            limits is not None
+            and len(summary_rows) != status["processed_images"]
+        ):
+            raise RuntimeError("Successful-image audit disagrees with rows")
         parameters.update(
             runtime_versions=engine.versions,
             z_slice_counts=z_counts,
-            included_images=len(selected),
+            included_images=len(projection_rows),
         )
         save_json(output / "run_parameters.json", parameters)
-        final_projection_manifest = output / "FN_Projection_Manifest.csv"
-        projection_partial.rename(final_projection_manifest)
-        if limits is not None:
+        if projection_rows:
+            final_projection_manifest = output / "FN_Projection_Manifest.csv"
+            projection_partial.rename(final_projection_manifest)
+        if limits is not None and summary_rows:
             final_summary = output / "Fibronectin_Area_Summary.csv"
             summary_partial.rename(final_summary)
         status.update(
@@ -627,23 +658,21 @@ def process_folder(
             generated_masks=len(summary_rows),
             projection_manifest=str(final_projection_manifest),
             summary=str(final_summary) if final_summary else None,
-            failed_images=0,
-            unprocessed_images=0,
         )
         status.pop("current_file", None)
-        save_json(output / "run_status.json", status)
+        state = run.finish(final_summary)
         log.event(
-            "SUCCESS",
+            state,
             "Run",
             f"{len(projection_rows)} original images projected; "
             f"{len(summary_rows)} area measurements. Output: {output}",
         )
-        return FolderStatus.SUCCESS
-    except (Exception, KeyboardInterrupt) as error:
+        return FolderStatus(state)
+    except (Exception, *CANCELLATIONS) as error:
         current_file = status.get("current_file", current_file)
         state = (
             "CANCELLED"
-            if isinstance(error, KeyboardInterrupt)
+            if isinstance(error, CANCELLATIONS)
             else "VALIDATION_FAILED"
             if isinstance(error, ValidationError)
             else "ERROR"
@@ -666,9 +695,10 @@ def process_folder(
                 }
             ],
         )
-        (output / "traceback.txt").write_text(
-            traceback.format_exc(), encoding="utf-8"
-        )
+        if not isinstance(error, CANCELLATIONS):
+            (output / "traceback.txt").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
         failed_images = int(
             bool(current_file) and status["stage"] == "Original projection"
         )
@@ -690,7 +720,7 @@ def process_folder(
             "Run",
             f"Partial results and diagnostics retained: {output}",
         )
-        if isinstance(error, KeyboardInterrupt):
+        if isinstance(error, CANCELLATIONS):
             raise
         return FolderStatus(state)
     finally:
@@ -789,7 +819,7 @@ def finish_imagej(holder, outputs):
                         status_path.read_text(encoding="utf-8")
                     )
                     status.update(shutdown_status="ERROR", ended_utc=utc_now())
-                    if status["status"] == "SUCCESS":
+                    if status["status"] in ("SUCCESS", "PARTIAL"):
                         status.update(status="ERROR", stage="ImageJ shutdown")
                     save_json(status_path, status)
             else:
@@ -805,7 +835,7 @@ def finish_imagej(holder, outputs):
             if log is not None:
                 log.close()
     if errors:
-        print(
+        console(
             "ImageJ shutdown failed:\n" + "\n".join(errors),
             file=sys.stderr,
             flush=True,
@@ -819,6 +849,7 @@ def main(argv=None):
     exit_code = 0
     try:
         folders, input_json = read_source_folders(args)
+        register_sources(folders, input_json)
         bounds = (
             args.threshold
             if args.threshold is not None
@@ -833,16 +864,7 @@ def main(argv=None):
         )
         channel = args.channel
         if channel is None:
-            try:
-                channel = int(
-                    input(
-                        "Enter fibronectin channel index (starting from 1): "
-                    ).strip()
-                )
-            except EOFError as error:
-                raise ValidationError(
-                    "Supply --channel when interactive input is unavailable."
-                ) from error
+            channel = ask_channel()
         if (
             isinstance(channel, bool)
             or not isinstance(channel, int)
@@ -852,7 +874,7 @@ def main(argv=None):
                 "The fibronectin channel must be an integer "
                 "greater than or equal to 1."
             )
-        print(
+        console(
             f"UMA-tools {package_version()}: "
             f"{args.projection.upper()}32; channel {channel}; "
             + (
@@ -878,7 +900,7 @@ def main(argv=None):
                 failed += int(result is not FolderStatus.SUCCESS)
             except (ValidationError, OSError) as error:
                 failed += 1
-                print(
+                console(
                     f"Cannot process {folder}: {error}",
                     file=sys.stderr,
                     flush=True,
@@ -886,21 +908,17 @@ def main(argv=None):
                 output = save_startup_error(error, [folder], args)
                 if output is not None:
                     outputs.append(output)
-        print(
+        console(
             f"Finished: {completed} successful folder(s), "
-            f"{failed} failed folder(s).",
+            f"{failed} incomplete or failed folder(s).",
             flush=True,
         )
         exit_code = 0 if failed == 0 else 1
-    except KeyboardInterrupt as error:
-        print("Processing cancelled.", file=sys.stderr, flush=True)
-        if not outputs:
-            output = save_startup_error(error, folders, args)
-            if output is not None:
-                outputs.append(output)
+    except CANCELLATIONS:
+        outcome("CANCELLED", "Processing cancelled by user")
         exit_code = 130
     except Exception as error:
-        print(f"Cannot start: {error}", file=sys.stderr, flush=True)
+        console(f"Cannot start: {error}", file=sys.stderr, flush=True)
         output = save_startup_error(error, folders, args)
         if output is not None:
             outputs.append(output)

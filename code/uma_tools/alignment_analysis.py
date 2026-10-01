@@ -8,9 +8,21 @@ from pathlib import Path
 
 import matplotlib
 
-from .config import load_json
+from .config import read_config
+from .image_run import ImageRun, active_run, image_attempt, image_names
 from .imagej import (
     initialize_imagej,
+)
+from .progress import (
+    CANCELLATIONS,
+    ask_channel,
+    confirm_start,
+    folder_error,
+    folder_logged,
+    folder_scope,
+    outcome,
+    phase,
+    register_sources,
 )
 from .run import scoped_file_log, unique_output
 
@@ -51,63 +63,8 @@ def correct_angle(x):
 
 
 def get_folder_paths(input_file_path):
-    """
-    Read an input JSON file containing folder paths.
-
-    Args:
-        input_file_path (str): Path to the input JSON file.
-
-    Returns:
-        List[str]: List of valid folder paths.
-
-    Raises:
-        FileNotFoundError: If the specified file does not exist.
-        ValueError: If the file does not contain folder paths or
-                    no valid folders exist.
-    """
-    if os.path.basename(input_file_path).startswith("._"):
-        raise ValueError(
-            f"macOS metadata files cannot be used as input: {input_file_path}"
-        )
-    if not os.path.isfile(input_file_path):
-        raise FileNotFoundError(f"File '{input_file_path}' does not exist.")
-
-    if input_file_path.lower().endswith(".json"):
-        data = load_json(
-            Path(input_file_path), encoding="utf-8", reject_metadata=False
-        )
-        folder_paths = data.get("folder_paths", [])
-    else:
-        raise ValueError("Input file must be in .json format.")
-
-    if not folder_paths:
-        raise ValueError("Input file does not contain folder paths.")
-
-    valid_folder_paths = []
-    for folder_path in folder_paths:
-        if os.path.isdir(folder_path):
-            files = [
-                f
-                for f in os.listdir(folder_path)
-                if not f.startswith(".")
-                and os.path.isfile(os.path.join(folder_path, f))
-            ]
-            num_files = len(files)
-            file_types = set([os.path.splitext(f)[1].lower() for f in files])
-            print(f"\nFolder: {folder_path}")
-            print(f"Number of files: {num_files}")
-            print(f"File types: {', '.join(file_types)}")
-            valid_folder_paths.append(folder_path)
-        else:
-            raise ValueError(f"Folder '{folder_path}' does not exist.")
-
-    if not valid_folder_paths:
-        raise ValueError("No available folders for processing.")
-
-    print(
-        f"\nFound {len(valid_folder_paths)} available folders for processing."
-    )
-    return valid_folder_paths
+    """Validate JSON; process missing folders as individual failures."""
+    return [str(path) for path in read_config(Path(input_file_path))]
 
 
 def create_results_folders(folder_path, angle_value_str, timestamp):
@@ -164,7 +121,7 @@ def process_part1(
         Dict[str, Dict]: Information about Z-stacks processed for each
         folder.
     """
-    print("\nPart 1: Processing images...")
+    phase("Part 1: Processing images")
     z_stacks_info_folder = {}
 
     # Import IJ and ZProjector
@@ -172,99 +129,98 @@ def process_part1(
     ZProjector = sj.jimport("ij.plugin.ZProjector")
     Duplicator = sj.jimport("ij.plugin.Duplicator")
 
-    for filename in os.listdir(folder_path):
-        if (
-            filename.startswith("._")
-            or filename.startswith(".")
-            or not filename.lower().endswith((".tif", ".tiff", ".nd2"))
-            or not os.path.isfile(os.path.join(folder_path, filename))
-        ):
-            _LOGGER.warning(f"Skipping hidden or invalid file: '{filename}'")
+    for filename in image_names(folder_path, (".tif", ".tiff", ".nd2")):
+        run = active_run()
+        if run is not None and not run.eligible(filename):
             continue
+        with image_attempt(filename, "Projection"):
+            file_path = os.path.join(folder_path, filename)
+            _LOGGER.info(f"\nProcessing file: {file_path}")
 
-        file_path = os.path.join(folder_path, filename)
-        _LOGGER.info(f"\nProcessing file: {file_path}")
+            imp = imp_fibro = fibro_proj = None
+            try:
+                # Close all windows before starting processing
+                IJ.run("Close All")
 
-        # Close all windows before starting processing
-        IJ.run("Close All")
+                # Open the image using Bio-Formats
+                imp = IJ.openImage(file_path)
+                if imp is None:
+                    raise ValueError(f"Could not open image: {file_path}")
 
-        # Open the image using Bio-Formats
-        imp = IJ.openImage(file_path)
-        if imp is None:
-            _LOGGER.warning(
-                f"Failed to open image '{file_path}'. "
-                f"Check Bio-Formats plugin."
-            )
-            continue
+                # Get image dimensions
+                width, height, channels, slices, frames = imp.getDimensions()
+                _LOGGER.info(
+                    f"Image dimensions for '{filename}': width={width}, "
+                    f"height={height}, channels={channels}, slices={slices}, "
+                    f"frames={frames}"
+                )
 
-        # Get image dimensions
-        width, height, channels, slices, frames = imp.getDimensions()
-        _LOGGER.info(
-            f"Image dimensions for '{filename}': width={width}, "
-            f"height={height}, channels={channels}, slices={slices}, "
-            f"frames={frames}"
-        )
+                # Check if the specified channel is available
+                if not 1 <= fibronectin_channel_index <= channels:
+                    imp.close()
+                    raise ValueError(
+                        f"Channel {fibronectin_channel_index} unavailable; "
+                        f"image has {channels} channels"
+                    )
 
-        # Check if the specified channel is available
-        if fibronectin_channel_index > channels:
-            _LOGGER.warning(
-                f"Specified channel exceeds "
-                f"available channels in '{filename}'. "
-                f"Skipping file."
-            )
-            imp.close()
-            continue
+                # Process the fibronectin channel
+                _LOGGER.info(
+                    f"Processing fibronectin "
+                    f"channel ({fibronectin_channel_index}) "
+                    f"in '{filename}'."
+                )
+                imp.setC(fibronectin_channel_index)
+                imp_fibro = Duplicator().run(
+                    imp,
+                    fibronectin_channel_index,
+                    fibronectin_channel_index,
+                    1,
+                    imp.getNSlices(),
+                    1,
+                    imp.getNFrames(),
+                )
+                imp_fibro.setTitle("imp_fibro")
 
-        # Process the fibronectin channel
-        _LOGGER.info(
-            f"Processing fibronectin "
-            f"channel ({fibronectin_channel_index}) "
-            f"in '{filename}'."
-        )
-        imp.setC(fibronectin_channel_index)
-        imp_fibro = Duplicator().run(
-            imp,
-            fibronectin_channel_index,
-            fibronectin_channel_index,
-            1,
-            imp.getNSlices(),
-            1,
-            imp.getNFrames(),
-        )
-        imp_fibro.setTitle("imp_fibro")
+                # Perform maximum intensity projection along Z
+                zp_fibro = ZProjector(imp_fibro)
+                zp_fibro.setMethod(ZProjector.MAX_METHOD)
+                zp_fibro.doProjection()
+                fibro_proj = zp_fibro.getProjection()
+                fibro_proj = fibro_proj.resize(
+                    desired_width, desired_height, "bilinear"
+                )
+                IJ.run(fibro_proj, "8-bit", "")  # Convert to grayscale
 
-        # Perform maximum intensity projection along Z
-        zp_fibro = ZProjector(imp_fibro)
-        zp_fibro.setMethod(ZProjector.MAX_METHOD)
-        zp_fibro.doProjection()
-        fibro_proj = zp_fibro.getProjection()
-        fibro_proj = fibro_proj.resize(
-            desired_width, desired_height, "bilinear"
-        )
-        IJ.run(fibro_proj, "8-bit", "")  # Convert to grayscale
+                output_filename = (
+                    os.path.splitext(filename)[0] + "_processed.tif"
+                )
+                output_path = os.path.join(results_folder, output_filename)
+                IJ.saveAs(fibro_proj, "Tiff", output_path)
+                _LOGGER.info(f"Processed image saved at '{output_path}'.")
+                fibro_proj.close()
+                imp_fibro.close()
 
-        output_filename = os.path.splitext(filename)[0] + "_processed.tif"
-        output_path = os.path.join(results_folder, output_filename)
-        IJ.saveAs(fibro_proj, "Tiff", output_path)
-        _LOGGER.info(f"Processed image saved at '{output_path}'.")
-        fibro_proj.close()
-        imp_fibro.close()
+                # Close original image
+                imp.close()
 
-        # Close original image
-        imp.close()
+                # Close all windows
+                IJ.run("Close All")
 
-        # Close all windows
-        IJ.run("Close All")
+            finally:
+                for image in (fibro_proj, imp_fibro, imp):
+                    if image is not None:
+                        image.close()
+                IJ.run("Close All")
 
-        # Save Z-stack information
-        processed_base_name = os.path.splitext(output_filename)[0]
-        z_stacks_info_folder[processed_base_name] = {
-            "original_filename": filename,
-            "number_of_z_stacks": slices,
-            "z_stack_type": "slices",
-        }
+            # Save Z-stack information
+            processed_base_name = os.path.splitext(output_filename)[0]
+            z_stacks_info_folder[processed_base_name] = {
+                "original_filename": filename,
+                "number_of_z_stacks": slices,
+                "z_stack_type": "slices",
+            }
 
-    print(f"\nPart 1 successfully completed for folder {folder_path}.")
+    phase("Part 1 finished")
     return z_stacks_info_folder
 
 
@@ -481,7 +437,9 @@ def save_orientation_result(
     _LOGGER.info(f"Normalized orientation image saved at '{normalized_path}'.")
 
 
-def process_part2_orientationpy(results_folder, images_folder):
+def process_part2_orientationpy(
+    results_folder, images_folder, z_stacks_info=None
+):
     """
     Part 2: Apply orientationpy to 2D projections of the fibronectin
     channel.
@@ -491,10 +449,7 @@ def process_part2_orientationpy(results_folder, images_folder):
         images_folder (str): Path to the folder where images will be
         saved.
     """
-    print(
-        "\nPart 2: Applying orientationpy to 2D projections "
-        "of the fibronectin channel..."
-    )
+    phase("Part 2: Orientation analysis")
 
     # Create subfolder for normalized images
     normalized_images_folder = os.path.join(images_folder, "normalized_images")
@@ -517,25 +472,37 @@ def process_part2_orientationpy(results_folder, images_folder):
         return
 
     for filename in processed_files:
-        file_path = os.path.join(results_folder, filename)
-        _LOGGER.info(f"\nProcessing file: {file_path}")
-
-        # Read the image into a NumPy array and convert to float
-        image_gray = io.imread(file_path).astype(float)
-        _LOGGER.info(
-            f"Image '{filename}' successfully read with dimensions "
-            f"{image_gray.shape}, max value: {image_gray.max()}."
+        name = (
+            (z_stacks_info or {})
+            .get(Path(filename).stem, {})
+            .get("original_filename", filename)
         )
+        run = active_run()
+        if run is not None and not run.eligible(name):
+            continue
+        with image_attempt(name, "Orientation"):
+            try:
+                file_path = os.path.join(results_folder, filename)
+                _LOGGER.info(f"\nProcessing file: {file_path}")
 
-        result = calculate_orientation(image_gray, filename)
-        save_orientation_result(
-            result,
-            image_gray,
-            filename,
-            results_folder,
-            images_folder,
-            normalized_images_folder,
-        )
+                # Read the image into a NumPy array and convert to float
+                image_gray = io.imread(file_path).astype(float)
+                _LOGGER.info(
+                    f"Image '{filename}' successfully read with dimensions "
+                    f"{image_gray.shape}, max value: {image_gray.max()}."
+                )
+
+                result = calculate_orientation(image_gray, filename)
+                save_orientation_result(
+                    result,
+                    image_gray,
+                    filename,
+                    results_folder,
+                    images_folder,
+                    normalized_images_folder,
+                )
+            finally:
+                plt.close("all")
 
 
 def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
@@ -549,9 +516,7 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
         z_stacks_info (Dict[str, Dict]): Z-stack information from Part
         1.
     """
-    print(
-        "\nPart 3: Processing CSV files and generating summary of results..."
-    )
+    phase("Part 3: Alignment summary")
 
     table_folder = os.path.join(results_folder, "Tables")
     if not os.path.exists(table_folder):
@@ -581,92 +546,105 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
     summary_data = []
 
     for file_name in file_list:
-        file_path = os.path.join(table_folder, file_name)
-        _LOGGER.info(f"\nProcessing CSV file: {file_name}")
+        key = file_name.removesuffix("_orientation_distribution.csv")
+        name = z_stacks_info.get(key, {}).get("original_filename", file_name)
+        run = active_run()
+        if run is not None and not run.eligible(name):
+            continue
+        with image_attempt(name, "Summary", final=True):
+            file_path = os.path.join(table_folder, file_name)
+            _LOGGER.info(f"\nProcessing CSV file: {file_name}")
 
-        # Read CSV file into DataFrame
-        read_file = pd.read_csv(file_path)
+            # Read CSV file into DataFrame
+            read_file = pd.read_csv(file_path)
 
-        # Rename columns
-        read_file.rename(
-            columns={
-                read_file.columns[0]: "ori_angle",
-                read_file.columns[1]: "occ_value",
-            },
-            inplace=True,
-        )
+            # Rename columns
+            read_file.rename(
+                columns={
+                    read_file.columns[0]: "ori_angle",
+                    read_file.columns[1]: "occ_value",
+                },
+                inplace=True,
+            )
 
-        # Find the angle of maximum occupancy value
-        angle_of_max_occ_value = read_file["ori_angle"][
-            read_file["occ_value"].idxmax()
-        ]
+            # Find the angle of maximum occupancy value
+            angle_of_max_occ_value = read_file["ori_angle"][
+                read_file["occ_value"].idxmax()
+            ]
 
-        # Normalize angles relative to the angle of maximum value
-        read_file["angles_normalized_to_angle_of_MOV"] = (
-            read_file["ori_angle"] - angle_of_max_occ_value
-        )
-        read_file["corrected_angles"] = read_file[
-            "angles_normalized_to_angle_of_MOV"
-        ].apply(correct_angle)
+            # Normalize angles relative to the angle of maximum value
+            read_file["angles_normalized_to_angle_of_MOV"] = (
+                read_file["ori_angle"] - angle_of_max_occ_value
+            )
+            read_file["corrected_angles"] = read_file[
+                "angles_normalized_to_angle_of_MOV"
+            ].apply(correct_angle)
 
-        # Rank corrected angles
-        read_file["rank_of_angle_occ_value"] = read_file[
-            "corrected_angles"
-        ].rank(method="min")
+            # Rank corrected angles
+            read_file["rank_of_angle_occ_value"] = read_file[
+                "corrected_angles"
+            ].rank(method="min")
 
-        # Compute percentages
-        sum_of_occ_values = read_file["occ_value"].sum()
-        read_file["perc_occvalue2sum_of_occvalue"] = (
-            read_file["occ_value"] / sum_of_occ_values
-        ) * 100
+            # Compute percentages
+            sum_of_occ_values = read_file["occ_value"].sum()
+            read_file["perc_occvalue2sum_of_occvalue"] = (
+                read_file["occ_value"] / sum_of_occ_values
+            ) * 100
 
-        # Filter rows by angle range
-        filtered_data = read_file[
-            (read_file["corrected_angles"] >= -angle_value)
-            & (read_file["corrected_angles"] <= angle_value)
-        ]
-        percentage_of_fibers_aligned_within_angle = filtered_data[
-            "perc_occvalue2sum_of_occvalue"
-        ].sum()
+            # Filter rows by angle range
+            filtered_data = read_file[
+                (read_file["corrected_angles"] >= -angle_value)
+                & (read_file["corrected_angles"] <= angle_value)
+            ]
+            percentage_of_fibers_aligned_within_angle = filtered_data[
+                "perc_occvalue2sum_of_occvalue"
+            ].sum()
 
-        # Determine orientation mode
-        orientation_mode = "disorganized"
-        if percentage_of_fibers_aligned_within_angle >= 55:
-            orientation_mode = "aligned"
+            # Determine orientation mode
+            orientation_mode = "disorganized"
+            if percentage_of_fibers_aligned_within_angle >= 55:
+                orientation_mode = "aligned"
 
-        # Sort DataFrame
-        read_file_sorted = read_file.sort_values(by="rank_of_angle_occ_value")
+            # Sort DataFrame
+            read_file_sorted = read_file.sort_values(
+                by="rank_of_angle_occ_value"
+            )
 
-        # Generate output file name
-        output_file_name = f"{os.path.splitext(file_name)[0]}_processed.csv"
-        output_file_path = os.path.join(analysis_folder, output_file_name)
-        read_file_sorted.to_csv(output_file_path, index=False)
-        _LOGGER.info(f"Processed data saved at: {output_file_path}")
+            # Generate output file name
+            output_file_name = (
+                f"{os.path.splitext(file_name)[0]}_processed.csv"
+            )
+            output_file_path = os.path.join(analysis_folder, output_file_name)
+            read_file_sorted.to_csv(output_file_path, index=False)
+            _LOGGER.info(f"Processed data saved at: {output_file_path}")
 
-        processed_base_name = os.path.splitext(
-            file_name.replace("_orientation_distribution.csv", "")
-        )[0]
+            processed_base_name = os.path.splitext(
+                file_name.replace("_orientation_distribution.csv", "")
+            )[0]
 
-        # Get Z-stack info
-        z_stacks_info_entry = z_stacks_info.get(processed_base_name, None)
-        if z_stacks_info_entry is not None:
-            number_of_z_stacks = z_stacks_info_entry["number_of_z_stacks"]
-            z_stack_type = z_stacks_info_entry["z_stack_type"]
-        else:
-            number_of_z_stacks = "N/A"
-            z_stack_type = "N/A"
+            # Get Z-stack info
+            z_stacks_info_entry = z_stacks_info.get(processed_base_name, None)
+            if z_stacks_info_entry is not None:
+                number_of_z_stacks = z_stacks_info_entry["number_of_z_stacks"]
+                z_stack_type = z_stacks_info_entry["z_stack_type"]
+            else:
+                number_of_z_stacks = "N/A"
+                z_stack_type = "N/A"
 
-        summary_data.append(
-            {
-                "File_Name": file_name,
-                "Number_of_Z_Stacks": number_of_z_stacks,
-                "Z_Stack_Type": z_stack_type,
-                f"Percentage_Fibers_Aligned_Within_{angle_value}_Degree": (
-                    percentage_of_fibers_aligned_within_angle
-                ),
-                "Orientation_Mode": orientation_mode,
-            }
-        )
+            summary_data.append(
+                {
+                    "File_Name": file_name,
+                    "Number_of_Z_Stacks": number_of_z_stacks,
+                    "Z_Stack_Type": z_stack_type,
+                    f"Percentage_Fibers_Aligned_Within_{angle_value}_Degree": (
+                        percentage_of_fibers_aligned_within_angle
+                    ),
+                    "Orientation_Mode": orientation_mode,
+                }
+            )
+
+    if not summary_data:
+        return
 
     # Save summary data
     summary_df = pd.DataFrame(summary_data)
@@ -680,6 +658,7 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
     )
 
 
+@folder_logged("folder_path")
 def process_folder(
     folder_path,
     fibronectin_channel_index,
@@ -700,9 +679,8 @@ def process_folder(
         desired_height (int): Desired height of output images.
         ij: ImageJ context.
     """
-    if not os.path.exists(folder_path):
-        print(f"Folder '{folder_path}' does not exist. Skipping this folder.")
-        return
+    if not os.path.isdir(folder_path):
+        raise FileNotFoundError(f"Source folder not found: {folder_path}")
 
     # Convert angle value to string for folder naming
     angle_str = f"{angle_value}".replace(".", "_")
@@ -714,7 +692,22 @@ def process_folder(
         folder_path, angle_str, timestamp
     )
 
-    with scoped_file_log(_LOGGER, Path(results_folder)):
+    names = image_names(folder_path, (".nd2", ".tif", ".tiff"))
+    run = ImageRun(
+        results_folder,
+        folder_path,
+        names,
+        {
+            "channel_index": fibronectin_channel_index,
+            "angle": angle_value,
+            "width": desired_width,
+            "height": desired_height,
+        },
+    )
+    with scoped_file_log(_LOGGER, Path(results_folder)), run:
+        if not names:
+            return run.finish()
+        run.reject_collisions()
         _LOGGER.info("Results will be saved in: %s", results_folder)
         try:
             # Part 1: Create 2D projections
@@ -728,7 +721,9 @@ def process_folder(
             )
 
             # Part 2: Orientation analysis
-            process_part2_orientationpy(results_folder, images_folder)
+            process_part2_orientationpy(
+                results_folder, images_folder, z_stacks_info_folder
+            )
 
             # Part 3: Process CSV files and generate summary
             analysis_folder = os.path.join(results_folder, "Analysis")
@@ -741,7 +736,11 @@ def process_folder(
                 angle_value,
                 z_stacks_info_folder,
             )
-        except BaseException:
+            return run.finish(Path(analysis_folder) / "Alignment_Summary.csv")
+        except CANCELLATIONS:
+            outcome("CANCELLED", "Alignment interrupted")
+            raise
+        except Exception:
             _LOGGER.exception("Alignment folder analysis failed.")
             raise
 
@@ -767,42 +766,41 @@ def main_fibronectin_processing(
         desired_width (int): Desired width of the 2D projected images.
         desired_height (int): Desired height of the 2D projected images.
     """
-    logging.basicConfig(
-        level=logging.INFO, format="%(levelname)s: %(message)s"
-    )
-
-    # Get folder paths
     folder_paths = get_folder_paths(input_file_path)
-
-    ij = initialize_imagej()
+    register_sources(folder_paths, input_file_path)
+    fibr_chan_index = ask_channel()
+    confirm_start()
+    failed = 0
+    ij = None
     try:
-        fibr_chan_index = int(
-            input(
-                "Enter fibronectin channel index (starting from 1): "
-            ).strip()
-        )
-        start_analysis = (
-            input("\nDo you want to start processing? (y/n): ").strip().lower()
-        )
-        if start_analysis in ("no", "n"):
-            raise ValueError("Analysis canceled by user.")
-        elif start_analysis not in ("yes", "y", "no", "n"):
-            raise ValueError("Incorrect input. Please enter y/n or yes/no")
-
         for folder_path in folder_paths:
-            process_folder(
-                folder_path,
-                fibr_chan_index,
-                angle_value,
-                desired_width,
-                desired_height,
-                ij,
-            )
-        print("\nAll folders have been processed.")
-    except Exception:
-        _LOGGER.exception("Alignment analysis failed.")
-        raise
+            try:
+                with folder_scope(folder_path):
+                    if image_names(folder_path, (".nd2", ".tif", ".tiff")):
+                        if ij is None:
+                            phase("Starting Fiji")
+                            ij = initialize_imagej()
+                    state = process_folder(
+                        folder_path,
+                        fibr_chan_index,
+                        angle_value,
+                        desired_width,
+                        desired_height,
+                        ij,
+                    )
+                    failed += state != "SUCCESS"
+            except CANCELLATIONS:
+                raise
+            except Exception as error:
+                folder_error(folder_path, error)
+                failed += 1
     finally:
-        print("Terminating ImageJ...")
-        ij.dispose()
-    print("Script execution completed.")
+        if ij is not None:
+            phase("Closing ImageJ context")
+            ij.dispose()
+    outcome(
+        "FINISHED",
+        f"Alignment: {len(folder_paths) - failed} complete; "
+        f"{failed} incomplete or failed folder(s).",
+    )
+    return int(bool(failed))

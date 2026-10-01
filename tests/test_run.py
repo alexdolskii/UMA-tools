@@ -154,9 +154,11 @@ class RunLogTests(unittest.TestCase):
             log = run.RunLog(directory, append=True)
             log.event("INFO", "Stage", "second")
             log.close()
-            lines = (directory / "run_log.csv").read_text(
-                encoding="utf-8-sig"
-            ).splitlines()
+            lines = (
+                (directory / "run_log.csv")
+                .read_text(encoding="utf-8-sig")
+                .splitlines()
+            )
             self.assertEqual(
                 sum(1 for line in lines if line.startswith("Timestamp_UTC")),
                 1,

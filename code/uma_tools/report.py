@@ -13,6 +13,7 @@ runtime is started.
 from __future__ import annotations
 
 import argparse
+import csv
 import enum
 import importlib
 import importlib.metadata
@@ -34,6 +35,7 @@ from . import (
 )
 from .config import read_config
 from .files import safe_label, save_json
+from .progress import console, folder_logged, phase, register_sources
 from .report_schema import (
     EVENT_COLUMNS,
     THICKNESS_UNITS,
@@ -43,7 +45,9 @@ from .report_schema import (
 
 
 class ReportStatus(enum.Enum):
-    """Outcome of process_folder, matching its run_status.json values."""
+    """
+    Outcome of process_folder, matching its run_status.json values.
+    """
 
     SUCCESS = "SUCCESS"
     VALIDATION_FAILED = "VALIDATION_FAILED"
@@ -106,10 +110,8 @@ class BufferedLog:
         )
 
     def replay(self, log):
-        for level, stage, message, console, timestamp in self.events:
-            log.event(
-                level, stage, message, console=console, timestamp=timestamp
-            )
+        for level, stage, message, show, timestamp in self.events:
+            log.event(level, stage, message, console=show, timestamp=timestamp)
 
 
 def new_run(parent, source_name):
@@ -138,7 +140,7 @@ def best_effort(description, action, *args, **kwargs):
         action(*args, **kwargs)
     except Exception as error:
         try:
-            print(
+            console(
                 f"Could not {description}: {error}",
                 file=sys.stderr,
                 flush=True,
@@ -195,7 +197,7 @@ def diagnostic_failure(source, input_json, error, buffered=None):
         finally:
             if log is not None:
                 best_effort("close startup logs", log.close)
-    print(
+    console(
         f"Could not start report or save diagnostics: {error}", file=sys.stderr
     )
     return ReportStatus.ERROR
@@ -292,6 +294,76 @@ def save_report_tables(data, directory):
                 directory / filename,
                 statistics[columns_key],
                 statistics[rows_key],
+            )
+
+
+def attach_processing_exclusions(data, directory, log):
+    """
+    Keep processing failures separate from the biological FN filter.
+    """
+    archive = directory / "Inputs"
+    status = json.loads(
+        (archive / "collector_run_status.json").read_text(encoding="utf-8-sig")
+    )
+    rows = status.get("processing_exclusions", [])
+    if not isinstance(rows, list):
+        raise ValidationError("Invalid processing exclusion records")
+    if "processing_exclusions" in status:
+        path = archive / "processing_exclusions.csv"
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            saved = list(reader)
+        if saved != rows or reader.fieldnames != ["Image_File_Name", "Reason"]:
+            raise ValidationError(
+                "Processing exclusion table disagrees with status"
+            )
+        if len(rows) != status.get("excluded_images"):
+            raise ValidationError(
+                "Processing exclusion count disagrees with status"
+            )
+    if "retained_images" in status and status["retained_images"] != len(
+        data["rows"]
+    ):
+        raise ValidationError(
+            "Collected image count disagrees with report inputs"
+        )
+    names = [row.get("Image_File_Name") for row in rows]
+    if (
+        len(set(names)) != len(names)
+        or any(not name for name in names)
+        or any(not row.get("Reason") for row in rows)
+    ):
+        raise ValidationError("Invalid/duplicate processing exclusion")
+    if set(names) & {row["Image_ID"] for row in data["rows"]}:
+        raise ValidationError(
+            "A processing exclusion is present in merged data"
+        )
+    data["processing_exclusions"] = rows
+    if rows:
+        report_inputs.save_csv(
+            directory / "processing_exclusions.csv",
+            ["Image_File_Name", "Reason"],
+            rows,
+        )
+        message = (
+            f"{len(rows)} registered failed image(s) excluded "
+            "during collection; "
+            f"{len(data['rows'])} matched images available before FN filtering"
+        )
+        data["qc"].append(
+            {
+                "Check": "Processing exclusions",
+                "Value": len(rows),
+                "Details": message,
+            }
+        )
+        log.event("WARNING", "Processing exclusions", message)
+        for row in rows:
+            log.event(
+                "INFO",
+                "Excluded image",
+                f"{row['Image_File_Name']}: {row['Reason']}",
+                console=False,
             )
 
 
@@ -408,7 +480,7 @@ def record_run_failure(error, trace, status, directory, log, paths):
     best_effort(
         "record failure in run log",
         log.event,
-        "FAILED",
+        "CANCELLED" if label == "CANCELLED" else "FAILED",
         status["stage"],
         message,
     )
@@ -433,19 +505,21 @@ def record_run_failure(error, trace, status, directory, log, paths):
             json.dumps(detail, ensure_ascii=False),
             console=False,
         )
-    best_effort(
-        "save traceback",
-        (directory / "traceback.txt").write_text,
-        trace,
-        encoding="utf-8",
-    )
-    print(
-        f"Report failed. Diagnostics: {directory}",
+    if label != "CANCELLED":
+        best_effort(
+            "save traceback",
+            (directory / "traceback.txt").write_text,
+            trace,
+            encoding="utf-8",
+        )
+    console(
+        f"Report {label.lower()}. Diagnostics: {directory}",
         file=sys.stderr,
         flush=True,
     )
 
 
+@folder_logged("source")
 def process_folder(source, input_json, args):
     buffered = BufferedLog()
     try:
@@ -470,6 +544,7 @@ def process_folder(source, input_json, args):
     candidate, final_path = None, None
 
     def stage(name):
+        phase(name)
         status["stage"] = name
         save_json(directory / "run_status.json", status)
 
@@ -494,7 +569,7 @@ def process_folder(source, input_json, args):
         log.event(
             "PASS",
             "Inputs",
-            "Three unchanged summaries and one plate-template workbook found",
+            "Three matched summaries and one plate-template workbook found",
         )
         stage("Input archive")
         snapshots, manifests = report_inputs.archive_inputs(
@@ -519,6 +594,10 @@ def process_folder(source, input_json, args):
             directory,
             log,
             threshold,
+        )
+        attach_processing_exclusions(data, directory, log)
+        status["processing_excluded_images"] = len(
+            data.get("processing_exclusions", [])
         )
         stage("Statistics")
         prepare_statistics(
@@ -582,7 +661,7 @@ def process_folder(source, input_json, args):
             generated_plots=len(plots),
         )
         save_json(directory / "run_status.json", status)
-        print(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
+        console(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
         return ReportStatus.SUCCESS
     except (Exception, KeyboardInterrupt) as error:
         record_run_failure(
@@ -653,24 +732,27 @@ def main(argv=None):
     except (OSError, ValueError) as error:
         diagnostic_failure(None, input_json, error)
         return 1
+    register_sources(folders, input_json)
     seen, succeeded, failed = set(), 0, 0
     for source in folders:
         try:
             canonical = source.resolve()
             if canonical in seen:
-                print(f"Skipping duplicate JSON folder: {source}", flush=True)
+                console(
+                    f"Skipping duplicate JSON folder: {source}", flush=True
+                )
                 continue
             seen.add(canonical)
             result = process_folder(source, input_json, args)
         except KeyboardInterrupt:
-            print("Report generation interrupted.", file=sys.stderr)
+            console("Report generation interrupted.", file=sys.stderr)
             return 130
         except Exception as error:
             diagnostic_failure(source, input_json, error)
             result = ReportStatus.ERROR
         succeeded += int(result is ReportStatus.SUCCESS)
         failed += int(result is not ReportStatus.SUCCESS)
-    print(
+    console(
         f"Reports finished: {succeeded} folder(s) succeeded; {failed} failed.",
         flush=True,
     )

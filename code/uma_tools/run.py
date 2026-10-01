@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .contracts import EVENT_COLUMNS
+from .progress import JournalHandler, current_folder, current_session
 
 
 def utc_now(*, timespec: str = "auto") -> str:
@@ -58,7 +59,9 @@ def make_logger(output: Path) -> logging.Logger:
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     for handler in (
         logging.FileHandler(output / "run.log", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout),
+        JournalHandler()
+        if current_session() is not None
+        else logging.StreamHandler(sys.stdout),
     ):
         handler.setFormatter(formatter)
         logger.addHandler(handler)
@@ -110,6 +113,8 @@ class RunLog:
         timespec: str = "seconds",
         keep_events: bool = True,
     ) -> None:
+        self.session = current_session()
+        self.source_folder = current_folder()
         self.events: list[dict[str, str]] = []
         self.keep_events = keep_events
         self.timespec = timespec
@@ -162,7 +167,26 @@ class RunLog:
         self.text_stream.flush()
         self.csv_writer.writerow(row)
         self.csv_stream.flush()
-        if console:
+        if self.session is not None:
+            self.session.event(
+                level,
+                stage,
+                message,
+                folder=self.source_folder,
+                announce=console
+                and level
+                in (
+                    "WARNING",
+                    "ERROR",
+                    "FAILED",
+                    "PARTIAL",
+                    "NO_INPUT",
+                    "SUCCESS",
+                    "CANCELLED",
+                ),
+            )
+            self.session.progress.update(f"{stage}: {message}")
+        elif console:
             print(line, flush=True)
         return row
 

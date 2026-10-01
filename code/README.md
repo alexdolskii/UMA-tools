@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.9**.
+development; the current Python package version is **0.2.10**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -29,7 +29,7 @@ uma_alignment -i input_paths.json -a 15
 All five commands support `--help` and `--version` without starting Fiji.
 Use the installed commands. Version 0.2.9 adds optional report statistics;
 the image assay commands and measurements are unchanged. Runtime dependencies
-are unchanged from versions 0.2.5–0.2.8.
+remain unchanged in 0.2.10, which adds consistent logs and partial-result handoff.
 
 ```bash
 uma_report -i input_paths.json --fn-threshold 20 --stats-unit well
@@ -44,7 +44,7 @@ for template validation, correction families, and interpretation.
 ## One package directory
 
 The `code` directory contains this README and `uma_tools`, a package with
-20 Python files. Its modules contain implementations rather than compatibility
+22 Python files. Its modules contain implementations rather than compatibility
 adapters. `cli.py` routes commands directly to the five analysis/workflow
 modules listed above; shared helpers are beside them in the same directory.
 
@@ -57,6 +57,8 @@ The remaining modules have these responsibilities:
 | `config.py` | JSON input folders and configuration errors |
 | `files.py` | Filename labels, CSV/JSON writing, and checksums |
 | `run.py` | Output directories, timestamps, and scoped logs |
+| `progress.py` | Core command journals, archived logs, progress, and terminal prompts |
+| `image_run.py` | Per-image outcomes and verifiable partial-run completion |
 | `contracts.py` | Shared assay names, columns, and data definitions |
 | `imagej.py` | Headless Fiji initialization and worker cleanup |
 | `area_imagej.py` | SUM32 projection, threshold bounds, masks, and area measurements |
@@ -80,10 +82,12 @@ and compatibility adapters are no longer supported.
 - Use JSON `folder_paths` with absolute image-folder paths. Existing relative
   paths resolve against the JSON directory for area and against the working
   directory for the other stages.
-- Collection chooses the latest valid result for each assay independently.
-  Reporting selects the latest completed collection, then requires all three
-  summaries and one plate template. Neither stage silently drops unmatched
-  images; reporting does not fall back to an older collection.
+- Collection chooses the latest valid complete or audited partial result
+  independently for each assay. Only registered failed images may be excluded
+  from all collected copies; unexplained differences still fail validation.
+  Reporting requires all three summaries and one plate template in the latest
+  completed collection, without fallback. See the
+  [partial-result rules](../README.md#progress-logs-and-partial-results).
 - Preserve filename identities and explicit CSV/JSON writing policies.
   Exclude hidden files, macOS `._` files, and directories named like images.
 - Give every run a new output directory and logs. Close its log handlers
@@ -115,6 +119,17 @@ Enable real Fiji checks with:
 UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
 ```
 
-The [CI workflow](../.github/workflows/core-assays.yml) runs style, command,
-numerical, and process-exit checks on Linux and macOS. Fiji tests use synthetic
+The [test workflow](../.github/workflows/test.yml) runs numerical, report,
+partial-result, logging and process-exit checks on Linux and macOS. The
+[command workflow](../.github/workflows/core-assays.yml) checks installation
+and lightweight entry points. Fiji tests use synthetic
 TIFF data and require Java, Maven, and the initial component download.
+
+
+Meaningful regressions cover latest-partial selection, unexplained mismatches,
+unchanged source CSVs, excluded-image export, log rotation and routing,
+invalid prompts, cancellation, NO_INPUT, and continuation after a damaged
+image. Native checks also exercise all three installed image commands on a
+valid TIFF and a damaged TIFF, verify Java logger restoration, and require
+process exit within a timeout. Existing frozen numerical and calibration
+checks remain in place.

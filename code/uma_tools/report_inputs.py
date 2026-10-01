@@ -232,6 +232,7 @@ def archive_inputs(paths, input_json, combined, directory):
     for role, name in (
         ("collector_image_check", "image_check.csv"),
         ("collector_selection_report", "selection_report.csv"),
+        ("processing_exclusions", "processing_exclusions.csv"),
     ):
         path = combined / name
         if path.is_file() and not path.is_symlink():
@@ -273,6 +274,14 @@ def archive_inputs(paths, input_json, combined, directory):
         (archive / "collector_run_status.json").read_text(encoding="utf-8-sig")
     )
     entries = collection_entries(archived_status)
+    if "processing_exclusions" in archived_status:
+        excluded_path = archive / "processing_exclusions.csv"
+        if not excluded_path.is_file() or sha256_file(excluded_path) != (
+            archived_status.get("exclusions_sha256")
+        ):
+            raise ValidationError(
+                "Processing exclusions are missing or changed"
+            )
     archived_records = {record["Input"]: record for record in records}
     for analysis, (role, _) in ROLES.items():
         entry, record = entries[analysis], archived_records[role]

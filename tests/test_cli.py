@@ -54,22 +54,17 @@ class CommandTests(unittest.TestCase):
         module.main.assert_called_once_with()
 
     def test_thickness_cleanup_preserves_analysis_error(self):
-        module = types.ModuleType("uma_tools.thickness_analysis")
-        module.main = Mock(side_effect=ValueError("original analysis error"))
-        with patch.dict(sys.modules, {module.__name__: module}):
-            with patch.object(
-                sys, "argv", ["uma_thickness", "-i", "input.json"]
-            ):
-                with patch.object(
-                    cli,
-                    "_shutdown_imagej_workers",
-                    side_effect=RuntimeError("cleanup error"),
-                ) as cleanup:
-                    with self.assertLogs(level="ERROR"):
-                        with self.assertRaisesRegex(
-                            ValueError, "original analysis error"
-                        ):
-                            cli.thickness()
+        callback = Mock(side_effect=ValueError("original analysis error"))
+        with patch.object(
+            cli,
+            "_shutdown_imagej_workers",
+            side_effect=RuntimeError("cleanup error"),
+        ) as cleanup:
+            with self.assertLogs(level="ERROR"):
+                with self.assertRaisesRegex(
+                    ValueError, "original analysis error"
+                ):
+                    cli._run_imagej_command(callback)
         cleanup.assert_called_once_with()
 
     @unittest.skipUnless(
@@ -128,7 +123,7 @@ class CommandTests(unittest.TestCase):
             setattr(module, entry_point, main)
             sys.modules[module.__name__] = module
             sys.argv = [f"uma_{command}", "-i", "input.json"]
-            getattr(cli, command)()
+            raise SystemExit(getattr(cli, command)())
         """)
         for fails in (False, True):
             with self.subTest(analysis_fails=fails):
@@ -150,7 +145,7 @@ class CommandTests(unittest.TestCase):
                 )
                 if fails:
                     self.assertIn(
-                        "ValueError: deliberate analysis failure",
+                        "deliberate analysis failure",
                         result.stderr,
                     )
 

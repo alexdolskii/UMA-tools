@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uma-tools"
-version = "0.2.9"
+version = "0.2.10"
 description = "Automated, headless workflows for fibroblast/ECM unit confocal data"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -50,3 +50,4 @@ select = ["E", "W", "F", "I"]
 [tool.ruff.format]
 docstring-code-format = true
 docstring-code-line-length = 72
+
