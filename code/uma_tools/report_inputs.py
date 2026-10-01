@@ -12,9 +12,9 @@ from functools import partial
 from pathlib import Path, PureWindowsPath
 
 from .contracts import SUMMARY_NAMES
+from .files import assay_directory, sha256_file
 from .files import save_csv as _save_csv
 from .files import save_json as _save_json
-from .files import sha256_file
 from .report_schema import EventLogger, ReportInputs, ValidationError
 from .run import RunLog as RunLog
 from .run import utc_now as _utc_now
@@ -55,7 +55,8 @@ def select_combined(source: Path, log: EventLogger) -> Path:
     template.
     """
     candidates = []
-    for path in sorted(source.iterdir()):
+    parent = assay_directory(source)
+    for path in sorted(parent.iterdir()):
         if path.name.startswith(".") or not path.name.startswith(
             "Combined_Results_"
         ):
@@ -83,7 +84,7 @@ def select_combined(source: Path, log: EventLogger) -> Path:
             )
     if not candidates:
         raise ValidationError(
-            f"No successful Combined_Results directory found in {source}"
+            f"No successful Combined_Results directory found in {parent}"
         )
     candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
     latest = [

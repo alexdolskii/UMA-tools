@@ -34,7 +34,7 @@ from . import (
     report_workbook,
 )
 from .config import read_config
-from .files import safe_label, save_json
+from .files import assay_directory, safe_label, save_json
 from .progress import console, folder_logged, phase, register_sources
 from .report_schema import (
     EVENT_COLUMNS,
@@ -151,15 +151,14 @@ def best_effort(description, action, *args, **kwargs):
 
 def diagnostic_failure(source, input_json, error, buffered=None):
     """
-    Use the source folder or CWD when no selected collection can hold
-    logs.
+    Keep startup diagnostics in the source or CWD uma_assay directory.
     """
     parents = [source, Path.cwd()] if source is not None else [Path.cwd()]
     for parent in dict.fromkeys(parents):
         log = None
         try:
             run_id, directory = new_run(
-                parent,
+                assay_directory(parent, create=True),
                 source.name if source is not None else "configuration_error",
             )
             log = report_inputs.RunLog(directory)
@@ -524,7 +523,9 @@ def process_folder(source, input_json, args):
     buffered = BufferedLog()
     try:
         combined = report_inputs.select_combined(source, buffered)
-        run_id, directory = new_run(combined, source.name)
+        run_id, directory = new_run(
+            assay_directory(source, create=True), source.name
+        )
     except (OSError, ValueError, ValidationError) as error:
         return diagnostic_failure(source, input_json, error, buffered)
     log = report_inputs.RunLog(directory)

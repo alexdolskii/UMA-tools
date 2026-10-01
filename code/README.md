@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.10**.
+development; the current Python package version is **0.2.11**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -10,7 +10,12 @@ plate-template preparation, outputs, and updates.
 ## Five commands
 
 Run the stages individually in order with the same JSON. Before reporting,
-place the plate template in the selected completed `Combined_Results` directory.
+place the plate template in the selected completed
+`<image_folder>/uma_assay/Combined_Results_.../` directory.
+Keep original-image paths in the JSON. All five commands write results and
+journals inside `uma_assay`; reports are saved beside collections. Collection
+and reporting search only `uma_assay`, so rerun analyses saved in the earlier
+layout.
 
 | Stage | Installed command | Implementation in `uma_tools` |
 |---|---|---|
@@ -29,7 +34,7 @@ uma_alignment -i input_paths.json -a 15
 All five commands support `--help` and `--version` without starting Fiji.
 Use the installed commands. Version 0.2.9 adds optional report statistics;
 the image assay commands and measurements are unchanged. Runtime dependencies
-remain unchanged in 0.2.10, which adds consistent logs and partial-result handoff.
+remain unchanged in 0.2.11, which places core results and journals in `uma_assay`.
 
 ```bash
 uma_report -i input_paths.json --fn-threshold 20 --stats-unit well
@@ -55,7 +60,7 @@ The remaining modules have these responsibilities:
 | `cli.py` | Command arguments, dispatch, and completion status |
 | `__init__.py` | Package identity and installed version |
 | `config.py` | JSON input folders and configuration errors |
-| `files.py` | Filename labels, CSV/JSON writing, and checksums |
+| `files.py` | Core `uma_assay` location, filename labels, CSV/JSON writing, and checksums |
 | `run.py` | Output directories, timestamps, and scoped logs |
 | `progress.py` | Core command journals, archived logs, progress, and terminal prompts |
 | `image_run.py` | Per-image outcomes and verifiable partial-run completion |

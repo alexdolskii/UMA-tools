@@ -92,7 +92,7 @@ class HeadlessTests(unittest.TestCase):
         self.assertEqual(logger.getLevel(), level)
         self.assertEqual(logger.isAdditive(), additive)
         self.assertEqual(list(logger.iteratorForAppenders()), appenders)
-        log = (self.folder / "UMA_Logs/1_alignment.log").read_text()
+        log = (self.folder / "uma_assay/UMA_Logs/1_alignment.log").read_text()
         self.assertIn("native-reader-message", log)
 
     def test_alignment_outputs_and_metadata_filter(self):
@@ -105,7 +105,7 @@ class HeadlessTests(unittest.TestCase):
         )
         alignment.process_folder(str(self.folder), 1, 15, 64, 64, self.ij)
         summaries = list(
-            self.folder.glob(
+            (self.folder / "uma_assay").glob(
                 "Alignment_assay_results_*/Analysis/Alignment_Summary.csv"
             )
         )
@@ -115,7 +115,11 @@ class HeadlessTests(unittest.TestCase):
         self.assertIn("sample", data.iloc[0]["File_Name"])
         self.assertEqual(int(data.iloc[0]["Number_of_Z_Stacks"]), 7)
         self.assertTrue(
-            list(self.folder.glob("Alignment_assay_results_*/Images/*.png"))
+            list(
+                self.folder.glob(
+                    "uma_assay/Alignment_assay_results_*/Images/*.png"
+                )
+            )
         )
 
     def test_thickness_outputs_and_metadata_filter(self):
@@ -138,7 +142,9 @@ class HeadlessTests(unittest.TestCase):
             1,
         )
         summaries = list(
-            self.folder.glob("Thickness_assay_results_*/Thickness_Summary.csv")
+            self.folder.glob(
+                "uma_assay/Thickness_assay_results_*/Thickness_Summary.csv"
+            )
         )
         self.assertEqual(len(summaries), 1)
         data = pd.read_csv(summaries[0])

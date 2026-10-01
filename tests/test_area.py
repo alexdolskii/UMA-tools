@@ -70,7 +70,7 @@ class AreaInputTests(unittest.TestCase):
                 )
             self.assertEqual(status, 2)
             engine.assert_not_called()
-            outputs = list(root.glob("Area_assay_results_*"))
+            outputs = list(root.glob("uma_assay/Area_assay_results_*"))
             self.assertEqual(len(outputs), 1)
             self.assertTrue((outputs[0] / "errors.csv").is_file())
             self.assertTrue((outputs[0] / "traceback.txt").is_file())
@@ -98,7 +98,7 @@ class AreaInputTests(unittest.TestCase):
                 timeout=30,
             )
             self.assertEqual(result.returncode, 2, result.stderr)
-            outputs = list(root.glob("Area_assay_results_*"))
+            outputs = list(root.glob("uma_assay/Area_assay_results_*"))
             self.assertEqual(len(outputs), 1)
             self.assertIn(
                 "macOS metadata", (outputs[0] / "run.log").read_text()
@@ -176,12 +176,15 @@ class AreaCommandImageJTests(unittest.TestCase):
             ]
             for bounds, lower, upper in cases:
                 with self.subTest(bounds=bounds):
-                    before = set(source.glob("Area_assay_results_*"))
+                    before = set(source.glob("uma_assay/Area_assay_results_*"))
                     result = self.run_command(root, manifest, bounds)
                     self.assertEqual(
                         result.returncode, 0, result.stdout + result.stderr
                     )
-                    outputs = set(source.glob("Area_assay_results_*")) - before
+                    outputs = (
+                        set(source.glob("uma_assay/Area_assay_results_*"))
+                        - before
+                    )
                     self.assertEqual(len(outputs), 1)
                     output = outputs.pop()
                     projection = next(
@@ -257,8 +260,8 @@ class AreaCommandImageJTests(unittest.TestCase):
             self.assertEqual(
                 result.returncode, 1, result.stdout + result.stderr
             )
-            bad_output = next(bad.glob("Area_assay_results_*"))
-            good_output = next(good.glob("Area_assay_results_*"))
+            bad_output = next(bad.glob("uma_assay/Area_assay_results_*"))
+            good_output = next(good.glob("uma_assay/Area_assay_results_*"))
             bad_status = json.loads(
                 (bad_output / "run_status.json").read_text()
             )

@@ -11,6 +11,7 @@ import pandas as pd
 from scyjava import jimport
 
 from .config import read_config
+from .files import assay_directory
 from .image_run import ImageRun, image_names
 from .imagej import (
     initialize_imagej,
@@ -362,7 +363,7 @@ def process_single_folder(
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     _, output = unique_output(
-        Path(folder),
+        assay_directory(Path(folder), create=True),
         "Thickness_assay_results_",
         timestamp=timestamp,
         include_pid=True,

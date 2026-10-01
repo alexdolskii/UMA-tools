@@ -524,7 +524,7 @@ wheels = [
 
 [[package]]
 name = "uma-tools"
-version = "0.2.10"
+version = "0.2.11"
 source = { editable = "." }
 dependencies = [
     { name = "jgo" },
@@ -584,4 +584,3 @@ sdist = { url = "https://files.pythonhosted.org/packages/19/ec/e50d833518f10b0c2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/8a/6b50c1dd2260d407c1a499d47cf829f59f07007e0dcebafdabb24d1d26a5/xarray-2025.6.1-py3-none-any.whl", hash = "sha256:8b988b47f67a383bdc3b04c5db475cd165e580134c1f1943d52aee4a9c97651b", size = 1314739, upload-time = "2025-06-12T03:04:06.708Z" },
 ]
-

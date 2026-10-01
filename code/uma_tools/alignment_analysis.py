@@ -9,6 +9,7 @@ from pathlib import Path
 import matplotlib
 
 from .config import read_config
+from .files import assay_directory
 from .image_run import ImageRun, active_run, image_attempt, image_names
 from .imagej import (
     initialize_imagej,
@@ -81,7 +82,7 @@ def create_results_folders(folder_path, angle_value_str, timestamp):
         folders.
     """
     _, output = unique_output(
-        Path(folder_path),
+        assay_directory(Path(folder_path), create=True),
         f"Alignment_assay_results_angle_{angle_value_str}_",
         timestamp=timestamp,
         include_pid=True,

@@ -51,7 +51,7 @@ class StatisticsCommandTests(ReportFixture):
         results = {}
         for unit in ("well", "image"):
             with self.subTest(unit=unit):
-                previous = set(combined.glob("UMA_Report_*"))
+                previous = set(combined.parent.glob("UMA_Report_*"))
                 result = subprocess.run(
                     [
                         str(command),
@@ -70,7 +70,7 @@ class StatisticsCommandTests(ReportFixture):
                 self.assertEqual(
                     result.returncode, 0, result.stdout + result.stderr
                 )
-                created = set(combined.glob("UMA_Report_*")) - previous
+                created = set(combined.parent.glob("UMA_Report_*")) - previous
                 self.assertEqual(len(created), 1)
                 output = created.pop()
                 status = json.loads((output / "run_status.json").read_text())
@@ -129,7 +129,7 @@ class StatisticsCommandTests(ReportFixture):
         self.assertEqual(
             report.main(["-i", str(config), "--stats-unit", "well"]), 1
         )
-        (output,) = paths["template"].parent.glob("UMA_Report_*")
+        (output,) = paths["template"].parent.parent.glob("UMA_Report_*")
         status = json.loads((output / "run_status.json").read_text())
         self.assertEqual(status["status"], "VALIDATION_FAILED")
         self.assertEqual(status["stage"], "Statistics")

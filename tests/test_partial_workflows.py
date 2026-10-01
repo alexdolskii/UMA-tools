@@ -41,7 +41,9 @@ def audited_summary(path, names, failures):
     run_dir = (
         path.parent.parent if path.parent.name == "Analysis" else path.parent
     )
-    audit = ImageRun(run_dir, run_dir.parent, names, {"threshold": 2500})
+    audit = ImageRun(
+        run_dir, run_dir.parent.parent, names, {"threshold": 2500}
+    )
     for name in names:
         with audit.attempt(name, "Measurement", final=True):
             if name in failures:
@@ -101,7 +103,7 @@ class PartialCollectionTests(unittest.TestCase):
                 ["-i", str(self.fixture.config), "--fn-threshold", "20"]
             )
         self.assertEqual(result, 0)
-        output = next(combined.glob("UMA_Report_*"))
+        output = next(combined.parent.glob("UMA_Report_*"))
         report_status = load_status(output)
         self.assertEqual(report_status["total_images"], 2)
         self.assertEqual(report_status["processing_excluded_images"], 1)
@@ -116,7 +118,9 @@ class PartialCollectionTests(unittest.TestCase):
             self.assertEqual(workbook["Merged Data"].max_row, 3)
         finally:
             workbook.close()
-        text = (self.fixture.source / "UMA_Logs/5_report.log").read_text()
+        text = (
+            self.fixture.source / "uma_assay/UMA_Logs/5_report.log"
+        ).read_text()
         self.assertIn(self.names[2], text)
         self.assertIn("Processing exclusions", text)
 
@@ -162,7 +166,7 @@ class PartialCollectionTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             result = cli.report(["-i", str(self.fixture.config)])
         self.assertEqual(result, 1)
-        status = load_status(next(combined.glob("UMA_Report_*")))
+        status = load_status(next(combined.parent.glob("UMA_Report_*")))
         self.assertIn("exclusions", status["error"])
         self.assertNotIn("workbook", status)
 
@@ -197,7 +201,7 @@ class ImageFailureTests(unittest.TestCase):
             self.assertEqual(state, "PARTIAL")
             self.assertEqual(calculate.call_count, 3)
             status = load_status(
-                next(source.glob("Thickness_assay_results_*"))
+                next(source.glob("uma_assay/Thickness_assay_results_*"))
             )
             self.assertEqual(status["processed_images"], 1)
             self.assertEqual(status["failed_images"], 2)
@@ -232,7 +236,7 @@ class ImageFailureTests(unittest.TestCase):
                     str(source), 1, 15, 32, 32, None
                 )
             self.assertEqual(state, "PARTIAL")
-            output = next(source.glob("Alignment_assay_results_*"))
+            output = next(source.glob("uma_assay/Alignment_assay_results_*"))
             status = load_status(output)
             self.assertEqual(status["processed_images"], 1)
             with (output / "Analysis/Alignment_Summary.csv").open() as stream:
@@ -265,7 +269,7 @@ class ImageFailureTests(unittest.TestCase):
                     code = entry(["-i", str(config), *extra])
                 self.assertEqual(code, 1)
                 initialize.assert_not_called()
-                output = next(source.glob("*assay_results_*"))
+                output = next(source.glob("uma_assay/*assay_results_*"))
                 self.assertEqual(load_status(output)["status"], "NO_INPUT")
 
     def test_folder_failure_does_not_stop_next_folder_and_disposes_context(
@@ -297,8 +301,12 @@ class ImageFailureTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(process.call_count, 2)
             gateway.dispose.assert_called_once_with()
-            first = (folders[0] / "UMA_Logs/1_alignment.log").read_text()
-            second = (folders[1] / "UMA_Logs/1_alignment.log").read_text()
+            first = (
+                folders[0] / "uma_assay/UMA_Logs/1_alignment.log"
+            ).read_text()
+            second = (
+                folders[1] / "uma_assay/UMA_Logs/1_alignment.log"
+            ).read_text()
             self.assertIn("first failed", first)
             self.assertNotIn("first failed", second)
 
@@ -326,8 +334,10 @@ class JournalTests(unittest.TestCase):
                     with folder_scope(b):
                         phase(f"b phase {index}")
                     session.exit_code = 0
-            latest = (a / "UMA_Logs/3_area.log").read_text()
-            archived = list((a / "UMA_Logs/archive").glob("3_area_*.log"))
+            latest = (a / "uma_assay/UMA_Logs/3_area.log").read_text()
+            archived = list(
+                (a / "uma_assay/UMA_Logs/archive").glob("3_area_*.log")
+            )
             self.assertEqual(len(archived), 1)
             self.assertIn("a phase 0", archived[0].read_text())
             self.assertNotIn("a phase 0", latest)
@@ -355,7 +365,9 @@ class JournalTests(unittest.TestCase):
                     code = cli.alignment(["-i", str(config)])
                 self.assertEqual(code, 130)
                 initialize.assert_not_called()
-                log = (source / "UMA_Logs/1_alignment.log").read_text()
+                log = (
+                    source / "uma_assay/UMA_Logs/1_alignment.log"
+                ).read_text()
                 self.assertIn("CANCELLED", log)
                 self.assertNotIn("Traceback", log)
 
@@ -372,15 +384,20 @@ class JournalTests(unittest.TestCase):
             sources = [Path(temporary) / name for name in ("one", "two")]
             outputs = []
             for source in sources:
-                output = source / "Area_assay_results_test"
+                output = source / "uma_assay" / "Area_assay_results_test"
                 output.mkdir(parents=True)
+                (output / "run_status.json").write_text(
+                    json.dumps(
+                        {"source_folder": str(source), "status": "SUCCESS"}
+                    )
+                )
                 outputs.append(output)
             with CommandSession("area", sources, "input.json") as session:
                 with patch.object(area, "shutdown_imagej_workers"):
                     self.assertTrue(area.finish_imagej([None], outputs))
                 session.exit_code = 0
             for source in sources:
-                log = (source / "UMA_Logs/3_area.log").read_text()
+                log = (source / "uma_assay/UMA_Logs/3_area.log").read_text()
                 self.assertEqual(
                     log.count("ImageJ context and workers closed"), 1
                 )
@@ -391,7 +408,8 @@ class JournalTests(unittest.TestCase):
             bad, good = root / "bad", root / "good"
             bad.mkdir()
             good.mkdir()
-            (bad / "UMA_Logs").write_text("not a directory")
+            (bad / "uma_assay").mkdir()
+            (bad / "uma_assay/UMA_Logs").write_text("not a directory")
             with CommandSession(
                 "report", [bad, good], "input.json"
             ) as session:
@@ -403,5 +421,5 @@ class JournalTests(unittest.TestCase):
                 session.exit_code = 1
             self.assertIn(
                 "Continue good folder",
-                (good / "UMA_Logs/5_report.log").read_text(),
+                (good / "uma_assay/UMA_Logs/5_report.log").read_text(),
             )

@@ -12,6 +12,49 @@ from unittest.mock import patch
 from uma_tools import files
 
 
+class AssayDirectoryTests(unittest.TestCase):
+    def test_creates_only_the_container_and_preserves_existing_results(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder)
+            with self.assertRaises(FileNotFoundError):
+                files.assay_directory(source)
+            self.assertEqual(list(source.iterdir()), [])
+            container = files.assay_directory(source, create=True)
+            self.assertEqual(container, source / "uma_assay")
+            saved = container / "previous.csv"
+            saved.write_bytes(b"saved result")
+            self.assertEqual(
+                files.assay_directory(source, create=True), container
+            )
+            self.assertEqual(saved.read_bytes(), b"saved result")
+
+    def test_missing_source_is_not_created(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "missing"
+            for create in (False, True):
+                with self.assertRaises(FileNotFoundError):
+                    files.assay_directory(source, create=create)
+                self.assertFalse(source.exists())
+
+    def test_file_or_symlink_cannot_redirect_core_results(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside = root / "other experiment"
+            outside.mkdir()
+            for kind in ("file", "symlink"):
+                source = root / kind
+                source.mkdir()
+                target = source / "uma_assay"
+                if kind == "file":
+                    target.write_text("existing file")
+                else:
+                    target.symlink_to(outside, target_is_directory=True)
+                for create in (False, True):
+                    with self.assertRaises(OSError):
+                        files.assay_directory(source, create=create)
+            self.assertEqual(list(outside.iterdir()), [])
+
+
 class SaveJsonTests(unittest.TestCase):
     def test_atomic_default_writes_indented_utf8_with_a_trailing_newline(self):
         with tempfile.TemporaryDirectory() as folder:

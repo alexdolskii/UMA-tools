@@ -118,8 +118,10 @@ class ReportFixture(unittest.TestCase):
         self, stamp="20260914_120000_000001", source=None, status="SUCCESS"
     ):
         source = source or self.source
-        combined = source / f"Combined_Results_{source.name}_{stamp}"
-        combined.mkdir()
+        combined = (
+            source / "uma_assay" / f"Combined_Results_{source.name}_{stamp}"
+        )
+        combined.mkdir(parents=True)
         (combined / "run_status.json").write_text(
             json.dumps({"status": status, "copied_csvs": []}), encoding="utf-8"
         )
@@ -267,7 +269,7 @@ class CombinedSelectionTests(ReportFixture):
         selected = self.make_combined("20260914_100000_000001")
         hidden = self.make_combined("20260914_130000_000001")
         hidden.rename(hidden.with_name("._" + hidden.name))
-        nested_parent = self.source / "nested"
+        nested_parent = self.source / "uma_assay" / "nested"
         nested_parent.mkdir()
         self.make_combined("20260914_140000_000001", source=nested_parent)
         external = self.root / "external"
@@ -275,11 +277,40 @@ class CombinedSelectionTests(ReportFixture):
         target = self.make_combined("20260914_150000_000001", source=external)
         (
             self.source
+            / "uma_assay"
             / f"Combined_Results_{self.source.name}_20260914_160000_000001"
         ).symlink_to(target, target_is_directory=True)
         self.assertEqual(
             collected_inputs.select_combined(self.source, self.log), selected
         )
+
+    def test_newer_collection_outside_uma_assay_is_ignored(self):
+        selected = self.make_combined("20260914_100000_000001")
+        old_layout = self.make_combined("20260914_160000_000001")
+        old_layout.rename(self.source / old_layout.name)
+        self.assertEqual(
+            collected_inputs.select_combined(self.source, self.log), selected
+        )
+
+    def test_no_fallback_to_old_collection_and_diagnostics_stay_in_uma_assay(
+        self,
+    ):
+        combined = self.make_combined()
+        self.inputs(combined)
+        previous = self.source / combined.name
+        combined.rename(previous)
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = report.process_folder(
+                self.source,
+                self.config([self.source]),
+                Namespace(fn_threshold=20, sheet=None, plate_id=""),
+            )
+        self.assertIs(result, report.ReportStatus.VALIDATION_FAILED)
+        output = next((self.source / "uma_assay").glob("UMA_Report_*"))
+        status = json.loads((output / "run_status.json").read_text())
+        self.assertIn("No successful Combined_Results", status["error"])
+        self.assertEqual(list(previous.glob("UMA_Report_*")), [])
+        self.assertEqual(list(output.glob("*.xlsx")), [])
 
     def test_missing_or_malformed_completion_status_is_not_completed(self):
         for index, payload in enumerate(
@@ -595,7 +626,7 @@ class ReportCommandTests(ReportFixture):
                     config,
                     Namespace(fn_threshold=20, sheet=None, plate_id=""),
                 )
-        output = next(combined.glob("UMA_Report_*"))
+        output = next(combined.parent.glob("UMA_Report_*"))
         verification.assert_called_once()
         details.assert_called_once()
         self.assertIs(result, report.ReportStatus.ERROR)
@@ -623,7 +654,7 @@ class ReportCommandTests(ReportFixture):
             ):
                 result = report.main(["-i", str(config)])
         self.assertEqual(result, 1)
-        outputs = list(paths["template"].parent.glob("UMA_Report_*"))
+        outputs = list(paths["template"].parent.parent.glob("UMA_Report_*"))
         self.assertEqual(len(outputs), 1)
         status = json.loads(
             (outputs[0] / "run_status.json").read_text(encoding="utf-8")
@@ -655,7 +686,7 @@ class ReportCommandTests(ReportFixture):
             ):
                 result = report.main(["-i", str(config)])
         self.assertEqual(result, 130)
-        outputs = list(paths["template"].parent.glob("UMA_Report_*"))
+        outputs = list(paths["template"].parent.parent.glob("UMA_Report_*"))
         self.assertEqual(len(outputs), 1)
         status = json.loads(
             (outputs[0] / "run_status.json").read_text(encoding="utf-8")
@@ -710,7 +741,7 @@ class ReportCommandTests(ReportFixture):
             timeout=180,
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        successful_outputs = list(combined.glob("UMA_Report_*"))
+        successful_outputs = list(combined.parent.glob("UMA_Report_*"))
         self.assertEqual(
             len(successful_outputs), 1, result.stdout + result.stderr
         )
@@ -734,10 +765,13 @@ class ReportCommandTests(ReportFixture):
             [],
             "The report must not silently use an older collection",
         )
-        failed_outputs = list(latest.glob("UMA_Report_*"))
+        failed_outputs = list(latest.parent.glob("UMA_Report_*"))
         self.assertEqual(len(failed_outputs), 1)
         failed_status = json.loads(
             (failed_outputs[0] / "run_status.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            Path(failed_status["combined_results_folder"]), latest
         )
         self.assertNotEqual(failed_status["status"], "SUCCESS")
         self.assertEqual(list(failed_outputs[0].glob("*.xlsx")), [])
@@ -874,7 +908,7 @@ class ReportCommandTests(ReportFixture):
             timeout=30,
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        outputs = list(paths["alignment"].parent.glob("UMA_Report_*"))
+        outputs = list(paths["alignment"].parent.parent.glob("UMA_Report_*"))
         self.assertEqual(len(outputs), 1)
         self.assertTrue((outputs[0] / "run.log").is_file())
         self.assertTrue((outputs[0] / "run_log.csv").is_file())

@@ -20,17 +20,14 @@ identifiers are not required. Subfolders, including previous results,
 are not scanned.
 Image_ID is the complete original filename, including its extension.
 
-Each source folder receives a unique Area_assay_results_<timestamp>_<id>
-folder
-with SUM32 projections, 0/255 masks, area tables, parameters, status and
-logs.
-Startup failures use a new results folder in an available source folder,
-or in
-the working directory if no source folder is available. No logs are
-written to
-the installed package. An image error is recorded; other images and
-folders continue. Successful measurements remain in audited PARTIAL
-results. Incomplete commands return a nonzero exit status.
+Each source folder's uma_assay directory receives a unique
+Area_assay_results_<timestamp>_<id> folder with SUM32 projections, 0/255
+masks, area tables, parameters, status and logs. Startup failures use a
+new results folder in an available source's uma_assay, or in
+<working_directory>/uma_assay if no source folder is available. An image
+error is recorded; other images and folders continue. Successful
+measurements remain in audited PARTIAL results. Incomplete commands
+return a nonzero exit status.
 
 Original float intensities, native XY resolution, spatial calibration,
 SUM
@@ -65,9 +62,9 @@ from .area_imagej import (
     threshold_settings,
 )
 from .config import load_json, resolve_path
+from .files import assay_directory, sha256_file
 from .files import save_csv as _save_csv
 from .files import save_json as _save_json
-from .files import sha256_file
 from .image_run import ImageRun
 from .imagej import (
     FIJI_ENDPOINT,
@@ -166,7 +163,7 @@ def new_output_folder(parent: Path) -> tuple[str, Path]:
     Allocate an Area run with its established UTC timestamp and PID.
     """
     return unique_output(
-        parent,
+        assay_directory(parent, create=True),
         "Area_assay_results_",
         include_pid=True,
         counter_width=3,
@@ -309,6 +306,9 @@ def save_startup_error(error, folders, args):
                     "processed_images": 0,
                     "error": str(error) or "Run interrupted.",
                     "run_directory": str(output),
+                    "source_folder": str(parent)
+                    if parent in folders
+                    else None,
                 },
             )
             save_json(
@@ -803,7 +803,10 @@ def finish_imagej(holder, outputs):
         log = None
         try:
             log = RunLog(output, append=True)
-            log.source_folder = output.parent.resolve()
+            status_path = output / "run_status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            source = status.get("source_folder")
+            log.source_folder = Path(source).resolve() if source else None
             if errors:
                 log.event(
                     "ERROR",
@@ -814,15 +817,10 @@ def finish_imagej(holder, outputs):
                 (output / "shutdown_traceback.txt").write_text(
                     "\n".join(errors), encoding="utf-8"
                 )
-                status_path = output / "run_status.json"
-                if status_path.exists():
-                    status = json.loads(
-                        status_path.read_text(encoding="utf-8")
-                    )
-                    status.update(shutdown_status="ERROR", ended_utc=utc_now())
-                    if status["status"] in ("SUCCESS", "PARTIAL"):
-                        status.update(status="ERROR", stage="ImageJ shutdown")
-                    save_json(status_path, status)
+                status.update(shutdown_status="ERROR", ended_utc=utc_now())
+                if status["status"] in ("SUCCESS", "PARTIAL"):
+                    status.update(status="ERROR", stage="ImageJ shutdown")
+                save_json(status_path, status)
             else:
                 log.event(
                     "INFO",
@@ -830,7 +828,7 @@ def finish_imagej(holder, outputs):
                     "ImageJ context and workers closed; "
                     "returning to the terminal.",
                 )
-        except OSError as error:
+        except (OSError, ValueError, KeyError) as error:
             errors.append(f"Could not record shutdown in {output}: {error}")
         finally:
             if log is not None:

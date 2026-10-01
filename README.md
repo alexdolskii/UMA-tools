@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.10**; this is separate from the V2
+The current Python package version is **0.2.11**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -162,8 +162,9 @@ repository, provide the JSON's absolute path in quotes.
 
 Before the fifth stage, copy
 [`UMA_96_well_plate_template.xlsx`](UMA_96_well_plate_template.xlsx) from the
-repository root directly into the latest completed `Combined_Results`
-directory in each image folder. Fill in your experimental groups and save it.
+repository root directly into the latest completed
+`<image_folder>/uma_assay/Combined_Results_.../` directory.
+Fill in your experimental groups and save it.
 That directory must contain all three collected assay CSVs and **exactly one
 plate-template `.xlsx`**. Then run:
 
@@ -218,7 +219,8 @@ are documented in [`code/README.md`](code/README.md).
 
 ## Progress, logs, and partial results
 
-Each command keeps a current log inside every original-image folder:
+Each command keeps a current log in
+`<image_folder>/uma_assay/UMA_Logs/`:
 
 | Step | Current log in `UMA_Logs/` |
 |---|---|
@@ -228,7 +230,8 @@ Each command keeps a current log inside every original-image folder:
 | Collection | `4_collect_results.log` |
 | Report | `5_report.log` |
 
-A new invocation moves that step's previous log into `UMA_Logs/archive/`
+A new invocation moves that step's previous log into
+`uma_assay/UMA_Logs/archive/`
 with a timestamp. Other steps' logs stay in place. Detailed result-folder
 logs are retained too. The terminal shows current activity and elapsed time,
 with warnings and final counts; redirected output contains no animated control
@@ -243,13 +246,15 @@ failures. `SUCCESS` requires all selected images to finish; `FAILED` means
 none succeeded, and `NO_INPUT` means no matching visible images were found.
 Incomplete/error runs return a nonzero exit code, including partial runs.
 A missing or unwritable source is reported and other folders continue. If no
-source folder is available, startup diagnostics may use the working directory.
+source folder is available, startup diagnostics may use
+`<working_directory>/uma_assay/`. They record the failure and do not create a
+missing source folder.
 
 **Collection selects the newest valid result for each assay, including an
 audited `PARTIAL` run.** Its parameters take precedence over an older complete
 run. Corrupt, cancelled, unfinished or invalid results are skipped with a
-reason. Legacy complete summaries remain supported; older partial outputs
-without the new image audit cannot justify exclusions.
+reason. A partial output without a verifiable image audit cannot justify
+exclusions.
 
 A registered failed image is excluded from **every collected CSV copy** so
 that retained images match across analyses. Original analysis files are
@@ -270,17 +275,29 @@ This change does not introduce process supervision or temporary-file cleanup.
 
 ## Results and checks
 
-Each run creates a separate timestamped directory with logs and diagnostics.
-Source image folders are processed separately. Hidden files, including macOS
+The five core commands write all analysis results, collected tables, reports
+and journals inside `<image_folder>/uma_assay/`. The JSON continues to point
+to the **original image folder**, not to `uma_assay`. Each source folder has
+its own container, and each run gets a new timestamped directory.
+
+Collection and reporting search **only this layout**, with no fallback to
+results saved directly in the image folder. Rerun the image analyses and
+collection when updating from the earlier layout. Existing results are not
+moved or deleted. Image discovery reads only original files directly in the
+source folder; it does not enter `uma_assay`. Hidden files, including macOS
 `._` files, are excluded from image processing and counts.
 
 | Stage | Saved results |
 |---|---|
-| Alignment | Orientation images and tables; `Analysis/Alignment_Summary.csv` |
-| Thickness | Masks, thickness maps, and `Thickness_Summary.csv` |
-| Area | Native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
-| Collection | `Combined_Results_<source_folder_name>_<timestamp>` inside each image folder; separate CSVs prefixed with that folder's name |
-| Report | `UMA_Report_<source_folder_name>_<timestamp>` inside the selected collection; one Excel workbook, 14 plots, raw/filtered/excluded tables, and input copies; optional statistics |
+| Alignment | `uma_assay/Alignment_assay_results_angle_.../`: orientation images and tables; `Analysis/Alignment_Summary.csv` |
+| Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
+| Area | `uma_assay/Area_assay_results_.../`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
+| Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: separate CSVs prefixed with the original image folder's name; place one plate-template `.xlsx` here |
+| Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 14 plots, raw/filtered/excluded tables, input copies, and optional statistics |
+
+Reports are siblings of collections. The report's `run_status.json` and input
+provenance identify the selected `Combined_Results`; its template is still
+read from that collection, regardless of the Excel filename.
 
 Collection selects the newest valid result independently for each assay,
 skipping newer invalid runs. **Selected tables must describe the same images**;
@@ -359,9 +376,10 @@ python -m pip check
 uma_report --version
 ```
 
-An environment already set up for 0.2.5–0.2.8 needs no dependency changes for
-0.2.10: no additional runtime dependencies are required. The version command
-should report `uma_report 0.2.10`.
+An environment already set up for 0.2.5–0.2.10 needs no dependency changes for
+0.2.11: no additional runtime dependencies are required. The version command
+should report `uma_report 0.2.11`. Run the analyses again to populate the new
+`uma_assay` layout before collecting results and generating reports.
 For older environments, first update with
 `conda env update -n uma_tools_new -f environment_uma.yaml`.
 Recreating the environment is unnecessary. Editable installation (`-e`) makes
@@ -402,4 +420,3 @@ Related project: [FIA-tools](https://github.com/alexdolskii/FIA-tools).
 - [Aleksandr Dolskii](mailto:aleksandr.dolskii@fccc.edu)
 - [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com)
 - Michael Miano
-

@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import package_version
+from .files import assay_directory
 
 _SESSION = ContextVar("uma_session", default=None)
 _FOLDER = ContextVar("uma_folder", default=None)
@@ -161,7 +162,7 @@ class CommandSession:
                     raise FileNotFoundError(
                         f"Source folder not found: {folder}"
                     )
-                logs = folder / "UMA_Logs"
+                logs = assay_directory(folder, create=True) / "UMA_Logs"
                 logs.mkdir(exist_ok=True)
                 path = logs / STEPS[self.step]
                 if path.exists():
@@ -190,7 +191,7 @@ class CommandSession:
         )
         self.progress.message(
             f"UMA {self.step}: {len(self.folders)} source folder(s). "
-            "Detailed logs: <source>/UMA_Logs/" + STEPS[self.step]
+            "Detailed logs: <source>/uma_assay/UMA_Logs/" + STEPS[self.step]
         )
 
     def event(self, level, stage, message, *, announce=False, folder=None):

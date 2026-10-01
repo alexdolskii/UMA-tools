@@ -34,7 +34,13 @@ from .contracts import (
     SUMMARY_NAMES,
     THICKNESS_METRICS,
 )
-from .files import safe_label, save_csv, save_json, sha256_file
+from .files import (
+    assay_directory,
+    safe_label,
+    save_csv,
+    save_json,
+    sha256_file,
+)
 from .image_run import SCHEMA
 from .progress import console, folder_logged, outcome, phase, register_sources
 from .run import close_logger, make_logger, unique_output, utc_now
@@ -352,7 +358,7 @@ def validate_image_audit(assay, status, rows, data):
 def select_latest(source, assay, records, logger):
     """Select by run-name timestamp independently of other assays."""
     candidates = []
-    for run in sorted(source.iterdir()):
+    for run in sorted(assay_directory(source).iterdir()):
         if run.name.startswith(".") or not run.name.startswith(assay.prefix):
             continue
         if not run.is_dir() or run.is_symlink():
@@ -609,7 +615,7 @@ def collect_folder(source, input_json):
     label = safe_label(source.name)
     # Do not create missing or unwritable input folders.
     try:
-        output = create_output(source, label)
+        output = create_output(assay_directory(source, create=True), label)
     except OSError as error:
         return diagnostic_failure(source, input_json, error)
     logger = make_logger(output)
@@ -789,7 +795,7 @@ def diagnostic_failure(source, input_json, error):
             if source is not None
             else "configuration_error"
         )
-        output = create_output(Path.cwd(), label)
+        output = create_output(assay_directory(Path.cwd(), create=True), label)
         logger = make_logger(output)
         try:
             logger.error("Collection could not start: %s", error)

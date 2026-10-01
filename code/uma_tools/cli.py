@@ -45,7 +45,10 @@ def _invoke(step, callback, *args):
         print("Cancelled by user.", file=sys.stderr)
         return 130
     except Exception as error:
-        print(f"ERROR: {error}. See UMA_Logs for details.", file=sys.stderr)
+        print(
+            f"ERROR: {error}. See uma_assay/UMA_Logs for details.",
+            file=sys.stderr,
+        )
         return 1
 
 

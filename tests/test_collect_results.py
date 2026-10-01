@@ -38,7 +38,9 @@ class CollectionTests(unittest.TestCase):
         return code, terminal.getvalue()
 
     def output(self, source=None):
-        return sorted((source or self.source).glob("Combined_Results_*"))[-1]
+        return sorted(
+            (source or self.source).glob("uma_assay/Combined_Results_*")
+        )[-1]
 
     def status(self, source=None):
         return json.loads(
@@ -58,7 +60,11 @@ class CollectionTests(unittest.TestCase):
     ):
         source = source or self.source
         if analysis == "Alignment":
-            run = source / f"Alignment_assay_results_angle_{angle}_{stamp}"
+            run = (
+                source
+                / "uma_assay"
+                / f"Alignment_assay_results_angle_{angle}_{stamp}"
+            )
             path = run / "Analysis" / "Alignment_Summary.csv"
             columns = [
                 "File_Name",
@@ -80,7 +86,7 @@ class CollectionTests(unittest.TestCase):
                 for name in names
             ]
         elif analysis == "Thickness":
-            run = source / f"Thickness_assay_results_{stamp}"
+            run = source / "uma_assay" / f"Thickness_assay_results_{stamp}"
             path = run / "Thickness_Summary.csv"
             columns = ["File_Name", "Area", "StdDev", "Min", "Max", "Median"]
             rows = [
@@ -95,7 +101,9 @@ class CollectionTests(unittest.TestCase):
                 for name in names
             ]
         else:
-            run = source / f"Area_assay_results_{stamp}_000123_42"
+            run = (
+                source / "uma_assay" / f"Area_assay_results_{stamp}_000123_42"
+            )
             path = run / "Fibronectin_Area_Summary.csv"
             columns = [
                 "File_Name",
@@ -190,6 +198,42 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(
             sum(row["Status"] == "SELECTED" for row in records), 3
         )
+
+    def move_runs_outside_container(self, paths):
+        moved = {}
+        for analysis, path in paths.items():
+            run = (
+                path.parent.parent if analysis == "Alignment" else path.parent
+            )
+            relative = path.relative_to(run)
+            target = self.source / run.name
+            run.rename(target)
+            moved[analysis] = target / relative
+        return moved
+
+    def test_newer_results_outside_uma_assay_do_not_compete(self):
+        previous = self.move_runs_outside_container(
+            self.all_runs(stamp="20260914_180000")
+        )
+        before = {name: path.read_bytes() for name, path in previous.items()}
+        current = self.all_runs(stamp="20260914_120000")
+        code, terminal = self.run_command()
+        self.assertEqual(code, 0, terminal)
+        self.assertEqual(self.output().parent, self.source / "uma_assay")
+        self.assertEqual(self.status()["source_folder"], str(self.source))
+        for name, path in current.items():
+            self.assertEqual(
+                self.status()["selected"][name]["summary"], str(path)
+            )
+            self.assertEqual(previous[name].read_bytes(), before[name])
+
+    def test_results_only_in_old_location_are_not_collected(self):
+        previous = self.move_runs_outside_container(self.all_runs())
+        code, terminal = self.run_command()
+        self.assertEqual(code, 1, terminal)
+        self.assertEqual(self.status()["analyses_found"], 0)
+        self.assert_no_summaries()
+        self.assertTrue(all(path.is_file() for path in previous.values()))
 
     def test_missing_two_one_and_zero_available_analyses(self):
         self.make_run("Alignment")
@@ -352,9 +396,17 @@ class CollectionTests(unittest.TestCase):
         nested = self.source / "unrelated"
         nested.mkdir()
         self.all_runs(source=nested, stamp="20260914_160000")
-        linked = self.source / "Thickness_assay_results_20260914_180000"
+        linked = (
+            self.source
+            / "uma_assay"
+            / "Thickness_assay_results_20260914_180000"
+        )
         linked.symlink_to(old.parent, target_is_directory=True)
-        hidden_run = self.source / "._Thickness_assay_results_20260914_190000"
+        hidden_run = (
+            self.source
+            / "uma_assay"
+            / "._Thickness_assay_results_20260914_190000"
+        )
         hidden_run.mkdir()
         (hidden_run / old.name).write_bytes(old.read_bytes())
         code, terminal = self.run_command()
@@ -367,7 +419,9 @@ class CollectionTests(unittest.TestCase):
         }
         code, terminal = self.run_command()
         self.assertEqual(code, 0, terminal)
-        self.assertEqual(len(list(self.source.glob("Combined_Results_*"))), 2)
+        self.assertEqual(
+            len(list(self.source.glob("uma_assay/Combined_Results_*"))), 2
+        )
         self.assertEqual(self.status()["analyses_found"], 1)
         self.assertEqual(
             self.status()["selected"]["Thickness"]["summary"], str(old)
@@ -397,7 +451,9 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(self.status(bad)["status"], "VALIDATION_FAILED")
         self.assertEqual(self.status()["status"], "SUCCESS")
         self.assertEqual(self.status(second)["source_name"], second.name)
-        self.assertEqual(len(list(self.source.glob("Combined_Results_*"))), 1)
+        self.assertEqual(
+            len(list(self.source.glob("uma_assay/Combined_Results_*"))), 1
+        )
         self.assertIn("Skipping duplicate JSON folder", terminal)
         self.assertIn("2 folder(s) succeeded; 1 failed", terminal)
 
@@ -453,7 +509,9 @@ class CollectionTests(unittest.TestCase):
                 code = collector.main(["-i", str(metadata)])
             self.assertEqual(code, 1)
             outputs = list(
-                self.root.glob("Combined_Results_configuration_error_*")
+                self.root.glob(
+                    "uma_assay/Combined_Results_configuration_error_*"
+                )
             )
             self.assertEqual(len(outputs), 1)
             self.assertIn(
@@ -467,7 +525,9 @@ class CollectionTests(unittest.TestCase):
             self.assertEqual(self.status()["status"], "SUCCESS")
             self.assertTrue(
                 list(
-                    self.root.glob("Combined_Results_nonexistent originals_*")
+                    self.root.glob(
+                        "uma_assay/Combined_Results_nonexistent originals_*"
+                    )
                 )
             )
         finally:

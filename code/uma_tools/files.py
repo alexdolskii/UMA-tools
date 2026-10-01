@@ -1,4 +1,4 @@
-"""File operations with explicit serialization policies."""
+"""Core output location and file operations with explicit policies."""
 
 from __future__ import annotations
 
@@ -9,6 +9,29 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+
+def assay_directory(source: Path, *, create: bool = False) -> Path:
+    """Locate the core workflows' only results root below original images.
+
+    Never create a missing source or follow a linked output container.
+    Readers use this same location without searching historical layouts.
+    """
+    source = Path(source)
+    if not source.is_dir():
+        raise FileNotFoundError(f"Source folder not found: {source}")
+    directory = source / "uma_assay"
+    if directory.is_symlink():
+        raise OSError(
+            f"Linked uma_assay directory is not accepted: {directory}"
+        )
+    if create:
+        directory.mkdir(exist_ok=True)
+    if not directory.is_dir():
+        raise FileNotFoundError(
+            f"UMA results directory not found: {directory}"
+        )
+    return directory
 
 
 def save_json(

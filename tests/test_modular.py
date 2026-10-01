@@ -460,7 +460,9 @@ class ScopedAssayTests(unittest.TestCase):
 
                         invoke()
                         invoke()
-                    directories = list(source.glob("*assay_results_*"))
+                    directories = list(
+                        source.glob("uma_assay/*assay_results_*")
+                    )
                     self.assertEqual(len(directories), 2)
                     self.assertNotEqual(
                         directories[0].name, directories[1].name
@@ -566,7 +568,7 @@ class ScopedAssayTests(unittest.TestCase):
                 self.assertEqual(logger.level, original_level)
                 self.assertTrue(seen_handlers)
                 self.assertTrue(all(h.stream is None for h in seen_handlers))
-                logs = list(source.glob("*assay_results_*/log.log"))
+                logs = list(source.glob("uma_assay/*assay_results_*/log.log"))
                 self.assertEqual(len(logs), 1)
                 self.assertIn(message, logs[0].read_text(encoding="utf-8"))
                 if not fails:
