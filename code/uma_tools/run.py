@@ -12,7 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .contracts import EVENT_COLUMNS
-from .progress import JournalHandler, current_folder, current_session
+from .progress import (
+    JournalHandler,
+    current_folder,
+    current_session,
+    update_activity,
+)
 
 
 def utc_now(*, timespec: str = "auto") -> str:
@@ -185,7 +190,7 @@ class RunLog:
                     "CANCELLED",
                 ),
             )
-            self.session.progress.update(f"{stage}: {message}")
+            update_activity(f"{stage}: {message}")
         elif console:
             print(line, flush=True)
         return row

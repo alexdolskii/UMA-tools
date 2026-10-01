@@ -13,7 +13,7 @@ from pathlib import Path
 from . import package_version
 from .files import save_csv, save_json, sha256_file
 from .imagej import bioformats_log
-from .progress import CANCELLATIONS, outcome, phase
+from .progress import CANCELLATIONS, image_progress, outcome, phase
 from .run import utc_now
 
 SCHEMA = "uma-image-run-v1"
@@ -109,7 +109,7 @@ class ImageRun:
             self.records[name]["Status"] != "FAILED"
         )
 
-    def _show_progress(self, name, stage):
+    def _progress_label(self, stage):
         """Count completed attempts in this stage, not final assay rows."""
         completed = self._stage_completed[stage]
         failed = sum(
@@ -120,7 +120,10 @@ class ImageRun:
         )
         if failed:
             label += f" | {failed} failed"
-        phase(f"{label} | {name}")
+        return label
+
+    def _show_progress(self, name, stage):
+        phase(f"{self._progress_label(stage)} | {name}")
 
     @contextmanager
     def attempt(self, name, stage, *, final=False):
@@ -134,7 +137,10 @@ class ImageRun:
         self.save()
         self._show_progress(name, stage)
         try:
-            with bioformats_log():
+            with (
+                image_progress(self._progress_label(stage), name),
+                bioformats_log(),
+            ):
                 yield
         except CANCELLATIONS:
             raise

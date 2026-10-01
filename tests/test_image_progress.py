@@ -6,14 +6,18 @@ import tempfile
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
+from unittest.mock import Mock, patch
 
+from uma_tools import thickness_analysis as thickness
 from uma_tools.image_run import ImageRun
 from uma_tools.progress import (
     CANCELLATIONS,
     CommandSession,
     CompactProgress,
     folder_scope,
+    phase,
 )
+from uma_tools.run import RunLog
 
 
 class TerminalBuffer(io.StringIO):
@@ -34,6 +38,12 @@ class ImageProgressTests(unittest.TestCase):
         self.session.progress = CompactProgress(self.terminal)
         contexts = ExitStack()
         self.addCleanup(contexts.close)
+        contexts.enter_context(
+            patch(
+                "uma_tools.progress.shutil.get_terminal_size",
+                return_value=Mock(columns=240),
+            )
+        )
         contexts.enter_context(self.session)
 
     def make_run(self, source, names):
@@ -162,3 +172,134 @@ class ImageProgressTests(unittest.TestCase):
                                 source, stage, index + 1, total, name
                             )
                         self.assertEqual(run.finish(), "SUCCESS")
+
+    def test_operations_keep_the_counter_and_current_filename(self):
+        source = self.sources[0]
+        names = ("one.nd2", "two.nd2")
+        run = self.make_run(source, names)
+        observed = []
+        with folder_scope(source), run:
+            for index, name in enumerate(names):
+                with run.attempt(name, "Thickness", final=True):
+                    for operation in (
+                        "Opening image...",
+                        "Running Local Thickness...",
+                        "Closed all images.\n",
+                    ):
+                        phase(operation)
+                        observed.append(
+                            (
+                                index,
+                                name,
+                                operation.strip(),
+                                self.session.progress.label,
+                            )
+                        )
+            run.finish()
+            phase("Closing ImageJ context")
+            self.assertEqual(
+                self.session.progress.label, "plate1: Closing ImageJ context"
+            )
+        for index, name, operation, label in observed:
+            expected = (
+                f"plate1: Thickness: {index}/2 finished | {operation} | {name}"
+            )
+            self.assertEqual(label, expected)
+            self.assertIn(expected, self.terminal.getvalue())
+        journal = (source / "uma_assay/UMA_Logs/1_alignment.log").read_text()
+        self.assertIn(
+            "Thickness: 1/2 finished | Opening image... | two.nd2", journal
+        )
+
+    def test_real_thickness_filter_messages_do_not_replace_progress(self):
+        source = self.sources[0]
+        run = self.make_run(source, ["one.nd2"])
+        calls = []
+        ij = Mock()
+        ij.run.side_effect = lambda *args: calls.append(
+            (args, self.session.progress.label)
+        )
+        image = object()
+        with folder_scope(source), run:
+            with run.attempt("one.nd2", "Thickness", final=True):
+                thickness.create_thickness_mask(ij, image)
+            run.finish()
+        expected_operations = (
+            "Applying Maximum filter...",
+            "Applying Gaussian Blur...",
+            "Subtracting background...",
+            "Applying threshold...",
+            "Applying threshold...",
+        )
+        self.assertEqual(len(calls), len(expected_operations))
+        for (_, label), operation in zip(calls, expected_operations):
+            self.assertEqual(
+                label,
+                f"plate1: Thickness: 0/1 finished | {operation} | one.nd2",
+            )
+
+    def test_failure_and_cancellation_clear_the_image_activity_context(self):
+        source = self.sources[0]
+        run = self.make_run(source, ["bad.nd2", "next.nd2"])
+        with folder_scope(source), run:
+            with run.attempt("bad.nd2", "Thickness", final=True):
+                phase("Opening image...")
+                raise ValueError("Deliberate unreadable image")
+            phase("Between images")
+            self.assertEqual(
+                self.session.progress.label, "plate1: Between images"
+            )
+            with run.attempt("next.nd2", "Thickness", final=True):
+                phase("Opening image...")
+                observed = self.session.progress.label
+            self.assertEqual(
+                observed,
+                "plate1: Thickness: 1/2 finished | 1 failed | "
+                "Opening image... | next.nd2",
+            )
+            self.assertEqual(run.finish(), "PARTIAL")
+        for index, cancellation in enumerate(CANCELLATIONS):
+            output = source / "uma_assay" / f"cancel_activity_{index}"
+            output.mkdir()
+            with self.assertRaises(cancellation):
+                with (
+                    folder_scope(source),
+                    ImageRun(output, source, ["cancel.nd2"], {}) as run,
+                ):
+                    with run.attempt("cancel.nd2", "Thickness"):
+                        phase("Opening image...")
+                        raise cancellation()
+            with folder_scope(self.sources[1]):
+                phase("Initializing ImageJ")
+                self.assertEqual(
+                    self.session.progress.label, "plate2: Initializing ImageJ"
+                )
+
+    def test_area_events_also_keep_the_counter_without_duplicate_log_entries(
+        self,
+    ):
+        source = self.sources[0]
+        run = self.make_run(source, ["one.nd2"])
+        with folder_scope(source), run:
+            log = RunLog(run.output)
+            try:
+                with run.attempt("one.nd2", "Projection and area", final=True):
+                    log.event("PASS", "Projection", "SUM32 verified")
+                    observed = self.session.progress.label
+                    log.event("WARNING", "Area", "Example warning")
+                    warning = self.session.progress.label
+                run.finish()
+            finally:
+                log.close()
+        self.assertEqual(
+            observed,
+            "plate1: Projection and area: 0/1 finished | "
+            "Projection: SUM32 verified | one.nd2",
+        )
+        self.assertEqual(
+            warning,
+            "plate1: Projection and area: 0/1 finished | "
+            "Area: Example warning | one.nd2",
+        )
+        journal = (source / "uma_assay/UMA_Logs/1_alignment.log").read_text()
+        self.assertEqual(journal.count("SUM32 verified"), 1)

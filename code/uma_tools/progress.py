@@ -25,6 +25,7 @@ from .runtime import runtime_context
 
 _SESSION = ContextVar("uma_session", default=None)
 _FOLDER = ContextVar("uma_folder", default=None)
+_IMAGE_PROGRESS = ContextVar("uma_image_progress", default=None)
 STEPS = {
     "alignment": "1_alignment.log",
     "thickness": "2_thickness.log",
@@ -289,18 +290,38 @@ def folder_scope(folder):
         _FOLDER.reset(token)
 
 
-def phase(message):
-    """Record an operation without flooding a redirected terminal."""
+@contextmanager
+def image_progress(counter, filename):
+    """Keep an image's counter visible while its operations change."""
+    token = _IMAGE_PROGRESS.set((current_folder(), counter, filename))
+    try:
+        yield
+    finally:
+        _IMAGE_PROGRESS.reset(token)
+
+
+def update_activity(message, *, record=False):
+    """Show an operation with any active image counter and filename."""
     session = current_session()
+    folder = current_folder()
+    image = _IMAGE_PROGRESS.get()
+    if image is not None and image[0] == folder:
+        message = f"{image[1]} | {str(message).strip()} | {image[2]}"
     if session is None:
-        print(message, flush=True)
+        if record:
+            print(message, flush=True)
     else:
-        session.event("INFO", "Stage", message)
-        folder = current_folder()
+        if record:
+            session.event("INFO", "Stage", message)
         label = f"{folder.name}: " if folder is not None else ""
         if session.progress.thread is None and session.progress.tty:
             session.progress.__enter__()
         session.progress.update(label + str(message).strip())
+
+
+def phase(message):
+    """Record an operation without flooding a redirected terminal."""
+    update_activity(message, record=True)
 
 
 def outcome(status, message):

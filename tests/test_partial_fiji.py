@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -140,6 +141,33 @@ record_completion(0, True)
                         )
                         self.assertIn("Orientation: 1/1 finished", journal)
                         self.assertIn("Summary: 1/1 finished", journal)
+                    if command == "uma_thickness":
+                        journal = (
+                            source / "uma_assay/UMA_Logs/2_thickness.log"
+                        ).read_text()
+                        for operation in (
+                            "Opening image...",
+                            "Extracting fibronectin channel...",
+                            "Performing Reslice...",
+                            "Performing Z projection...",
+                            "Applying Maximum filter...",
+                            "Applying Gaussian Blur...",
+                            "Subtracting background...",
+                            "Applying threshold...",
+                            "Running Local Thickness...",
+                            "Measuring thickness...",
+                            "Closed all images.",
+                        ):
+                            self.assertRegex(
+                                journal,
+                                r"Thickness: [01]/2 finished"
+                                r"(?: \| 1 failed)? \| "
+                                + re.escape(operation)
+                                + r" \| good_WellB02\.tiff",
+                            )
+                        self.assertIn(
+                            "Thickness: 2/2 finished | 1 failed", journal
+                        )
 
             container = source / "uma_assay"
             collected = subprocess.run(
