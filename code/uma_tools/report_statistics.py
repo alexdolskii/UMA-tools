@@ -357,7 +357,9 @@ def _apply_holm(comparisons):
             adjusted = max(previous, adjusted)
             previous = row["P_Holm"] = adjusted
             row["Significance"] = (
-                "***"
+                "****"
+                if adjusted < 0.0001
+                else "***"
                 if adjusted < 0.001
                 else "**"
                 if adjusted < 0.01

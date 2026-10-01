@@ -6,21 +6,31 @@ from __future__ import annotations
 
 import colorsys
 import math
-import textwrap
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from .plot_style import (
+    FONT_SIZES,
+    PNG_DPI,
+    panel_letter,
+    plot_font,
+    rc_parameters,
+    short_labels,
+    wrap_label,
+)
 from .progress import phase
 from .report_schema import (
     BASE_COLORS,
     FN_LOW_FLAG,
     FN_METRIC,
     LOW_FN_EDGE_COLOR,
-    SHEET_NAMES,
+    PLOT_NAMES,
     THICKNESS_METRICS,
     THICKNESS_UNITS,
     EventLogger,
     ReportData,
+    ValidationError,
 )
 
 
@@ -61,11 +71,11 @@ def box_definition(values):
 def _plot_specs(data):
     """Keep the original full-data metric order and unit labels."""
     specs = [
-        ("Fibronectin", FN_METRIC, "Fibronectin-positive area by group", "%"),
+        ("Fibronectin", FN_METRIC, "Fibronectin coverage", "%"),
         (
             "Alignment",
             data["metric"],
-            f"Fibers aligned within ±{data['angle_label']}° by group",
+            f"Fibers aligned within ±{data['angle_label']}°",
             "%",
         ),
     ]
@@ -73,7 +83,13 @@ def _plot_specs(data):
         (
             field,
             f"{field} ({THICKNESS_UNITS[field]})",
-            f"{field} by group",
+            {
+                "Area": "Thickness analysis: measured area",
+                "StdDev": "Thickness standard deviation",
+                "Min": "Minimum thickness",
+                "Max": "Maximum thickness",
+                "Median": "Median thickness",
+            }[field],
             THICKNESS_UNITS[field],
         )
         for field in THICKNESS_METRICS
@@ -141,11 +157,13 @@ def _draw_boxes(axis, rows, groups, field):
     return boxes, box_groups
 
 
-def _draw_points(axis, data, rows, field, filtered, colors, x_positions):
+def _draw_points(
+    axis, data, rows, field, filtered, colors, x_positions, groups=None
+):
     """
     Draw each image once using its original well color and FN flag.
     """
-    groups = data["group_order"]
+    groups = groups if groups is not None else data["group_order"]
     plotted_ids, red_ids = [], []
     for group in groups:
         for rep_index, well in enumerate(data["group_wells"][group]):
@@ -235,7 +253,7 @@ def _plot_statistics(data, field, filtered):
         f"Two-sided Welch tests: {test_unit}. Holm adjustment across "
         "all seven metrics and treatment-versus-control comparisons "
         "within each color block. Adjusted p: * <0.05; ** <0.01; "
-        "*** <0.001; ns: ≥0.05. Not tested: insufficient or "
+        "*** <0.001; **** <0.0001; ns: ≥0.05. Not tested: insufficient or "
         "undefined test data. Technical comparisons within one plate."
     )
     if field == FN_METRIC:
@@ -296,7 +314,7 @@ def _comparison_layout(comparisons, groups):
             if comparison["Status"] == "Tested"
             else "Not tested"
         )
-        if label not in {"*", "**", "***", "ns", "Not tested"}:
+        if label not in {"*", "**", "***", "****", "ns", "Not tested"}:
             raise RuntimeError("Unexpected statistical plot annotation.")
         layout.append(
             {
@@ -333,9 +351,155 @@ def _draw_comparisons(axis, comparisons, level_count):
             comparison["Annotation"],
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=FONT_SIZES["axis"],
+            fontweight="bold",
             color="#334155",
         )
+
+
+def prepare_plot_design(data, template, log):
+    """Read descriptive colors without enabling statistical tests."""
+    statistics = data.get("statistics")
+    if statistics is not None:
+        data["plot_design"] = statistics["design"]
+        data["template_theme"] = statistics.get("template_theme")
+        data["template_palette"] = statistics.get("template_palette")
+        return
+    import openpyxl
+
+    from .report_statistics import _color_fields, _reject_conditional_styles
+
+    workbook = openpyxl.load_workbook(template, data_only=False)
+    design = []
+    try:
+        sheet = workbook[data["template_sheet"]]
+        data["template_theme"] = workbook.loaded_theme
+        data["template_palette"] = list(workbook._colors)
+        try:
+            _reject_conditional_styles(sheet)
+        except ValidationError:
+            log.event(
+                "INFO",
+                "Plot panels",
+                "Conditional plate styles cannot define panels; "
+                "using all conditions together. Statistics remain disabled.",
+            )
+            data["plot_design"] = []
+            return
+        for row, letter in enumerate("ABCDEFGH", 2):
+            for column in range(1, 13):
+                well = f"{letter}{column:02d}"
+                if well not in data["well_map"]:
+                    continue
+                cell = sheet.cell(row, column + 1)
+                try:
+                    fields = _color_fields(cell)
+                except ValueError:
+                    continue
+                design.append(
+                    {
+                        "Group": data["well_map"][well],
+                        "Well": well,
+                        "Excel_Cell": cell.coordinate,
+                        "Is_Control": bool(cell.font.bold),
+                        **fields,
+                    }
+                )
+    finally:
+        workbook.close()
+    data["plot_design"] = design
+
+
+def plot_panels(data):
+    """Partition conditions once, retaining empty filtered groups."""
+    groups = data["group_order"]
+    statistics = data.get("statistics") or {}
+    design = data.get("plot_design", statistics.get("design", []))
+    by_well = {row["Well"]: row for row in design}
+    group_colors = {}
+    for group in groups:
+        colors = {
+            by_well.get(well, {}).get("Color_Code")
+            for well in data["group_wells"][group]
+        }
+        # Ambiguous or incomplete descriptive markup must not split a
+        # condition, discard observations, or require controls.
+        if len(colors) != 1 or None in colors:
+            group_colors = {}
+            break
+        group_colors[group] = colors.pop()
+    blocks = {}
+    for group in groups:
+        blocks.setdefault(group_colors.get(group, ""), []).append(group)
+    if any(
+        row["Control"] in group_colors
+        and row["Treatment"] in group_colors
+        and group_colors[row["Control"]] != group_colors[row["Treatment"]]
+        for row in statistics.get("comparisons", [])
+    ):
+        blocks = {"": groups}
+    context, _ = short_labels(groups)
+    panels = []
+    for index, (color, members) in enumerate(blocks.items(), 1):
+        prefix, labels = short_labels(members)
+        heading = prefix
+        if context and prefix.startswith(context):
+            heading = prefix[len(context) :].strip()
+        panels.append(
+            {
+                "id": panel_letter(index),
+                "color_code": color,
+                "groups": members,
+                "labels": labels,
+                "context": context,
+                "title": heading
+                or (f"Block {index}" if color else "All conditions"),
+            }
+        )
+    return panels
+
+
+def _legend_handles(name, threshold, filtered, colors):
+    from matplotlib.lines import Line2D
+
+    handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="none",
+            markerfacecolor=color,
+            markeredgecolor="white",
+            markersize=8,
+            label=f"Technical well {index}",
+        )
+        for index, color in enumerate(colors, 1)
+    ]
+    if not filtered:
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="none",
+                markerfacecolor="#CBD5E1",
+                markeredgecolor=LOW_FN_EDGE_COLOR,
+                markeredgewidth=1.9,
+                markersize=8,
+                label=f"Red outline: FN < {threshold:g}%",
+            )
+        )
+    if name == "Fibronectin":
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=LOW_FN_EDGE_COLOR,
+                linestyle="--",
+                label=f"FN cutoff: {threshold:g}%",
+            )
+        )
+    return handles
 
 
 def _render_plot(
@@ -347,289 +511,391 @@ def _render_plot(
     shared_upper,
     x_positions,
     log,
+    plot_format="pdf",
 ):
-    """Render, verify and save one complete plot, always closing it."""
+    """Render all panels with unchanged image values and well colors."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
 
     name, field, base_title, unit = spec
-    threshold, groups = data["fn_threshold"], data["group_order"]
-    max_replicates = len(colors)
+    groups, threshold = data["group_order"], data["fn_threshold"]
     rows = data["retained_rows"] if filtered else data["rows"]
-    stats_unit, stats_note, comparisons = _plot_statistics(
-        data, field, filtered
-    )
-    comparisons, comparison_levels = _comparison_layout(comparisons, groups)
-    if any(row["Bracket_Level"] is None for row in comparisons):
+    panels = plot_panels(data)
+    stats_unit, stats_note, supplied = _plot_statistics(data, field, filtered)
+    # Keep untestable comparisons involving unimaged conditions in the
+    # manifest and Statistics table; there is no invented X position.
+    all_comparisons, _ = _comparison_layout(supplied, groups)
+    missing = [r for r in all_comparisons if r["Bracket_Level"] is None]
+    if missing:
         stats_note += (
             " Comparisons involving conditions with no source images "
             "are listed in the Statistics sheet."
         )
-    counts = {
-        group: sum(row["Group"] == group for row in rows) for group in groups
-    }
+    counts = {g: sum(r["Group"] == g for r in rows) for g in groups}
     well_counts = {
-        group: len({row["Well"] for row in rows if row["Group"] == group})
-        for group in groups
+        g: len({r["Well"] for r in rows if r["Group"] == g}) for g in groups
     }
-    labels = [
-        textwrap.fill(
-            group, width=26, break_long_words=True, break_on_hyphens=False
-        )
-        + (
-            f"\nn_images={counts[group]}; n_wells={well_counts[group]}"
-            if stats_unit is not None
-            else f"\nn={counts[group]}"
-        )
-        for group in groups
-    ]
-    width = max(14.2, 1.2 * len(labels))
-    legend_count = (
-        max_replicates
-        + (0 if filtered else 1)
-        + (1 if name == "Fibronectin" else 0)
-    )
-    legend_rows = math.ceil(legend_count / 4)
-    height = (
-        8.7
-        + 0.28 * (legend_rows - 1)
-        + 0.2 * max(label.count("\n") for label in labels)
-    )
-    annotation_height = 0.38 * comparison_levels
-    caption_height = 0.58 if stats_unit is not None else 0
-    base_height = height
-    height += annotation_height + caption_height
-    view = f"FN area ≥ {threshold:g}%" if filtered else "All images"
+    columns = min(2, len(panels))
+    panel_width = max(7.2, 1.85 * max(len(p["groups"]) for p in panels))
+    width = columns * panel_width
+    view = f"FN coverage ≥ {threshold:g}%" if filtered else "All images"
     title = f"{base_title} — {view}"
-    with plt.rc_context(
-        {
-            "font.family": "DejaVu Sans",
-            "font.size": 11,
-            "text.usetex": False,
-            "text.parse_math": False,
+    heading = wrap_label(
+        title, (width - 0.6) * 72, FONT_SIZES["title"], "bold"
+    )
+    subtitle = wrap_label(
+        panels[0]["context"], (width - 0.6) * 72, FONT_SIZES["panel"]
+    )
+    handles = _legend_handles(name, threshold, filtered, colors)
+    legend_columns = min(4, max(2, int(width / 3)))
+    legend_rows = math.ceil(len(handles) / legend_columns)
+    panel_labels, layouts, local_positions = {}, {}, {}
+    for panel in panels:
+        label_width = (
+            (panel_width - 1.3) * 72 / (len(panel["groups"]) + 0.2) * 0.9
+        )
+        panel_labels[panel["id"]] = {
+            g: wrap_label(label, label_width, FONT_SIZES["axis"])
+            for g, label in panel["labels"].items()
         }
-    ):
-        if comparison_levels:
-            fig, (comparison_axis, axis) = plt.subplots(
-                2,
-                1,
-                figsize=(width, height),
-                dpi=160,
-                sharex=True,
-                gridspec_kw={
-                    "height_ratios": [annotation_height, base_height],
-                },
-            )
-        else:
-            fig, axis = plt.subplots(figsize=(width, height), dpi=160)
+        comparisons = [
+            r
+            for r in supplied
+            if r["Control"] in panel["groups"]
+            and r["Treatment"] in panel["groups"]
+        ]
+        layouts[panel["id"]] = _comparison_layout(comparisons, panel["groups"])
+        for local_index, group in enumerate(panel["groups"], 1):
+            shift = local_index - (groups.index(group) + 1)
+            for row in data["rows"]:
+                if row["Group"] == group:
+                    image_id = row["Image_ID"]
+                    local_positions[image_id] = x_positions[image_id] + shift
+    label_lines = max(
+        s.count("\n") + 1
+        for labels in panel_labels.values()
+        for s in labels.values()
+    )
+    levels = max(levels for _, levels in layouts.values())
+    caption = "One point = one image. Box: median and IQR; whiskers: 1.5 IQR. "
+    caption += (
+        f"{len(rows)} retained images; FN ≥ {threshold:g}%. "
+        if filtered
+        else f"{len(rows)} images; low FN outlined in red. "
+    )
+    caption += (
+        f"Welch + Holm; test unit: {stats_unit}. Symbols: Statistics table."
+        if filtered and stats_unit
+        else "Descriptive view; no tests."
+    )
+    display_caption = wrap_label(
+        caption, (width - 0.6) * 72, FONT_SIZES["note"]
+    )
+    source = data.get("source_name", data.get("plate_id", ""))
+    footer_label = wrap_label(
+        f"{source} · Run: {data.get('run_id', '')}".strip(" ·"),
+        (width - 0.6) * 72,
+        FONT_SIZES["note"],
+    )
+    header_height = (
+        0.4 * (heading.count("\n") + 1)
+        + (0.32 * (subtitle.count("\n") + 1) if subtitle else 0)
+        + 0.35 * legend_rows
+        + 0.2
+    )
+    body_height = math.ceil(len(panels) / columns) * (
+        4.2 + 0.28 * label_lines + 0.45 * levels + 0.55
+    )
+    footer_height = (
+        0.23 * (display_caption.count("\n") + footer_label.count("\n") + 2)
+        + 0.32
+    )
+    height = header_height + body_height + footer_height + 0.4
+    stem = (
+        "fibronectin_boxplot"
+        if name == "Fibronectin"
+        else "alignment_boxplot"
+        if name == "Alignment"
+        else f"thickness_{name.lower()}_boxplot"
+    ) + ("_filtered" if filtered else "")
+    plot_id = name + (" Filtered" if filtered else " Plot")
+    png_path, pdf_path = (
+        directory / (stem + ".png"),
+        directory / (stem + ".pdf"),
+    )
+    rendered_ids, red_ids, boxes_by_group, annotations = [], [], {}, []
+    with plt.rc_context(rc_parameters()):
+        fig = plt.figure(figsize=(width, height), layout="constrained")
+        fig.get_layout_engine().set(
+            w_pad=0.12, h_pad=0.12, hspace=0.06, wspace=0.04
+        )
         try:
-            boxes, box_groups = _draw_boxes(axis, rows, groups, field)
-            plotted_ids, red_ids = _draw_points(
-                axis,
-                data,
-                rows,
-                field,
-                filtered,
-                colors,
-                x_positions,
+            outer = fig.add_gridspec(
+                3, 1, height_ratios=[header_height, body_height, footer_height]
             )
-            actual_points, actual_red = _verify_points(
-                axis,
-                rows,
-                plotted_ids,
-                red_ids,
-                0 if filtered else len(data["excluded_rows"]),
-                name,
-                view,
+            header = fig.add_subplot(outer[0])
+            header.set_axis_off()
+            header.set_label("header")
+            header.text(
+                0.5,
+                1,
+                heading,
+                ha="center",
+                va="top",
+                fontsize=FONT_SIZES["title"],
+                fontweight="bold",
+                transform=header.transAxes,
             )
-            upper = shared_upper[field]
-            axis.set_ylim(0, upper)
-            axis.set_xlim(0.4, len(labels) + 0.6)
-            if comparison_levels:
-                _draw_comparisons(
-                    comparison_axis, comparisons, comparison_levels
-                )
-            axis.set_ylabel(
-                "Fibronectin-positive area (%)"
-                if name == "Fibronectin"
-                else "Fibers aligned (%)"
-                if name == "Alignment"
-                else field
-            )
-            axis.set_xlabel("Group")
-            axis.set_xticks(range(1, len(labels) + 1))
-            axis.set_xticklabels(labels, rotation=32, ha="right", fontsize=10)
-            axis.grid(axis="y", color="#D7DEE8", linewidth=0.8)
-            axis.set_axisbelow(True)
-            axis.spines[["top", "right"]].set_visible(False)
-            axis.spines[["left", "bottom"]].set_color("#94A3B8")
-            if not rows:
-                axis.text(
+            if subtitle:
+                header.text(
                     0.5,
-                    0.5,
-                    f"No images meet FN area ≥ {threshold:g}%",
-                    transform=axis.transAxes,
+                    (0.35 * legend_rows + 0.12) / header_height,
+                    subtitle,
                     ha="center",
-                    va="center",
-                    color="#475569",
+                    va="bottom",
+                    fontsize=FONT_SIZES["panel"],
+                    transform=header.transAxes,
                 )
-            handles = [
-                Line2D(
-                    [0],
-                    [0],
-                    marker="o",
-                    linestyle="none",
-                    markerfacecolor=colors[index],
-                    markeredgecolor="white",
-                    markersize=8,
-                    label=f"Technical replicate {index + 1}",
-                )
-                for index in range(max_replicates)
-            ]
-            if not filtered:
-                handles.append(
-                    Line2D(
-                        [0],
-                        [0],
-                        marker="o",
-                        linestyle="none",
-                        markerfacecolor="#CBD5E1",
-                        markeredgecolor=LOW_FN_EDGE_COLOR,
-                        markeredgewidth=1.9,
-                        markersize=8,
-                        label=f"Red outline: FN area < {threshold:g}%",
+            header.legend(
+                handles=handles,
+                loc="lower center",
+                ncol=legend_columns,
+                frameon=False,
+                fontsize=FONT_SIZES["note"],
+                borderaxespad=0,
+            )
+            grid = outer[1].subgridspec(
+                math.ceil(len(panels) / columns), columns
+            )
+            for index, panel in enumerate(panels):
+                local_rows = [r for r in rows if r["Group"] in panel["groups"]]
+                local_layout, _ = layouts[panel["id"]]
+                slot = grid[index // columns, index % columns]
+                if levels:
+                    subgrid = slot.subgridspec(
+                        2, 1, height_ratios=[0.45 * levels, 4.2]
                     )
+                    bracket_axis = fig.add_subplot(subgrid[0])
+                    bracket_axis.set_label("comparisons_" + panel["id"])
+                    axis = fig.add_subplot(subgrid[1], sharex=bracket_axis)
+                    _draw_comparisons(bracket_axis, local_layout, levels)
+                    title_axis = bracket_axis
+                else:
+                    axis = fig.add_subplot(slot)
+                    title_axis = axis
+                axis.set_label("data_" + panel["id"])
+                panel_title = wrap_label(
+                    f"{panel['id']}  {panel['title']}",
+                    (panel_width - 1.3) * 72,
+                    FONT_SIZES["panel"],
+                    "bold",
                 )
-            if name == "Fibronectin":
-                axis.axhline(
-                    threshold,
-                    color=LOW_FN_EDGE_COLOR,
-                    linestyle="--",
-                    linewidth=1.3,
+                title_axis.set_title(
+                    panel_title,
+                    fontsize=FONT_SIZES["panel"],
+                    fontweight="bold",
+                    pad=12,
                 )
-                handles.append(
-                    Line2D(
-                        [0],
-                        [0],
+                boxes, box_groups = _draw_boxes(
+                    axis, local_rows, panel["groups"], field
+                )
+                ids, reds = _draw_points(
+                    axis,
+                    data,
+                    local_rows,
+                    field,
+                    filtered,
+                    colors,
+                    local_positions,
+                    panel["groups"],
+                )
+                _verify_points(
+                    axis,
+                    local_rows,
+                    ids,
+                    reds,
+                    0 if filtered else sum(r[FN_LOW_FLAG] for r in local_rows),
+                    name,
+                    view,
+                )
+                rendered_ids.extend(ids)
+                red_ids.extend(reds)
+                boxes_by_group.update(zip(box_groups, boxes))
+                annotations.extend(
+                    {**r, "Panel": panel["id"]} for r in local_layout
+                )
+                axis.set_ylim(0, shared_upper[field])
+                axis.set_xlim(0.4, len(panel["groups"]) + 0.6)
+                ylabel = (
+                    "Fibronectin coverage (%)"
+                    if name == "Fibronectin"
+                    else "Fibers aligned (%)"
+                    if name == "Alignment"
+                    else f"{base_title} ({unit})"
+                )
+                axis.set_ylabel(ylabel, fontsize=FONT_SIZES["axis"])
+                labels = panel_labels[panel["id"]]
+                axis.set_xticks(
+                    range(1, len(panel["groups"]) + 1),
+                    [labels[g] for g in panel["groups"]],
+                    fontsize=FONT_SIZES["axis"],
+                )
+                lines = max(s.count("\n") + 1 for s in labels.values())
+                for position, group in enumerate(panel["groups"], 1):
+                    image_word = "image" if counts[group] == 1 else "images"
+                    well_word = "well" if well_counts[group] == 1 else "wells"
+                    sample = (
+                        f"n={counts[group]} {image_word}\n"
+                        f"{well_counts[group]} {well_word}"
+                    )
+                    label = axis.annotate(
+                        sample,
+                        (position, 0),
+                        xycoords=axis.get_xaxis_transform(),
+                        xytext=(0, -(12 + lines * FONT_SIZES["axis"] * 1.2)),
+                        textcoords="offset points",
+                        ha="center",
+                        va="top",
+                        fontsize=FONT_SIZES["sample"],
+                        annotation_clip=False,
+                    )
+                    label.set_gid("sample_size")
+                axis.tick_params(axis="x", pad=6)
+                axis.tick_params(axis="y", labelsize=FONT_SIZES["axis"])
+                axis.ticklabel_format(axis="y", style="sci", scilimits=(-4, 5))
+                axis.yaxis.get_offset_text().set_fontsize(FONT_SIZES["sample"])
+                axis.grid(axis="y", color="#D7DEE8", linewidth=0.8)
+                axis.set_axisbelow(True)
+                axis.spines[["top", "right"]].set_visible(False)
+                axis.spines[["left", "bottom"]].set_color("#94A3B8")
+                if name == "Fibronectin":
+                    axis.axhline(
+                        threshold,
                         color=LOW_FN_EDGE_COLOR,
                         linestyle="--",
-                        label=f"FN area threshold: {threshold:g}%",
+                        linewidth=1.3,
                     )
+                if not local_rows:
+                    axis.text(
+                        0.5,
+                        0.5,
+                        "No retained images",
+                        ha="center",
+                        va="center",
+                        transform=axis.transAxes,
+                        fontsize=FONT_SIZES["note"],
+                    )
+            if len(rendered_ids) != len(rows) or set(rendered_ids) != {
+                r["Image_ID"] for r in rows
+            }:
+                raise RuntimeError(
+                    "Panel assignment changed the image population"
                 )
-            fig.suptitle(title, fontsize=16, y=0.975)
-            fig.legend(
-                handles=handles,
-                loc="upper center",
-                bbox_to_anchor=(0.5, 0.93),
-                ncol=min(4, legend_count),
-                frameon=False,
-                fontsize=10,
+            footer = fig.add_subplot(outer[2])
+            footer.set_axis_off()
+            footer.set_label("footer")
+            footer.text(
+                0,
+                1,
+                display_caption,
+                fontsize=FONT_SIZES["note"],
+                va="top",
+                transform=footer.transAxes,
             )
-            count_note = (
-                (
-                    f"{len(rows)} retained; "
-                    f"{len(data['excluded_rows'])} excluded "
-                    "from this view."
-                )
-                if filtered
-                else (
-                    f"{len(rows)} images; "
-                    f"{len(data['excluded_rows'])} below the FN threshold."
-                )
+            footer.text(
+                0,
+                0,
+                footer_label,
+                fontsize=FONT_SIZES["note"],
+                va="bottom",
+                transform=footer.transAxes,
             )
-            caption = (
-                count_note
-                + " Point fill identifies the original technical-replicate "
-                "well. Points and boxes always represent images.\n"
-                "Boxes: 1.5×IQR whiskers; n=1: point only; n=0: no point "
-                "or box.\n"
-                + textwrap.fill(stats_note, width=max(100, int(width * 13)))
-            )
-            fig.text(
-                0.5,
-                0.026,
-                caption,
-                ha="center",
-                fontsize=9,
-                color="#475569",
-            )
-            fig.tight_layout(
-                h_pad=0.2,
-                rect=(
-                    0.015,
-                    0.08 + caption_height / height,
-                    0.985,
-                    0.90 - 0.03 * (legend_rows - 1),
-                ),
-            )
-            stem = (
-                "fibronectin_boxplot"
-                if name == "Fibronectin"
-                else "alignment_boxplot"
-                if name == "Alignment"
-                else f"thickness_{name.lower()}_boxplot"
-            )
-            path = directory / (
-                stem + ("_filtered" if filtered else "") + ".png"
-            )
-            fig.savefig(path, facecolor="white")
-            plot = {
-                "name": name,
-                "sheet": name + (" Filtered" if filtered else " Plot"),
-                "view": "Filtered" if filtered else "All images",
-                "metric": field,
-                "title": title,
-                "unit": unit,
-                "path": str(path),
-                "point_count": actual_points,
-                "red_outline_count": actual_red,
-                "y_min": 0.0,
-                "y_max": upper,
-                "width": width,
-                "height": height,
-                "group_order": groups,
-                "group_counts": counts,
-                "group_well_counts": well_counts,
-                "statistics_unit": stats_unit,
-                "statistics_note": stats_note,
-                "statistical_comparisons": comparisons,
-                "box_groups": box_groups,
-                "empty_groups": [
-                    group for group in groups if counts[group] == 0
-                ],
-                "singleton_groups": [
-                    group for group in groups if counts[group] == 1
-                ],
-                "plotted_image_ids": plotted_ids,
-                "red_outline_image_ids": red_ids,
-                "x_positions": {
-                    image_id: x_positions[image_id] for image_id in plotted_ids
-                },
-                "technical_replicate_colors": colors,
-                "boxes": {group: box for group, box in zip(box_groups, boxes)},
-            }
-            log.event(
-                "PASS",
-                "Plot",
-                f"{plot['sheet']}: {actual_points} points; "
-                f"{actual_red} red outlines; "
-                f"Y=0 to {upper:.6g} {unit}",
-            )
+            if plot_format in ("png", "both"):
+                fig.savefig(png_path, dpi=PNG_DPI, facecolor="white")
+            if plot_format in ("pdf", "both"):
+                fig.savefig(pdf_path, facecolor="white")
+            if plot_format == "pdf":
+                with BytesIO() as preview:
+                    fig.savefig(
+                        preview, format="png", dpi=PNG_DPI, facecolor="white"
+                    )
+                    data.setdefault("plot_previews", {})[plot_id] = (
+                        preview.getvalue()
+                    )
         finally:
             plt.close(fig)
+    # Stable order in metadata, even if blocks change panel placement.
+    order = {
+        r["Image_ID"]: (
+            groups.index(r["Group"]),
+            data["group_wells"][r["Group"]].index(r["Well"]),
+            i,
+        )
+        for i, r in enumerate(data["rows"])
+    }
+    rendered_ids.sort(key=order.get)
+    red_ids.sort(key=order.get)
+    plot = {
+        "name": name,
+        "plot_id": plot_id,
+        "sheet": "Plots",
+        "view": "Filtered" if filtered else "All images",
+        "metric": field,
+        "title": title,
+        "unit": unit,
+        "path": str(pdf_path if plot_format == "pdf" else png_path),
+        "png_file": str(png_path) if plot_format in ("png", "both") else "",
+        "pdf_file": str(pdf_path) if plot_format in ("pdf", "both") else "",
+        "format": plot_format,
+        "font": plot_font(),
+        "png_dpi": PNG_DPI,
+        "caption": caption,
+        "statistics_note": stats_note,
+        "point_count": len(rendered_ids),
+        "red_outline_count": len(red_ids),
+        "y_min": 0.0,
+        "y_max": shared_upper[field],
+        "width": width,
+        "height": height,
+        "panels": panels,
+        "group_order": groups,
+        "group_counts": counts,
+        "group_well_counts": well_counts,
+        "statistics_unit": stats_unit,
+        "statistical_comparisons": annotations + missing,
+        "box_groups": [g for g in groups if g in boxes_by_group],
+        "empty_groups": [g for g in groups if counts[g] == 0],
+        "singleton_groups": [g for g in groups if counts[g] == 1],
+        "plotted_image_ids": rendered_ids,
+        "red_outline_image_ids": red_ids,
+        "x_positions": {key: x_positions[key] for key in rendered_ids},
+        "rendered_x_positions": {
+            key: local_positions[key] for key in rendered_ids
+        },
+        "technical_replicate_colors": colors,
+        "boxes": boxes_by_group,
+    }
+    log.event(
+        "PASS",
+        "Plot",
+        f"{plot_id}: {len(panels)} panel(s); "
+        f"{len(rendered_ids)} points; {len(red_ids)} red outlines; "
+        f"Y=0 to {shared_upper[field]:.6g} {unit}",
+    )
     return plot
 
 
 def create_plots(
-    data: ReportData, directory: Path, log: EventLogger
+    data: ReportData,
+    directory: Path,
+    log: EventLogger,
+    plot_format="pdf",
 ) -> list[dict[str, Any]]:
-    """
-    Build seven full-data and seven filtered plots with stable colors
-    and axes.
-    """
+    """Build all fourteen views, independently of export format."""
+    if plot_format not in ("pdf", "png", "both"):
+        raise ValueError("plot_format must be pdf, png, or both")
     directory.mkdir()
     max_replicates = max(map(len, data["group_wells"].values()))
     colors = replicate_colors(max_replicates)
@@ -645,22 +911,21 @@ def create_plots(
     x_positions = _point_positions(data, max_replicates)
     jobs = [(spec, False) for spec in specs] + [(spec, True) for spec in specs]
     plots = []
-    for index, ((name, field, base_title, unit), filtered) in enumerate(
-        jobs, 1
-    ):
-        phase(f"Plot {index}/{len(jobs)}: {name}, filtered={filtered}")
+    for index, (spec, filtered) in enumerate(jobs, 1):
+        phase(f"Plot {index}/{len(jobs)}: {spec[0]}, filtered={filtered}")
         plots.append(
             _render_plot(
                 data,
                 directory,
-                (name, field, base_title, unit),
+                spec,
                 filtered,
                 colors,
                 shared_upper,
                 x_positions,
                 log,
+                plot_format,
             )
         )
-    if [plot["sheet"] for plot in plots] != SHEET_NAMES[:14]:
+    if [plot["plot_id"] for plot in plots] != PLOT_NAMES:
         raise RuntimeError("The required 14-plot order was not preserved.")
     return plots

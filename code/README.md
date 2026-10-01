@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.12**.
+development; the current Python package version is **0.2.13**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -47,10 +47,29 @@ define comparison blocks, and bold condition names identify each block's
 control. See the [statistics rules](../README.md#optional-report-statistics)
 for template validation, correction families, and interpretation.
 
+## Figure and workbook style
+
+Version 0.2.13 follows the FIA figure style: Arial (Liberation Sans or DejaVu
+Sans fallback), readable labels, at most two panel columns, and shared linear
+Y limits. All 14 figures are embedded on one final **Plots** sheet. Overview
+opens the workbook; original measurements, filter results, optional statistics,
+plot data/labels, and source/run information remain separate searchable tables.
+
+```bash
+uma_report -i input_paths.json --fn-threshold 20 --stats-unit well --plot-format both
+```
+
+`--plot-format pdf` is the default; `png` exports 300 dpi figures and `both`
+exports both formats. PDF-only reports embed in-memory raster previews in Excel
+without leaving PNG files. PNG orientation compositions from alignment also
+use the shared typography and 300 dpi; both retain the original HSV encoding.
+The display resolution does not alter scientific pixels, masks or measurements.
+See [figure and workbook details](../README.md#figures-and-workbook).
+
 ## One package directory
 
 The `code` directory contains this README and `uma_tools`, a package with
-24 Python files. Its modules contain implementations rather than compatibility
+25 Python files. Its modules contain implementations rather than compatibility
 adapters. `cli.py` routes commands directly to the five analysis/workflow
 modules listed above; shared helpers are beside them in the same directory.
 
@@ -71,11 +90,12 @@ The remaining modules have these responsibilities:
 | `imagej.py` | Headless Fiji initialization and worker cleanup |
 | `area_imagej.py` | SUM32 projection, threshold bounds, masks, and area measurements |
 | `report_inputs.py` | Select, verify, and archive collected report inputs |
-| `report_tables.py` | Read summary tables and the plate template |
+| `report_tables.py` | Read inputs and prepare plot/provenance export tables |
 | `report_validation.py` | Match images, validate annotations, and apply the FN coverage filter |
 | `report_schema.py` | Report constants, data types, and validation errors |
 | `report_statistics.py` | Validate color/bold controls and calculate optional Welch/Holm comparisons |
-| `report_plots.py` | Generate the report figures |
+| `plot_style.py` | Shared figure fonts, label wrapping, and export settings |
+| `report_plots.py` | Generate all report figures and descriptive color panels |
 | `report_workbook.py` | Build and verify the Excel workbook |
 
 For custom Python integrations, import implementations directly, for example
@@ -155,3 +175,9 @@ that living or unidentified descendants prevent cleanup. Native integration
 checks require all five commands to clean temporary files while handing off
 partial scientific results. Diagnostics tests cover bounded scans, corrupt
 metadata, symbolic links, lightweight imports, and log copying/rotation.
+
+Appearance regressions reconcile every plotted image and box across panel
+layouts and formats, preserve well colors and low-FN outlines, exercise
+uncolored and tinted templates without statistics, and verify 14 pictures on
+one Plots sheet. Numeric exports, raw/adjusted p-values, and the frozen
+alignment distributions/RGB samples remain covered by regression checks.

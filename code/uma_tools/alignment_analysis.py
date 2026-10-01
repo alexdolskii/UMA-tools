@@ -14,6 +14,7 @@ from .image_run import ImageRun, active_run, image_attempt, image_names
 from .imagej import (
     initialize_imagej,
 )
+from .plot_style import FONT_SIZES, PNG_DPI, rc_parameters, wrap_label
 from .progress import (
     CANCELLATIONS,
     ask_channel,
@@ -314,6 +315,7 @@ def save_orientation_result(
     results_folder: str,
     images_folder: str,
     normalized_images_folder: str,
+    source_filename: str | None = None,
 ) -> None:
     """
     Export the original distribution and both orientation compositions.
@@ -346,96 +348,92 @@ def save_orientation_result(
     # Value: original image normalized
     im_display_hsv[:, :, 2] = image_gray / image_gray.max()
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(matplotlib.colors.hsv_to_rgb(im_display_hsv))
-    ax.set_title(f"Image-Orientation Composition for\n{filename}")
-
-    # Create ScalarMappable for the colorbar to represent angles
-    sm = matplotlib.cm.ScalarMappable(
-        norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap="hsv"
-    )
-    sm.set_array([])
-
-    fig.colorbar(
-        sm,
-        ax=ax,
-        orientation="vertical",
-        label="Degrees from Horizontal",
-        shrink=0.7,
-    )
-
-    composition_path = os.path.join(
-        images_folder,
-        f"{os.path.splitext(filename)[0]}_orientation_composition.png",
-    )
-    fig.savefig(composition_path)
-    plt.close(fig)
-    _LOGGER.info(
-        f"Orientation composition image saved at '{composition_path}'."
-    )
-
-    # Calculate modal angle (dominant orientation)
     modal_angle = bin_centers[np.argmax(hist)]
     _LOGGER.info(f"Modal angle for {filename}: {modal_angle:.2f}°")
+    # Preserve the original angular encoding and dominant-angle shift.
+    hue_shift = -2 * modal_angle
+    normalized_hsv = im_display_hsv.copy()
+    normalized_hsv[:, :, 0] = (im_display_hsv[:, :, 0] + hue_shift / 360) % 1.0
+    stem = os.path.splitext(filename)[0]
+    for hsv, folder, suffix, title, label in (
+        (
+            im_display_hsv,
+            images_folder,
+            "orientation_composition",
+            "Fiber orientation",
+            "Orientation relative to horizontal (°)",
+        ),
+        (
+            normalized_hsv,
+            normalized_images_folder,
+            "normalized_orientation",
+            "Normalized fiber orientation",
+            "Deviation from dominant orientation (°)",
+        ),
+    ):
+        path = os.path.join(folder, f"{stem}_{suffix}.png")
+        _save_orientation_figure(
+            matplotlib.colors.hsv_to_rgb(hsv),
+            source_filename or filename,
+            path,
+            title,
+            label,
+        )
+        _LOGGER.info("Orientation composition saved at '%s'.", path)
 
-    # Create HSV representation
-    im_display_hsv = np.zeros(
-        (image_gray.shape[0], image_gray.shape[1], 3), dtype="f4"
-    )
-    im_display_hsv[:, :, 0] = (orientations["theta"] + 90) / 180.0
-    im_display_hsv[:, :, 1] = normalized_directionality
-    im_display_hsv[:, :, 2] = image_gray / image_gray.max()
 
-    # Normalize Hue: shift to display modal angle as cyan (180°)
-    hue_shift = -2 * modal_angle  # Required shift in degrees
-    normalized_hue = (im_display_hsv[:, :, 0] + hue_shift / 360) % 1.0
-    im_display_hsv_normalized = im_display_hsv.copy()
-    im_display_hsv_normalized[:, :, 0] = normalized_hue
-
-    # Save original orientation composition
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(matplotlib.colors.hsv_to_rgb(im_display_hsv))
-    ax.set_title(f"Image-Orientation Composition for\n{filename}")
-    sm = matplotlib.cm.ScalarMappable(
-        norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap="hsv"
-    )
-    sm.set_array([])
-    fig.colorbar(
-        sm,
-        ax=ax,
-        orientation="vertical",
-        label="Degrees from Horizontal",
-        shrink=0.7,
-    )
-    composition_path = os.path.join(
-        images_folder,
-        f"{os.path.splitext(filename)[0]}_orientation_composition.png",
-    )
-    fig.savefig(composition_path)
-    plt.close(fig)
-
-    # Save normalized orientation composition
-    fig_norm, ax_norm = plt.subplots(figsize=(6, 6))
-    ax_norm.imshow(matplotlib.colors.hsv_to_rgb(im_display_hsv_normalized))
-    ax_norm.set_title(f"Normalized Orientation for\n{filename}")
-    sm_norm = matplotlib.cm.ScalarMappable(
-        norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap="hsv"
-    )
-    sm_norm.set_array([])
-    fig_norm.colorbar(
-        sm_norm,
-        ax=ax_norm,
-        orientation="vertical",
-        label="Deviation from Dominant Direction (°)",
-        shrink=0.7,
-    )
-    normalized_path = os.path.join(
-        normalized_images_folder,
-        f"{os.path.splitext(filename)[0]}_normalized_orientation.png",
-    )
-    fig_norm.savefig(normalized_path)
-    plt.close(fig_norm)
-    _LOGGER.info(f"Normalized orientation image saved at '{normalized_path}'.")
+def _save_orientation_figure(rgb, filename, path, title, colorbar_label):
+    """Export the complete image with its title and literal filename."""
+    width = 8.5
+    footer = wrap_label(filename, (width - 0.6) * 72, FONT_SIZES["note"])
+    footer_height = 0.24 * (footer.count("\n") + 1) + 0.12
+    image_height = max(3.0, 6.6 * rgb.shape[0] / rgb.shape[1])
+    with plt.rc_context(rc_parameters()):
+        fig = plt.figure(
+            figsize=(width, image_height + footer_height + 1),
+            layout="constrained",
+        )
+        fig.get_layout_engine().set(w_pad=0.12, h_pad=0.12)
+        try:
+            grid = fig.add_gridspec(
+                3, 1, height_ratios=[0.5, image_height, footer_height]
+            )
+            heading = fig.add_subplot(grid[0])
+            heading.set_axis_off()
+            heading.text(
+                0.5,
+                0.5,
+                title,
+                ha="center",
+                va="center",
+                fontsize=FONT_SIZES["title"],
+                fontweight="bold",
+            )
+            body = grid[1].subgridspec(1, 2, width_ratios=[1, 0.045])
+            axis = fig.add_subplot(body[0])
+            axis.imshow(rgb, interpolation="nearest", aspect="equal")
+            axis.set_axis_off()
+            mapping = matplotlib.cm.ScalarMappable(
+                norm=matplotlib.colors.Normalize(vmin=-90, vmax=90), cmap="hsv"
+            )
+            colorbar_axis = fig.add_subplot(body[1])
+            colorbar = fig.colorbar(mapping, cax=colorbar_axis)
+            colorbar.set_label(colorbar_label, fontsize=FONT_SIZES["axis"])
+            colorbar.set_ticks([-90, -45, 0, 45, 90])
+            colorbar.ax.tick_params(labelsize=FONT_SIZES["axis"])
+            note = fig.add_subplot(grid[2])
+            note.set_axis_off()
+            note.text(
+                0,
+                0.5,
+                footer,
+                va="center",
+                fontsize=FONT_SIZES["note"],
+                transform=note.transAxes,
+            )
+            fig.savefig(path, dpi=PNG_DPI, facecolor="white")
+        finally:
+            plt.close(fig)
 
 
 def process_part2_orientationpy(
@@ -501,6 +499,7 @@ def process_part2_orientationpy(
                     results_folder,
                     images_folder,
                     normalized_images_folder,
+                    source_filename=name,
                 )
             finally:
                 plt.close("all")

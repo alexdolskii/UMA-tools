@@ -108,7 +108,7 @@ class StatisticsCommandTests(ReportFixture):
                     status["workbook"], read_only=True, data_only=False
                 )
                 try:
-                    self.assertEqual(len(workbook.sheetnames), 24)
+                    self.assertEqual(len(workbook.sheetnames), 17)
                     self.assertTrue(
                         {
                             "Statistics",

@@ -179,6 +179,7 @@ class EntryPointTests(unittest.TestCase):
             "report_schema",
             "report_statistics",
             "report_plots",
+            "plot_style",
             "report_workbook",
         }
         package = REPOSITORY / "code" / "uma_tools"

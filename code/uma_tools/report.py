@@ -35,6 +35,7 @@ from . import (
 )
 from .config import read_config
 from .files import assay_directory, safe_label, save_json
+from .plot_style import FONT_SIZES, PNG_DPI, plot_font
 from .progress import console, folder_logged, phase, register_sources
 from .report_schema import (
     EVENT_COLUMNS,
@@ -234,6 +235,9 @@ def run_parameters(status, args):
             "biological replicate is blank"
         ),
         "stats_unit": stats_unit,
+        "plot_format": getattr(args, "plot_format", "pdf"),
+        "png_dpi": PNG_DPI,
+        "plot_font_sizes": FONT_SIZES,
         "statistical_tests": (
             "Two-sided Welch t-tests against the control; Holm correction "
             "over all seven metrics within each template color"
@@ -432,13 +436,11 @@ def save_verified_workbook(data, plots, log, run_id, candidate, final_path):
                 [completion_time, "SUCCESS", "Run", message],
             )
         )
-        log_sheet = workbook["Run Log"]
-        log_sheet.delete_rows(1, log_sheet.max_row)
-        report_workbook.write_table(
-            log_sheet,
-            EVENT_COLUMNS,
-            log.events + [completion],
-            widths=[28, 14, 32, 130],
+        # Openpyxl closes in-memory image streams on save. Rebuild the
+        # snapshot with fresh previews for the final embedded run log.
+        workbook.close()
+        workbook = report_workbook.build_workbook(
+            data, plots, log.events + [completion], run_id
         )
         workbook.save(candidate)
     finally:
@@ -542,6 +544,7 @@ def process_folder(source, input_json, args):
         "input_json": str(input_json),
         "run_directory": str(directory),
         "stats_unit": getattr(args, "stats_unit", None),
+        "plot_format": getattr(args, "plot_format", "pdf"),
     }
     candidate, final_path = None, None
 
@@ -587,6 +590,7 @@ def process_folder(source, input_json, args):
         parameters["dependency_versions"] = load_dependencies(
             log, status["stats_unit"]
         )
+        parameters["plot_font"] = plot_font()
         save_json(directory / "run_parameters.json", parameters)
         stage("Input validation")
         data = report_validation.validate_and_merge(
@@ -642,8 +646,21 @@ def process_folder(source, input_json, args):
             annotation_coverage_percent=100,
         )
         stage("Plots")
-        plots = report_plots.create_plots(data, directory / "Plots", log)
+        data.update(run_id=run_id, source_name=source.name)
+        report_plots.prepare_plot_design(data, snapshots["template"], log)
+        plots = report_plots.create_plots(
+            data, directory / "Plots", log, status["plot_format"]
+        )
         save_json(directory / "plot_manifest.json", plots)
+        report_tables.prepare_display_tables(
+            data, plots, parameters, manifests
+        )
+        for name, table in data["display_tables"].items():
+            report_inputs.save_csv(
+                directory / f"{name.lower()}.csv",
+                table["columns"],
+                table["rows"],
+            )
         stage("Workbook export")
         final_path = (
             directory / f"UMA_Report_{safe_label(source.name)}_{run_id}.xlsx"
@@ -713,6 +730,12 @@ def parse_args(argv=None):
             "well; image treats images as independent (exploratory). "
             "Omit to disable tests. Requires color blocks and bold controls."
         ),
+    )
+    parser.add_argument(
+        "--plot-format",
+        choices=("pdf", "png", "both"),
+        default="pdf",
+        help="Figure export: vector PDF (default), PNG at 300 dpi, or both",
     )
     parser.add_argument(
         "--sheet",

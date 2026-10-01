@@ -108,7 +108,11 @@ class StatisticalPlotsTests(unittest.TestCase):
                 plots._point_positions(data, 2),
                 self.log,
             )
-        return manifest, captured[0]
+        figure = captured[0]
+        for axis in list(figure.axes):
+            if axis.get_label() in ("header", "footer"):
+                figure.delaxes(axis)
+        return manifest, figure
 
     def test_disabled_report_includes_filtered_fn_without_annotations(self):
         with patch("matplotlib.figure.Figure.savefig"):
@@ -116,7 +120,7 @@ class StatisticalPlotsTests(unittest.TestCase):
                 report_data(), self.directory / "plots", self.log
             )
         self.assertEqual(len(manifest), 14)
-        self.assertEqual(manifest[7]["sheet"], "Fibronectin Filtered")
+        self.assertEqual(manifest[7]["plot_id"], "Fibronectin Filtered")
         self.assertEqual(manifest[7]["point_count"], 3)
         self.assertEqual(manifest[7]["red_outline_count"], 0)
         for item in manifest:
@@ -171,9 +175,9 @@ class StatisticalPlotsTests(unittest.TestCase):
         self.assertIn("one mean per well", manifest["statistics_note"])
         self.assertTrue(
             all(
-                "n_images=" in label.get_text()
-                and "n_wells=" in label.get_text()
-                for label in figure.axes[-1].get_xticklabels()
+                "image" in label.get_text() and "well" in label.get_text()
+                for label in figure.axes[-1].texts
+                if label.get_gid() == "sample_size"
             )
         )
 

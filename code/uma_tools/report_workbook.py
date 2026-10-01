@@ -6,16 +6,19 @@ from __future__ import annotations
 
 import math
 import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import package_version
+from .plot_style import HEADER_COLOR
 from .report_schema import (
     EVENT_COLUMNS,
     FN_INCLUDED_FLAG,
     FN_LOW_FLAG,
     FN_METRIC,
     FN_REASON_COLUMN,
+    PLOT_NAMES,
     SHEET_NAMES,
     ReportData,
     ValidationError,
@@ -33,9 +36,10 @@ def workbook_sheet_names(data):
     """Include statistical exports only when tests were requested."""
     names = list(SHEET_NAMES)
     if data.get("statistics") is not None:
-        names.extend(STATISTICS_SHEETS)
+        index = names.index("Plate Map")
+        names[index:index] = STATISTICS_SHEETS
     if data.get("processing_exclusions"):
-        names.append("Processing Exclusions")
+        names.insert(names.index("Filter Summary"), "Processing Exclusions")
     return names
 
 
@@ -66,7 +70,7 @@ def write_table(sheet, columns, rows, start=1, widths=None, filters=True):
     for index, (column, width) in enumerate(zip(columns, widths), 1):
         cell = put_cell(sheet, start, index, column)
         cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.fill = PatternFill("solid", fgColor=HEADER_COLOR)
         cell.alignment = Alignment(
             horizontal="center", vertical="center", wrap_text=True
         )
@@ -119,7 +123,7 @@ def title_sheet(sheet, title):
     sheet.row_dimensions[2].height = 27
     for column in range(1, 14):
         sheet.cell(3, column).border = Border(
-            bottom=Side(style="thin", color="1F4E78")
+            bottom=Side(style="thin", color=HEADER_COLOR)
         )
 
 
@@ -137,113 +141,87 @@ def _plot_statistics_note(data, plot):
 
 
 def _write_plot_sheets(workbook, data, plots):
-    """Embed every plot with its original group and replicate counts."""
+    """Place all fourteen figures vertically on one Plots sheet."""
     from openpyxl.drawing.image import Image
-    from openpyxl.styles import Font
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.worksheet.pagebreak import Break
 
-    group_rows = []
-    max_replicates = max(map(len, data["group_wells"].values()))
-    group_columns = ["Group"] + [
-        f"Technical replicate {index} well"
-        for index in range(1, max_replicates + 1)
-    ]
-    group_columns += [
-        "Images in this plot",
-        "All images",
-        "Retained images",
-        "Excluded images",
-    ]
-    filter_lookup = {row["Group"]: row for row in data["group_filter_counts"]}
-    for group in data["group_order"]:
-        counts = filter_lookup[group]
-        record = {
-            "Group": group,
-            "All images": counts["Total_Images"],
-            "Retained images": counts["Retained_Images"],
-            "Excluded images": counts["Excluded_Images"],
-        }
-        record.update(
-            {
-                f"Technical replicate {index} well": well
-                for index, well in enumerate(data["group_wells"][group], 1)
-            }
+    sheet = workbook["Plots"]
+    title_sheet(sheet, "UMA figures — all images, then FN-filtered images")
+    sheet.sheet_properties.tabColor = HEADER_COLOR
+    for column in "ABCDEFGHIJKLMNOP":
+        sheet.column_dimensions[column].width = 9
+    row_number = 5
+    for index, plot in enumerate(plots):
+        if index:
+            sheet.row_breaks.append(Break(id=row_number - 1))
+        title = put_cell(sheet, row_number, 1, plot["title"])
+        title.font = Font(name="Arial", size=14, bold=True, color=HEADER_COLOR)
+        title.alignment = Alignment(wrap_text=True, vertical="center")
+        sheet.merge_cells(
+            start_row=row_number,
+            start_column=1,
+            end_row=row_number,
+            end_column=16,
         )
-        group_rows.append(record)
-    for plot in plots:
-        sheet = workbook[plot["sheet"]]
-        title_sheet(sheet, plot["title"])
-        sheet.sheet_properties.tabColor = (
-            "2E7D58" if plot["view"] == "Filtered" else "1F4E78"
+        sheet.row_dimensions[row_number].height = 36
+        note = put_cell(
+            sheet, row_number + 1, 1, _plot_statistics_note(data, plot)
         )
-        axis_policy = (
-            "0–100%"
-            if plot["name"] in ("Alignment", "Fibronectin")
-            else (
-                f"0–{plot['y_max']:.6g} {plot['unit']}; "
-                "identical for the full/filtered pair"
-            )
+        note.font = Font(name="Arial", size=10, color="475569")
+        note.alignment = Alignment(wrap_text=True, vertical="center")
+        sheet.merge_cells(
+            start_row=row_number + 1,
+            start_column=1,
+            end_row=row_number + 1,
+            end_column=16,
         )
-        notes = [
-            ("Metric", plot["metric"]),
-            ("Validation", "PASS — 100% matching and annotation"),
-            (
-                "Images / groups",
-                f"{plot['point_count']} / "
-                f"{len(data['group_order'])} positions; "
-                f"{sum(count > 0 for count in plot['group_counts'].values())} "
-                "groups with points",
-            ),
-            ("Y-axis", axis_policy),
-            (
-                "FN filter / statistics",
-                f"{plot['view']}; cutoff {data['fn_threshold']:g}%; "
-                f"{plot['red_outline_count']} red outlines. "
-                + _plot_statistics_note(data, plot),
-            ),
-        ]
-        for row_number, (label, value) in enumerate(notes, 4):
-            put_cell(sheet, row_number, 1, label).font = Font(
-                name="Arial", size=10, bold=True, color="475569"
-            )
-            put_cell(sheet, row_number, 4, value).font = Font(
-                name="Arial", size=10, color="1F2937"
-            )
-            sheet.row_dimensions[row_number].height = 21
-        put_cell(
-            sheet,
-            9,
-            1,
-            (
-                "Embedded plots are snapshots. Run the program again after "
-                "changing input files."
-            ),
-        ).font = Font(name="Arial", size=10, italic=True, color="475569")
-        picture = Image(plot["path"])
-        picture.width = max(1100, int(plot["width"] * 78))
+        sheet.row_dimensions[row_number + 1].height = 30
+        preview = data.get("plot_previews", {}).get(plot.get("plot_id"))
+        source = (
+            BytesIO(preview)
+            if preview is not None
+            else (plot.get("png_file") or plot["path"])
+        )
+        picture = Image(source)
+        picture.width = min(1050, int(plot["width"] * 100))
         picture.height = round(picture.width * plot["height"] / plot["width"])
-        group_start = 13 + math.ceil(picture.height / 24)
-        for row_number in range(11, group_start):
-            sheet.row_dimensions[row_number].height = 18
-        sheet.add_image(picture, "A11")
-        plot_group_rows = [
-            {**row, "Images in this plot": plot["group_counts"][row["Group"]]}
-            for row in group_rows
+        anchor_row = row_number + 3
+        sheet.add_image(picture, f"A{anchor_row}")
+        end_row = anchor_row + math.ceil(picture.height / 24) + 2
+        for row in range(anchor_row, end_row):
+            sheet.row_dimensions[row].height = 18
+        row_number = end_row + 2
+    sheet.print_options.horizontalCentered = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A3
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.print_area = f"A1:P{row_number}"
+    sheet.freeze_panes = "A5"
+
+
+def _write_display_tables(workbook, data):
+    """Keep full labels, plot observations and source provenance."""
+    for name, table in data.get("display_tables", {}).items():
+        columns = table["columns"]
+        widths = [
+            100
+            if column
+            in ("Value", "Path", "Archived_Path", "Caption", "Statistics")
+            and name != "Plot_Data"
+            else 65
+            if column in ("Image_ID", "Group", "Title", "SHA256")
+            else 42
+            if column
+            in ("Display_Label", "Panel_Title", "Figure_Context", "Parameter")
+            else 24
+            for column in columns
         ]
-        write_table(
-            sheet,
-            group_columns,
-            plot_group_rows,
-            start=group_start,
-            widths=[30] + [26] * max_replicates + [18] * 4,
-            filters=False,
-        )
-        sheet.print_options.horizontalCentered = True
-        sheet.page_setup.orientation = "landscape"
-        sheet.page_setup.paperSize = sheet.PAPERSIZE_A3
-        sheet.page_setup.fitToWidth = 1
-        sheet.page_setup.fitToHeight = 1
-        sheet.sheet_properties.pageSetUpPr.fitToPage = True
-        sheet.print_area = f"A1:P{group_start + len(group_rows) + 1}"
+        write_table(workbook[name], columns, table["rows"], widths=widths)
+        workbook[name].freeze_panes = "A2"
+    workbook["Overview"].sheet_properties.tabColor = HEADER_COLOR
 
 
 def _write_measurement_sheets(workbook, data):
@@ -369,7 +347,7 @@ def _write_plate_map(workbook, data):
                 horizontal="center", vertical="center", wrap_text=True
             )
             cell.fill = PatternFill(
-                "solid", fgColor="1F4E78" if r == 6 or c == 1 else "F2F6FA"
+                "solid", fgColor=HEADER_COLOR if r == 6 or c == 1 else "F2F6FA"
             )
             plate_sheet.column_dimensions[get_column_letter(c)].width = (
                 18 if c > 1 else 8
@@ -385,8 +363,12 @@ def _write_plate_map(workbook, data):
         ),
     ).font = Font(name="Arial", size=10, italic=True)
     statistics = data.get("statistics")
-    if statistics is not None:
-        _apply_comparison_styles(plate_sheet, statistics["design"])
+    design = (
+        statistics["design"]
+        if statistics is not None
+        else data.get("plot_design", [])
+    )
+    _apply_comparison_styles(plate_sheet, design)
 
 
 def _comparison_fill(record):
@@ -538,7 +520,8 @@ def _statistics_notes(data):
         ("Interpretation", statistics["note"]),
         (
             "Significance",
-            "Adjusted p: *** < 0.001; ** < 0.01; * < 0.05; ns >= 0.05. "
+            "Adjusted p: **** < 0.0001; *** < 0.001; ** < 0.01; "
+            "* < 0.05; ns >= 0.05. "
             "Not tested is distinct from ns; unavailable numbers are blank.",
         ),
     ]
@@ -636,11 +619,14 @@ def build_workbook(
         "Alignment, Thickness, and Fibronectin Python Report"
     )
     workbook.properties.version = package_version()
-    statistics = data.get("statistics")
-    if statistics is not None and statistics.get("template_theme"):
-        workbook.loaded_theme = statistics["template_theme"]
-    if statistics is not None and statistics.get("template_palette"):
-        workbook._colors = list(statistics["template_palette"])
+    statistics = data.get("statistics") or {}
+    theme = data.get("template_theme", statistics.get("template_theme"))
+    palette = data.get("template_palette", statistics.get("template_palette"))
+    if theme:
+        workbook.loaded_theme = theme
+    if palette:
+        workbook._colors = list(palette)
+    _write_display_tables(workbook, data)
     _write_plot_sheets(workbook, data, plots)
     _write_measurement_sheets(workbook, data)
     _write_filter_summary(workbook, data)
@@ -710,20 +696,15 @@ def _verify_plate_map(workbook, data):
         for expected, cell in zip(values, saved):
             if not _same_excel_value(expected, cell.value):
                 raise RuntimeError("Plate Map annotations changed on export.")
-    statistics = data.get("statistics")
-    if statistics is None:
-        return
-    if (
-        statistics.get("template_theme")
-        and workbook.loaded_theme != (statistics["template_theme"])
-    ):
+    statistics = data.get("statistics") or {}
+    theme = data.get("template_theme", statistics.get("template_theme"))
+    palette = data.get("template_palette", statistics.get("template_palette"))
+    if theme and workbook.loaded_theme != theme:
         raise RuntimeError("Plate Map color theme changed during export.")
-    if (
-        statistics.get("template_palette")
-        and list(workbook._colors) != (statistics["template_palette"])
-    ):
+    if palette and list(workbook._colors) != palette:
         raise RuntimeError("Plate Map indexed palette changed during export.")
-    for record in statistics["design"]:
+    design = statistics.get("design", data.get("plot_design", []))
+    for record in design:
         row, column = coordinate_to_tuple(record["Excel_Cell"])
         cell = cells[row - 1][column - 1]
         expected = _comparison_fill(record)
@@ -766,6 +747,8 @@ def verify_workbook(
             _verify_table(
                 workbook[sheet_name], columns, records, STATISTICS_TABLE_START
             )
+        for name, table in data.get("display_tables", {}).items():
+            _verify_table(workbook[name], table["columns"], table["rows"])
         _verify_plate_map(workbook, data)
         if data.get("processing_exclusions"):
             _verify_table(
@@ -802,17 +785,39 @@ def verify_workbook(
         images = [
             name for name in archive.namelist() if name.startswith("xl/media/")
         ]
-        plot_count = sum(
-            name.endswith((" Plot", " Filtered")) for name in SHEET_NAMES
-        )
+        plot_count = len(PLOT_NAMES)
         if len(images) != plot_count:
             raise RuntimeError(
                 f"Expected {plot_count} embedded plots; found {len(images)}."
             )
-        for index in range(1, plot_count + 1):
-            if b"<drawing " not in archive.read(
-                f"xl/worksheets/sheet{index}.xml"
-            ):
-                raise RuntimeError(
-                    f"Plot sheet {index} is missing its drawing."
-                )
+        from xml.etree import ElementTree
+
+        drawing_sheets = [
+            index
+            for index in range(1, len(workbook_sheet_names(data)) + 1)
+            if b"<drawing " in archive.read(f"xl/worksheets/sheet{index}.xml")
+        ]
+        if drawing_sheets != [workbook_sheet_names(data).index("Plots") + 1]:
+            raise RuntimeError(
+                "All report figures must be on the Plots sheet."
+            )
+        drawings = [
+            name
+            for name in archive.namelist()
+            if name.startswith("xl/drawings/drawing") and name.endswith(".xml")
+        ]
+        namespace = (
+            "http://schemas.openxmlformats.org/drawingml/2006/"
+            "spreadsheetDrawing"
+        )
+        pictures = [
+            node
+            for name in drawings
+            for node in ElementTree.fromstring(archive.read(name)).iter(
+                f"{{{namespace}}}pic"
+            )
+        ]
+        if len(pictures) != plot_count:
+            raise RuntimeError(
+                "The Plots sheet does not contain all fourteen figures."
+            )

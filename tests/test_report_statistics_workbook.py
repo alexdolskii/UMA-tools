@@ -14,7 +14,7 @@ from uma_tools.report_schema import (
     FN_LOW_FLAG,
     FN_METRIC,
     FN_REASON_COLUMN,
-    SHEET_NAMES,
+    PLOT_NAMES,
 )
 
 METRIC = "Percentage_Fibers_Aligned_Within_10.0_Degree"
@@ -218,13 +218,14 @@ class StatisticsWorkbookTests(unittest.TestCase):
 
     def make_plots(self):
         plots = []
-        for sheet in SHEET_NAMES:
+        for sheet in PLOT_NAMES:
             if not sheet.endswith((" Plot", " Filtered")):
                 continue
             name, view = sheet.split(" ", 1)
             plots.append(
                 {
-                    "sheet": sheet,
+                    "sheet": "Plots",
+                    "plot_id": sheet,
                     "name": name,
                     "view": view,
                     "title": sheet,
@@ -256,9 +257,9 @@ class StatisticsWorkbookTests(unittest.TestCase):
                 export.verify_workbook(path, data)
                 workbook = openpyxl.load_workbook(path)
                 self.addCleanup(workbook.close)
-                self.assertEqual(len(workbook.sheetnames), 24)
+                self.assertEqual(len(workbook.sheetnames), 17)
                 self.assertEqual(
-                    workbook.sheetnames[-3:],
+                    workbook.sheetnames[5:8],
                     ["Well Means", "Statistics", "Comparison Design"],
                 )
                 sheet = workbook["Statistics"]
@@ -282,10 +283,11 @@ class StatisticsWorkbookTests(unittest.TestCase):
                 self.assertEqual(
                     workbook["Plate Map"]["D9"].fill.fgColor.tint, 0.49998
                 )
-                self.assertIn(unit, workbook["Alignment Filtered"]["D8"].value)
+                self.assertEqual(len(workbook["Plots"]._images), 14)
+                self.assertEqual(workbook.sheetnames[-1], "Plots")
                 self.assertIn(
                     "filtered data only",
-                    workbook["Alignment Plot"]["D8"].value,
+                    workbook["Plots"]["A6"].value,
                 )
                 self.assertIn("unadjusted", sheet["D9"].value)
                 self.assertEqual(
@@ -298,12 +300,10 @@ class StatisticsWorkbookTests(unittest.TestCase):
         export.verify_workbook(path, data)
         workbook = openpyxl.load_workbook(path)
         self.addCleanup(workbook.close)
-        self.assertEqual(len(workbook.sheetnames), 21)
+        self.assertEqual(len(workbook.sheetnames), 14)
         self.assertNotIn("Statistics", workbook.sheetnames)
         self.assertEqual(sum(len(sheet._images) for sheet in workbook), 14)
-        self.assertIn(
-            "Statistics disabled", workbook["Alignment Filtered"]["D8"].value
-        )
+        self.assertIn("Statistics disabled", workbook["Plots"]["A6"].value)
         self.assertFalse(workbook["Plate Map"]["C8"].font.bold)
 
     def test_verification_rejects_altered_statistics_tables(self):

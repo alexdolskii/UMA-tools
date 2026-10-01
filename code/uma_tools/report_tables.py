@@ -435,3 +435,192 @@ def read_template(
         return selected, grid, well_map, cells
     finally:
         workbook.close()
+
+
+def prepare_display_tables(data, plots, parameters, manifests):
+    """Expose plot observations and provenance without recalculation."""
+    import json
+
+    tables = {}
+
+    def add(name, columns, rows):
+        tables[name] = {"columns": columns, "rows": rows}
+
+    overview = [
+        ("Report", "UMA fibronectin analysis"),
+        ("Source folder", parameters.get("source_folder", "")),
+        ("Collection", parameters.get("combined_results_folder", "")),
+        ("Plate", data["plate_id"]),
+        ("Run ID", parameters.get("run_id", "")),
+        ("Images before FN filtering", len(data["rows"])),
+        ("Images retained", len(data["retained_rows"])),
+        ("Images below FN cutoff", len(data["excluded_rows"])),
+        (
+            "Registered processing exclusions",
+            len(data.get("processing_exclusions", [])),
+        ),
+        ("FN cutoff (%)", data["fn_threshold"]),
+        ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
+        ("Figures", "Seven full-data and seven filtered views on Plots"),
+        ("Plot format", parameters.get("plot_format", "pdf")),
+        (
+            "Population",
+            "Points and boxes represent images; "
+            "wells are technical replicates.",
+        ),
+        (
+            "Snapshot",
+            "Rerun the report after changing inputs; "
+            "embedded plots do not recalculate.",
+        ),
+    ]
+    add(
+        "Overview",
+        ["Item", "Value"],
+        [dict(zip(("Item", "Value"), r)) for r in overview],
+    )
+    observations, labels, info = [], [], []
+    for plot in plots:
+        row_lookup = {row["Image_ID"]: row for row in data["rows"]}
+        memberships = {
+            g: panel["id"] for panel in plot["panels"] for g in panel["groups"]
+        }
+        for image_id in plot["plotted_image_ids"]:
+            row = row_lookup[image_id]
+            replicate = data["group_wells"][row["Group"]].index(row["Well"])
+            observations.append(
+                {
+                    "Plot": plot["plot_id"],
+                    "View": plot["view"],
+                    "Metric": plot["metric"],
+                    "Unit": plot["unit"],
+                    "Panel": memberships[row["Group"]],
+                    "Group": row["Group"],
+                    "Well": row["Well"],
+                    "Image_ID": image_id,
+                    "Value": row[plot["metric"]],
+                    "Technical_Replicate": replicate + 1,
+                    "Point_Color": plot["technical_replicate_colors"][
+                        replicate
+                    ],
+                    "Red_Outline": image_id in plot["red_outline_image_ids"],
+                    "Panel_X": plot["rendered_x_positions"][image_id],
+                }
+            )
+        for panel in plot["panels"]:
+            for group in panel["groups"]:
+                labels.append(
+                    {
+                        "Plot": plot["plot_id"],
+                        "Panel": panel["id"],
+                        "Color_Code": panel["color_code"],
+                        "Figure_Context": panel["context"],
+                        "Panel_Title": panel["title"],
+                        "Group": group,
+                        "Display_Label": panel["labels"][group],
+                        "N_Images": plot["group_counts"][group],
+                        "N_Wells": plot["group_well_counts"][group],
+                    }
+                )
+        info.append(
+            {
+                "Plot": plot["plot_id"],
+                "Metric": plot["metric"],
+                "View": plot["view"],
+                "Title": plot["title"],
+                "File": Path(plot["path"]).name,
+                "PDF_File": Path(plot["pdf_file"]).name
+                if plot["pdf_file"]
+                else "",
+                "PNG_File": Path(plot["png_file"]).name
+                if plot["png_file"]
+                else "",
+                "Font": plot["font"],
+                "PNG_DPI": plot["png_dpi"],
+                "Panels": len(plot["panels"]),
+                "Images": plot["point_count"],
+                "Y_Min": plot["y_min"],
+                "Y_Max": plot["y_max"],
+                "Caption": plot["caption"],
+                "Statistics": plot["statistics_note"],
+            }
+        )
+    add(
+        "Plot_Data",
+        [
+            "Plot",
+            "View",
+            "Metric",
+            "Unit",
+            "Panel",
+            "Group",
+            "Well",
+            "Image_ID",
+            "Value",
+            "Technical_Replicate",
+            "Point_Color",
+            "Red_Outline",
+            "Panel_X",
+        ],
+        observations,
+    )
+    add(
+        "Plot_Labels",
+        [
+            "Plot",
+            "Panel",
+            "Color_Code",
+            "Figure_Context",
+            "Panel_Title",
+            "Group",
+            "Display_Label",
+            "N_Images",
+            "N_Wells",
+        ],
+        labels,
+    )
+    add(
+        "Plot_Info",
+        [
+            "Plot",
+            "Metric",
+            "View",
+            "Title",
+            "File",
+            "PDF_File",
+            "PNG_File",
+            "Font",
+            "PNG_DPI",
+            "Panels",
+            "Images",
+            "Y_Min",
+            "Y_Max",
+            "Caption",
+            "Statistics",
+        ],
+        info,
+    )
+    run_rows = [
+        {
+            "Parameter": key,
+            "Value": json.dumps(value, ensure_ascii=False)
+            if isinstance(value, (dict, list, tuple))
+            else value,
+        }
+        for key, value in parameters.items()
+        if key not in ("status", "stage")
+    ]
+    add("Run_Info", ["Parameter", "Value"], run_rows)
+    add(
+        "Source_Files",
+        [
+            "Input",
+            "Path",
+            "Archived_Path",
+            "Archive_Relative_Path",
+            "Bytes",
+            "SHA256",
+        ],
+        manifests,
+    )
+    data["display_tables"] = tables

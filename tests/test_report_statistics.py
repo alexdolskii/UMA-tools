@@ -270,6 +270,8 @@ class ReportStatisticsTests(ReportFixture):
         self.assertAlmostEqual(rows[0]["P_Holm"], 0.007)
         self.assertAlmostEqual(rows[1]["P_Holm"], 0.007)
         for p, star in (
+            (0.00009, "****"),
+            (0.0001, "***"),
             (0.0009, "***"),
             (0.001, "**"),
             (0.01, "*"),

@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.12**; this is separate from the V2
+The current Python package version is **0.2.13**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -357,6 +357,50 @@ inputs are missing or inconsistent; it does not fall back to another collection.
 For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 `Max`, and `Median` are in µm. Area coverage is a percentage of the full XY image.
 
+## Figures and workbook
+
+All **14 figures** (seven full-data, then seven FN-filtered views) are embedded
+on one final **Plots** worksheet. The workbook opens with **Overview**, followed
+by measurements, filter summaries, optional statistics, plate map and run logs.
+`Plot_Data` preserves the values behind every plotted image; `Plot_Labels`
+maps complete condition names to display labels. `Plot_Info`, `Run_Info`, and
+`Source_Files` record figure settings, run parameters, and input paths/checksums.
+These tables also have CSV exports. Input summaries and measurement columns
+are unchanged. Embedded figures are snapshots; rerun the report after editing
+inputs.
+
+```bash
+# Default: vector PDF figures, with embedded Excel previews
+uma_report -i input_paths.json --fn-threshold 20
+# Also save 300 dpi PNG figures
+uma_report -i input_paths.json --fn-threshold 20 --plot-format both
+# PNG only
+uma_report -i input_paths.json --fn-threshold 20 --plot-format png
+```
+
+Figures follow the FIA style: Arial with Liberation Sans / DejaVu Sans
+fallback, 20 pt titles, 16 pt panel headings, 14 pt axes, and 12 pt counts/notes.
+Valid plate colors define panels (at most two columns) even when statistics
+are disabled; bold controls are required only when requesting tests. If a
+condition has ambiguous or incomplete color annotation, descriptive plots
+keep all conditions together. No observations are split or discarded.
+Shared whole-word prefixes may move to headings; complete names stay in the
+data and label mapping. Each condition shows image and well counts, including
+zero after filtering. All panels of a metric and its full/filtered pair share
+Y limits; alignment and FN coverage remain 0–100%.
+
+Every point remains one image. Technical-well colors, red outlines for low FN
+in full-data plots, and image-based boxes are preserved. Choosing an export
+format does not select metrics or change tests; all seven metrics are shown.
+PDF-only exports create Excel previews in memory, without standalone PNGs.
+
+Alignment's original and normalized orientation PNGs also use the shared
+fonts, white background, full filename footer, right-hand angular colorbar,
+and 300 dpi. They retain the full image/aspect ratio, HSV colors and original
+normalization. This is display resolution only: source pixels, CSV results,
+SUM projections, masks and local-thickness TIFFs keep their scientific values
+and calibration. The report's `--plot-format` option does not affect alignment.
+
 ## Optional report statistics
 
 Without `--stats-unit`, reporting requires only the condition names in the
@@ -399,7 +443,7 @@ planned correction family. There is no automatic switch between units.
 Filtered FN% results describe only images that passed the FN filter.
 
 Filtered plots show adjusted significance: `*` for p < 0.05, `**` for p < 0.01,
-`***` for p < 0.001, and `ns` otherwise. Points remain individual images;
+`***` for p < 0.001, `****` for p < 0.0001, and `ns` otherwise. Points remain individual images;
 captions identify the test unit and show image and well counts. Full-data
 plots retain technical-well colors and red low-FN outlines. The selected
 mode is recorded in the logs and run metadata.
@@ -428,7 +472,8 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.12`.
+versions change. Both version commands should report `0.2.13`.
+Version 0.2.13 unifies figure/workbook styling without new dependencies.
 If updating from before 0.2.11, rerun analyses to populate the `uma_assay`
 layout before collecting results and generating reports.
 For older environments, first update with

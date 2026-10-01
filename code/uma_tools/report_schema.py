@@ -44,7 +44,7 @@ BASE_COLORS = [
     "#C44E52",
     "#4C9A9A",
 ]
-SHEET_NAMES = [
+PLOT_NAMES = [
     "Fibronectin Plot",
     "Alignment Plot",
     "Area Plot",
@@ -59,6 +59,9 @@ SHEET_NAMES = [
     "Min Filtered",
     "Max Filtered",
     "Median Filtered",
+]
+SHEET_NAMES = [
+    "Overview",
     "Merged Data",
     "Filtered Data",
     "Excluded Data",
@@ -66,6 +69,12 @@ SHEET_NAMES = [
     "Plate Map",
     "QC",
     "Run Log",
+    "Plot_Data",
+    "Plot_Labels",
+    "Plot_Info",
+    "Run_Info",
+    "Source_Files",
+    "Plots",
 ]
 
 

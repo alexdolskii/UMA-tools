@@ -793,9 +793,10 @@ class ReportCommandTests(ReportFixture):
         plots = json.loads(
             (output / "plot_manifest.json").read_text(encoding="utf-8")
         )
-        self.assertEqual([plot["sheet"] for plot in plots], PLOT_SHEETS)
-        self.assertEqual(len(list(output.rglob("*.png"))), 14)
-        by_sheet = {plot["sheet"]: plot for plot in plots}
+        self.assertEqual([plot["plot_id"] for plot in plots], PLOT_SHEETS)
+        self.assertEqual(len(list(output.rglob("*.png"))), 0)
+        self.assertEqual(len(list(output.rglob("*.pdf"))), 14)
+        by_sheet = {plot["plot_id"]: plot for plot in plots}
         for plot in plots:
             filtered = plot["view"] == "Filtered"
             self.assertEqual(plot["point_count"], 3 if filtered else 5)
@@ -835,9 +836,20 @@ class ReportCommandTests(ReportFixture):
         try:
             self.assertEqual(
                 workbook.sheetnames,
-                PLOT_SHEETS
+                ["Overview"]
                 + DATA_SHEETS
-                + ["Filter Summary", "Plate Map", "QC", "Run Log"],
+                + [
+                    "Filter Summary",
+                    "Plate Map",
+                    "QC",
+                    "Run Log",
+                    "Plot_Data",
+                    "Plot_Labels",
+                    "Plot_Info",
+                    "Run_Info",
+                    "Source_Files",
+                    "Plots",
+                ],
             )
             exported = {}
             for sheet_name, count in zip(DATA_SHEETS, (5, 3, 2)):
