@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.11**.
+development; the current Python package version is **0.2.12**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -33,8 +33,9 @@ uma_alignment -i input_paths.json -a 15
 
 All five commands support `--help` and `--version` without starting Fiji.
 Use the installed commands. Version 0.2.9 adds optional report statistics;
-the image assay commands and measurements are unchanged. Runtime dependencies
-remain unchanged in 0.2.11, which places core results and journals in `uma_assay`.
+the image assay commands and measurements are unchanged. Version 0.2.12 adds
+managed temporary storage and `uma_diagnostics`, with `psutil` for process
+inspection. Scientific dependencies and analysis parameters are unchanged.
 
 ```bash
 uma_report -i input_paths.json --fn-threshold 20 --stats-unit well
@@ -49,7 +50,7 @@ for template validation, correction families, and interpretation.
 ## One package directory
 
 The `code` directory contains this README and `uma_tools`, a package with
-22 Python files. Its modules contain implementations rather than compatibility
+24 Python files. Its modules contain implementations rather than compatibility
 adapters. `cli.py` routes commands directly to the five analysis/workflow
 modules listed above; shared helpers are beside them in the same directory.
 
@@ -64,6 +65,8 @@ The remaining modules have these responsibilities:
 | `run.py` | Output directories, timestamps, and scoped logs |
 | `progress.py` | Core command journals, archived logs, progress, and terminal prompts |
 | `image_run.py` | Per-image outcomes and verifiable partial-run completion |
+| `runtime.py` | Worker supervision, owned temporary directories, and cleanup after verified completion |
+| `diagnostics.py` | Bounded inspection of known temporary files, caches, processes, memory, and disks |
 | `contracts.py` | Shared assay names, columns, and data definitions |
 | `imagej.py` | Headless Fiji initialization and worker cleanup |
 | `area_imagej.py` | SUM32 projection, threshold bounds, masks, and area measurements |
@@ -99,6 +102,12 @@ and compatibility adapters are no longer supported.
   before the next source folder, and keep diagnostics with the run.
 - Dispose Fiji and close workers at the command boundary. Reusable functions
   must not terminate Python or close resources needed by later folders.
+- Start the CLI worker with its temporary environment before importing image
+  or Excel libraries. Write completion evidence after command journals and
+  ImageJ workers close. Cleanup requires verified process exit, including
+  normal `PARTIAL` completion; uncertain or abnormal exits retain evidence.
+  Preserve partial scientific outputs and persistent caches. See the
+  [runtime rules](../README.md#temporary-storage-and-diagnostics).
 
 ## Development checks
 
@@ -138,3 +147,11 @@ image. Native checks also exercise all three installed image commands on a
 valid TIFF and a damaged TIFF, verify Java logger restoration, and require
 process exit within a timeout. Existing frozen numerical and calibration
 checks remain in place.
+
+Runtime regressions use real child processes for success, `PARTIAL`,
+cancellation, crash retention, journal failure, and Excel temporary files.
+They verify that owned cleanup preserves results and unrelated files, and
+that living or unidentified descendants prevent cleanup. Native integration
+checks require all five commands to clean temporary files while handing off
+partial scientific results. Diagnostics tests cover bounded scans, corrupt
+metadata, symbolic links, lightweight imports, and log copying/rotation.

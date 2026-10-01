@@ -158,6 +158,8 @@ class EntryPointTests(unittest.TestCase):
         expected = {
             "__init__",
             "cli",
+            "runtime",
+            "diagnostics",
             "alignment_analysis",
             "thickness_analysis",
             "area_analysis",
@@ -254,7 +256,7 @@ import types
 
 command, module_name, function_name, result = sys.argv[1:]
 for removed in (
-    "assays", "common", "runtime", "reporting", "collection",
+    "assays", "common", "reporting", "collection",
     "report_rendering",
 ):
     sys.modules["uma_tools." + removed] = None
@@ -273,7 +275,7 @@ entry = next(
     entry for entry in distribution("uma-tools").entry_points
     if entry.group == "console_scripts" and entry.name == command
 )
-assert entry.load()() == int(result)
+assert entry.load().__wrapped__() == int(result)
 expected = {
     "uma_tools.alignment_analysis": ("routing path.json", 15),
     "uma_tools.thickness_analysis": ("routing path.json",),

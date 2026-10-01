@@ -42,6 +42,7 @@ from .report_schema import (
     EventLogger,
     ValidationError,
 )
+from .runtime import temporary_path
 
 
 class ReportStatus(enum.Enum):
@@ -644,9 +645,11 @@ def process_folder(source, input_json, args):
         plots = report_plots.create_plots(data, directory / "Plots", log)
         save_json(directory / "plot_manifest.json", plots)
         stage("Workbook export")
-        candidate = directory / "report_pending.xlsx"
         final_path = (
             directory / f"UMA_Report_{safe_label(source.name)}_{run_id}.xlsx"
+        )
+        candidate = temporary_path(
+            final_path, directory / "report_pending.xlsx"
         )
         completion_time, message = save_verified_workbook(
             data, plots, log, run_id, candidate, final_path
@@ -680,7 +683,7 @@ def process_folder(source, input_json, args):
         best_effort("close report logs", log.close)
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description=(
             "Create UMA plots and Excel reports from collected assay results"
@@ -726,7 +729,11 @@ def main(argv=None):
         action="version",
         version=f"%(prog)s {package_version()}",
     )
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     input_json = Path(args.input).expanduser().absolute()
     try:
         folders = read_config(input_json)
@@ -761,4 +768,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from .cli import report
+
+    raise SystemExit(report())

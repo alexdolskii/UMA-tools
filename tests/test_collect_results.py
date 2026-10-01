@@ -533,7 +533,7 @@ class CollectionTests(unittest.TestCase):
         finally:
             os.chdir(previous)
 
-    def test_installed_command_and_stdlib_collection_exit_without_imagej(
+    def test_installed_command_and_collection_exit_without_imaging_libraries(
         self,
     ):
         self.all_runs()
@@ -552,12 +552,12 @@ class CollectionTests(unittest.TestCase):
         script = (
             "import sys; from uma_tools import cli; "
             f"sys.argv=['uma_collect_results','-i',{str(self.config)!r}]; "
-            "assert cli.collect_results() == 0; "
+            "assert cli.collect_results.__wrapped__() == 0; "
             "assert not {'imagej','jpype','scyjava','numpy','pandas'} "
             "& set(sys.modules)"
         )
         result = subprocess.run(
-            [sys.executable, "-S", "-c", script],
+            [sys.executable, "-c", script],
             env=dict(
                 os.environ,
                 PYTHONPATH=str(Path(__file__).resolve().parents[1] / "code"),

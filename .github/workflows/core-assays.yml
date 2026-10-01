@@ -62,3 +62,5 @@ jobs:
           uma_collect_results --version
           uma_report --help
           uma_report --version
+          uma_diagnostics --help
+          uma_diagnostics --version

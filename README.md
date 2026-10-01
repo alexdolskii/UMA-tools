@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.11**; this is separate from the V2
+The current Python package version is **0.2.12**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -271,7 +271,55 @@ low-FN exclusions: they appear in a separate **Processing Exclusions** Excel
 sheet, a CSV and the report log. A collection missing an assay can be saved,
 but cannot generate the three-assay report.
 
-This change does not introduce process supervision or temporary-file cleanup.
+## Temporary storage and diagnostics
+
+The five core commands keep temporary Python, Java and Excel files in
+`~/.uma-tools/tmp/<run_id>/` on your local disk. Each command runs in its own
+worker process. The supervisor waits for the worker to exit and checks all
+observed descendants before cleanup; this includes Python/JVM shutdown.
+Small runtime records remain in `~/.uma-tools/runs/<run_id>/`, linked from
+the command's log in `uma_assay/UMA_Logs`.
+
+Files that must be published atomically on the output disk use registered
+`.uma_tmp_<run_id>/` staging directories beside their destination. Final
+results stay in `uma_assay`; they are not moved to the local temporary disk.
+
+- A successful run, normal cancellation or **normally completed `PARTIAL`**
+  run cleans its owned temporary directories after the processes exit.
+  `PARTIAL` still returns a nonzero analysis exit code.
+- A crash, missing completion record, shutdown/journal failure, or live or
+  unidentifiable process retains temporary files for inspection. Cleanup
+  never relies on the exit code or file age alone. An unavailable process
+  table also prevents automatic cleanup.
+- Scientific partial CSVs, saved masks, final results and logs are preserved.
+  Fiji/jgo, Maven, Matplotlib and Numba caches are also preserved and reused.
+  No other Python or Java programs are stopped.
+
+To use another local disk, set an **absolute path** before launching commands
+and use the same setting when running diagnostics:
+
+```bash
+export UMA_RUNTIME_HOME="/absolute/local/path/uma-runtime"
+```
+
+Inspect managed runs, remaining temporary files, known persistent caches,
+processes, RAM, swap and free disk space:
+
+```bash
+uma_diagnostics
+uma_diagnostics -i input_paths.json
+```
+
+Diagnostics do not delete temporary files or caches. The second command also
+checks `uma_assay` and current logs for the source folders in the same JSON.
+It writes `uma_diagnostics.log` in the runtime home and copies it into each
+existing `uma_assay/UMA_Logs`; previous diagnostic logs move to `archive`.
+The scan covers known locations, not the entire computer, and does not read
+image or workbook contents. `--max-entries` bounds each location's scan
+(default: 100000); incomplete scans are reported. Process sampling describes
+observed workers/descendants, not arbitrary or unobserved detached processes.
+Reported cache sizes are not a recommendation to delete them; system swap
+remains managed by the operating system.
 
 ## Results and checks
 
@@ -371,15 +419,18 @@ From your repository root on `UMA-tools-V2`, activate your existing environment
 ```bash
 git pull --ff-only
 conda activate uma_tools_new
+python -m pip install "psutil>=5.9,<8"
 python -m pip install --no-deps -e .
 python -m pip check
 uma_report --version
+uma_diagnostics --version
 ```
 
-An environment already set up for 0.2.5–0.2.10 needs no dependency changes for
-0.2.11: no additional runtime dependencies are required. The version command
-should report `uma_report 0.2.11`. Run the analyses again to populate the new
-`uma_assay` layout before collecting results and generating reports.
+Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
+it may already be installed through another library. No scientific dependency
+versions change. Both version commands should report `0.2.12`.
+If updating from before 0.2.11, rerun analyses to populate the `uma_assay`
+layout before collecting results and generating reports.
 For older environments, first update with
 `conda env update -n uma_tools_new -f environment_uma.yaml`.
 Recreating the environment is unnecessary. Editable installation (`-e`) makes

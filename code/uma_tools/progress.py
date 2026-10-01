@@ -21,6 +21,7 @@ from pathlib import Path
 
 from . import package_version
 from .files import assay_directory
+from .runtime import runtime_context
 
 _SESSION = ContextVar("uma_session", default=None)
 _FOLDER = ContextVar("uma_folder", default=None)
@@ -130,6 +131,7 @@ class CommandSession:
         self.input_json = str(input_json)
         self.streams = {}
         self.unavailable = {}
+        self.outcomes = {}
         self.progress = CompactProgress()
         self.exit_code = 1
         self.token = None
@@ -189,6 +191,9 @@ class CommandSession:
             f"UMA-tools {package_version()}; input={self.input_json}; "
             f"Python={sys.version.split()[0]}; executable={sys.executable}",
         )
+        context = runtime_context()
+        if context:
+            self.event("INFO", "Temporary resources", context)
         self.progress.message(
             f"UMA {self.step}: {len(self.folders)} source folder(s). "
             "Detailed logs: <source>/uma_assay/UMA_Logs/" + STEPS[self.step]
@@ -358,8 +363,26 @@ def folder_logged(parameter):
         @functools.wraps(function)
         def wrapped(*args, **kwargs):
             bound = signature.bind(*args, **kwargs)
-            with folder_scope(bound.arguments[parameter]):
-                return function(*args, **kwargs)
+            folder = Path(bound.arguments[parameter]).resolve()
+            session = current_session()
+            if session is not None:
+                session.outcomes[str(folder)] = "RUNNING"
+            try:
+                with folder_scope(folder):
+                    result = function(*args, **kwargs)
+                if session is not None:
+                    session.outcomes[str(folder)] = getattr(
+                        result, "value", result
+                    )
+                return result
+            except BaseException as error:
+                if session is not None:
+                    session.outcomes[str(folder)] = (
+                        "CANCELLED"
+                        if isinstance(error, CANCELLATIONS)
+                        else "ERROR"
+                    )
+                raise
 
         return wrapped
 

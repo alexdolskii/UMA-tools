@@ -29,6 +29,7 @@ from .progress import (
     register_sources,
 )
 from .run import scoped_file_log, unique_output
+from .runtime import temporary_path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -405,7 +406,9 @@ def process_single_folder(
                     raise ValueError("Invalid thickness measurements")
                 # Commit a row only after its summary has been saved.
                 candidate = summary_data + [result]
-                pending = summary_path.with_suffix(".pending.csv")
+                pending = temporary_path(
+                    summary_path, summary_path.with_suffix(".pending.csv")
+                )
                 pd.DataFrame(candidate).to_csv(pending, index=False)
                 pending.replace(summary_path)
                 summary_data = candidate

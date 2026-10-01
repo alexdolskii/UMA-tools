@@ -44,6 +44,7 @@ from .files import (
 from .image_run import SCHEMA
 from .progress import console, folder_logged, outcome, phase, register_sources
 from .run import close_logger, make_logger, unique_output, utc_now
+from .runtime import temporary_path
 
 SELECTION_COLUMNS = [
     "Analysis",
@@ -547,11 +548,14 @@ def remove_copies(output, label):
 
 def publish_copies(output, label, tables, image_report=None):
     """Publish validated snapshots while their sources remain stable."""
-    copies = []
+    copies, staged = [], {}
     try:
         for table in tables.values():
             target = output / f"{label}_{table.path.name}"
-            temporary = target.with_name(target.name + ".partial")
+            temporary = temporary_path(
+                target, target.with_name(target.name + ".partial")
+            )
+            staged[target] = temporary
             data = table.data
             if image_report is not None:
                 excluded_names = {
@@ -603,7 +607,7 @@ def publish_copies(output, label, tables, image_report=None):
                 )
         for item in copies:
             target = Path(item["path"])
-            target.with_name(target.name + ".partial").replace(target)
+            staged[target].replace(target)
         return copies
     except BaseException:
         remove_copies(output, label)
@@ -824,7 +828,7 @@ def diagnostic_failure(source, input_json, error):
     return CollectStatus.ERROR
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description=(
             "Collect and verify UMA alignment, thickness, and area summaries"
@@ -841,7 +845,11 @@ def main(argv=None):
         action="version",
         version=f"%(prog)s {package_version()}",
     )
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     input_json = Path(args.input).expanduser().absolute()
     try:
         folders = read_config(input_json)
@@ -880,4 +888,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from .cli import collect_results
+
+    raise SystemExit(collect_results())

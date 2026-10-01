@@ -7,19 +7,71 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 @unittest.skipUnless(
     os.environ.get("UMA_RUN_IMAGEJ_TESTS") == "1", "Requires the Fiji runtime"
 )
 class PartialFijiTests(unittest.TestCase):
+    def test_python_and_real_java_use_the_same_managed_temp_directory(self):
+        from uma_tools.runtime import run_command
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            runtime_home = root / "runtime with spaces"
+            worker = root / "java_temp_check.py"
+            evidence = root / "evidence.json"
+            worker.write_text("""
+import os, sys, tempfile
+from pathlib import Path
+from uma_tools.imagej import initialize_imagej, shutdown_imagej_workers
+from uma_tools.runtime import record_completion, write_json
+from scyjava import jimport
+ij = initialize_imagej()
+try:
+    system = jimport("java.lang.System")
+    file = jimport("java.io.File").createTempFile("uma-test-", ".tmp")
+    write_json(Path(sys.argv[2]), {
+        "python_temp": tempfile.gettempdir(),
+        "java_temp": str(system.getProperty("java.io.tmpdir")),
+        "java_file": str(file.getAbsolutePath()),
+        "managed_temp": os.environ["TMPDIR"],
+    })
+finally:
+    try:
+        ij.dispose()
+    finally:
+        shutdown_imagej_workers()
+record_completion(0, True)
+""")
+            with mock.patch.dict(
+                os.environ, UMA_RUNTIME_HOME=str(runtime_home)
+            ):
+                self.assertEqual(
+                    run_command("uma_alignment", [str(evidence)], worker), 0
+                )
+            values = json.loads(evidence.read_text())
+            expected = Path(values["managed_temp"])
+            self.assertEqual(Path(values["python_temp"]), expected)
+            self.assertEqual(Path(values["java_temp"]), expected)
+            self.assertEqual(Path(values["java_file"]).parent, expected)
+            self.assertFalse(expected.exists())
+            record = json.loads(
+                next(runtime_home.glob("runs/*/run.json")).read_text()
+            )
+            self.assertEqual(record["cleanup"]["status"], "CLEANED")
+
     def test_five_commands_handoff_partial_results_inside_uma_assay(self):
         import numpy as np
         import openpyxl
         import tifffile
 
         with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary)
+            source = Path(temporary) / "images"
+            source.mkdir()
+            runtime_home = Path(temporary) / "runtime"
+            environment = dict(os.environ, UMA_RUNTIME_HOME=str(runtime_home))
             stack = np.zeros((7, 32, 32), dtype=np.uint16)
             stack[1:6, 5:27, 8:12] = 30000
             stack[2:5, 9:23, 21:25] = 45000
@@ -56,6 +108,7 @@ class PartialFijiTests(unittest.TestCase):
                         ],
                         input=answers,
                         text=True,
+                        env=environment,
                         capture_output=True,
                         timeout=300,
                     )
@@ -87,6 +140,7 @@ class PartialFijiTests(unittest.TestCase):
                     str(config),
                 ],
                 text=True,
+                env=environment,
                 capture_output=True,
                 timeout=60,
             )
@@ -118,6 +172,7 @@ class PartialFijiTests(unittest.TestCase):
                     "0",
                 ],
                 text=True,
+                env=environment,
                 capture_output=True,
                 timeout=180,
             )
@@ -148,3 +203,20 @@ class PartialFijiTests(unittest.TestCase):
                 {path.name for path in source.iterdir() if path.is_dir()},
                 {"uma_assay"},
             )
+            records = [
+                json.loads(path.read_text())
+                for path in runtime_home.glob("runs/*/run.json")
+            ]
+            self.assertEqual(len(records), 5)
+            self.assertEqual(
+                sorted(record["exit_code"] for record in records),
+                [0, 0, 1, 1, 1],
+            )
+            for record in records:
+                with self.subTest(runtime_command=record["command"]):
+                    self.assertTrue(record["completion"]["normal_completion"])
+                    self.assertEqual(record["cleanup"]["status"], "CLEANED")
+                    for removed in record["cleanup"]["removed"]:
+                        self.assertFalse(Path(removed).exists())
+            self.assertEqual(list((runtime_home / "tmp").iterdir()), [])
+            self.assertEqual(list(source.rglob(".uma_tmp_*")), [])

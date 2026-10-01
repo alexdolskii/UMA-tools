@@ -19,7 +19,7 @@ class CommandTests(unittest.TestCase):
             with patch.object(
                 sys, "argv", ["uma_alignment", "-i", "a b.json", "-a", "10"]
             ):
-                cli.alignment()
+                cli.alignment.__wrapped__()
         module.main_fibronectin_processing.assert_called_once_with(
             "a b.json", 10.0
         )
@@ -31,7 +31,7 @@ class CommandTests(unittest.TestCase):
             with patch.object(
                 sys, "argv", ["uma_alignment", "-i", "input.json"]
             ):
-                cli.alignment()
+                cli.alignment.__wrapped__()
         module.main_fibronectin_processing.assert_called_once_with(
             "input.json", 15
         )
@@ -43,14 +43,14 @@ class CommandTests(unittest.TestCase):
             with patch.object(
                 sys, "argv", ["uma_thickness", "-i", "a b.json"]
             ):
-                cli.thickness()
+                cli.thickness.__wrapped__()
         module.main.assert_called_once_with("a b.json")
 
     def test_area_preserves_analysis_exit_status(self):
         module = types.ModuleType("uma_tools.area_analysis")
         module.main = Mock(return_value=1)
         with patch.dict(sys.modules, {module.__name__: module}):
-            self.assertEqual(cli.area(), 1)
+            self.assertEqual(cli.area.__wrapped__(), 1)
         module.main.assert_called_once_with()
 
     def test_thickness_cleanup_preserves_analysis_error(self):
@@ -123,7 +123,7 @@ class CommandTests(unittest.TestCase):
             setattr(module, entry_point, main)
             sys.modules[module.__name__] = module
             sys.argv = [f"uma_{command}", "-i", "input.json"]
-            raise SystemExit(getattr(cli, command)())
+            raise SystemExit(getattr(cli, command).__wrapped__())
         """)
         for fails in (False, True):
             with self.subTest(analysis_fails=fails):
@@ -178,7 +178,7 @@ class CommandTests(unittest.TestCase):
         script = (
             "import sys; from uma_tools import cli; "
             "sys.argv=['uma_thickness','--version']; "
-            "\ntry: cli.thickness()"
+            "\ntry: cli.thickness.__wrapped__()"
             "\nexcept SystemExit as error:"
             "\n assert error.code == 0"
             "\nassert 'imagej' not in sys.modules"

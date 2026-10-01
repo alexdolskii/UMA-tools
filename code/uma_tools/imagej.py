@@ -17,6 +17,16 @@ def initialize_imagej() -> Any:
     phase("Initializing ImageJ")
     try:
         import imagej
+        import scyjava
+
+        from .runtime import current_run
+
+        if current_run() is not None:
+            import os
+
+            scyjava.config.add_option(
+                "-Djava.io.tmpdir=" + os.environ["TMPDIR"]
+            )
 
         context = imagej.init(FIJI_ENDPOINT, mode="headless")
     except Exception as error:

@@ -524,7 +524,7 @@ wheels = [
 
 [[package]]
 name = "uma-tools"
-version = "0.2.11"
+version = "0.2.12"
 source = { editable = "." }
 dependencies = [
     { name = "jgo" },
@@ -535,6 +535,7 @@ dependencies = [
     { name = "orientationpy" },
     { name = "pandas" },
     { name = "pillow" },
+    { name = "psutil" },
     { name = "pyimagej" },
     { name = "scikit-image" },
     { name = "scipy" },
@@ -552,6 +553,7 @@ requires-dist = [
     { name = "orientationpy", specifier = "==0.3.0" },
     { name = "pandas", specifier = ">=2.1.0,<3" },
     { name = "pillow", specifier = ">=10.1,<13" },
+    { name = "psutil", specifier = ">=5.9,<8" },
     { name = "pyimagej", specifier = "==1.5.0" },
     { name = "scikit-image", specifier = "==0.25.2" },
     { name = "scipy", specifier = ">=1.11.4,<1.16" },

@@ -10,9 +10,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .runtime import temporary_path
+
 
 def assay_directory(source: Path, *, create: bool = False) -> Path:
-    """Locate the core workflows' only results root below original images.
+    """Locate the results root below original images.
 
     Never create a missing source or follow a linked output container.
     Readers use this same location without searching historical layouts.
@@ -50,7 +52,11 @@ def save_json(
     final newline and rejects nonfinite numbers. Report tables use the
     same strict JSON representation with ``atomic=False``.
     """
-    target = path.with_name(path.name + temporary_suffix) if atomic else path
+    target = (
+        temporary_path(path, path.with_name(path.name + temporary_suffix))
+        if atomic
+        else path
+    )
     text = json.dumps(data, indent=2, ensure_ascii=False, allow_nan=allow_nan)
     if trailing_newline:
         text += "\n"

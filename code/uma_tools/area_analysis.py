@@ -834,6 +834,9 @@ def finish_imagej(holder, outputs):
             if log is not None:
                 log.close()
     if errors:
+        from .runtime import block_cleanup
+
+        block_cleanup("ImageJ shutdown or shutdown diagnostics failed")
         console(
             "ImageJ shutdown failed:\n" + "\n".join(errors),
             file=sys.stderr,

@@ -99,7 +99,7 @@ class PartialCollectionTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original_bytes[name])
         report_fixtures.ReportFixture.make_template(combined / "my plate.xlsx")
         with contextlib.redirect_stdout(io.StringIO()):
-            result = cli.report(
+            result = cli.report.__wrapped__(
                 ["-i", str(self.fixture.config), "--fn-threshold", "20"]
             )
         self.assertEqual(result, 0)
@@ -164,7 +164,7 @@ class PartialCollectionTests(unittest.TestCase):
         report_fixtures.ReportFixture.make_template(combined / "plate.xlsx")
         (combined / "processing_exclusions.csv").write_text("changed")
         with contextlib.redirect_stdout(io.StringIO()):
-            result = cli.report(["-i", str(self.fixture.config)])
+            result = cli.report.__wrapped__(["-i", str(self.fixture.config)])
         self.assertEqual(result, 1)
         status = load_status(next(combined.parent.glob("UMA_Report_*")))
         self.assertIn("exclusions", status["error"])
@@ -248,9 +248,9 @@ class ImageFailureTests(unittest.TestCase):
         self,
     ):
         for entry, module, answers, extra in (
-            (cli.alignment, alignment, ["1", "y"], []),
-            (cli.thickness, thickness, ["2", "1", "y"], []),
-            (cli.area, area, [], ["--channel", "1"]),
+            (cli.alignment.__wrapped__, alignment, ["1", "y"], []),
+            (cli.thickness.__wrapped__, thickness, ["2", "1", "y"], []),
+            (cli.area.__wrapped__, area, [], ["--channel", "1"]),
         ):
             with (
                 self.subTest(command=entry.__name__),
@@ -297,7 +297,7 @@ class ImageFailureTests(unittest.TestCase):
                 ) as process,
                 patch("builtins.input", side_effect=["1", "y"]),
             ):
-                code = cli.alignment(["-i", str(config)])
+                code = cli.alignment.__wrapped__(["-i", str(config)])
             self.assertEqual(code, 1)
             self.assertEqual(process.call_count, 2)
             gateway.dispose.assert_called_once_with()
@@ -362,7 +362,7 @@ class JournalTests(unittest.TestCase):
                     patch("builtins.input", side_effect=[answer]),
                     patch.object(alignment, "initialize_imagej") as initialize,
                 ):
-                    code = cli.alignment(["-i", str(config)])
+                    code = cli.alignment.__wrapped__(["-i", str(config)])
                 self.assertEqual(code, 130)
                 initialize.assert_not_called()
                 log = (

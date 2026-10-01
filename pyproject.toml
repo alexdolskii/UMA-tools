@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uma-tools"
-version = "0.2.11"
+version = "0.2.12"
 description = "Automated, headless workflows for fibroblast/ECM unit confocal data"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -15,6 +15,7 @@ dependencies = [
     "orientationpy==0.3.0",
     "pandas>=2.1.0,<3",
     "pillow>=10.1,<13",
+    "psutil>=5.9,<8",
     "pyimagej==1.5.0",
     "scikit-image==0.25.2",
     "scipy>=1.11.4,<1.16",
@@ -38,6 +39,7 @@ uma_thickness = "uma_tools.cli:thickness"
 area_analysis = "uma_tools.cli:area"
 uma_collect_results = "uma_tools.cli:collect_results"
 uma_report = "uma_tools.cli:report"
+uma_diagnostics = "uma_tools.cli:diagnostics"
 
 [tool.ruff]
 target-version = "py310"
@@ -50,4 +52,3 @@ select = ["E", "W", "F", "I"]
 [tool.ruff.format]
 docstring-code-format = true
 docstring-code-line-length = 72
-
