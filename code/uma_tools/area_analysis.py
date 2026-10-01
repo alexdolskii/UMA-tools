@@ -803,6 +803,7 @@ def finish_imagej(holder, outputs):
         log = None
         try:
             log = RunLog(output, append=True)
+            log.source_folder = output.parent.resolve()
             if errors:
                 log.event(
                     "ERROR",

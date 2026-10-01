@@ -367,6 +367,24 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(stream.getvalue(), "WARNING: a damaged image\n")
         self.assertIsNone(progress.thread)
 
+    def test_area_shutdown_is_recorded_once_in_each_source_journal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            sources = [Path(temporary) / name for name in ("one", "two")]
+            outputs = []
+            for source in sources:
+                output = source / "Area_assay_results_test"
+                output.mkdir(parents=True)
+                outputs.append(output)
+            with CommandSession("area", sources, "input.json") as session:
+                with patch.object(area, "shutdown_imagej_workers"):
+                    self.assertTrue(area.finish_imagej([None], outputs))
+                session.exit_code = 0
+            for source in sources:
+                log = (source / "UMA_Logs/3_area.log").read_text()
+                self.assertEqual(
+                    log.count("ImageJ context and workers closed"), 1
+                )
+
     def test_unwritable_journal_skips_only_that_folder(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
