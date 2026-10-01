@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.13**; this is separate from the V2
+The current Python package version is **0.2.14**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -238,6 +238,14 @@ with warnings and final counts; redirected output contains no animated control
 codes. Full error traces belong in the logs. Prompts retry invalid answers;
 `q`, EOF or Ctrl-C cancels with exit code 130. Help and version do not start
 Fiji or create logs.
+
+Image counters track the current stage and update after each image. For
+alignment, `Projection: 12/144 finished` means 12 projection attempts have
+finished; orientation and summary each have their own counter. Failed attempts
+are included in that stage's count and shown separately as `N failed`. Later
+stages count only the remaining eligible images. Counters start again for each
+source folder; the final summary reports images saved and failures for the
+whole assay. Elapsed time is measured from the start of the command.
 
 An image failure does not stop other images or source folders. Successful rows
 remain available, while `run_status.json` records `PARTIAL`, every selected
@@ -472,8 +480,9 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.13`.
-Version 0.2.13 unifies figure/workbook styling without new dependencies.
+versions change. Both version commands should report `0.2.14`.
+Version 0.2.14 fixes per-stage image progress without changing calculations or
+dependencies. Version 0.2.13 introduced the unified figure/workbook styling.
 If updating from before 0.2.11, rerun analyses to populate the `uma_assay`
 layout before collecting results and generating reports.
 For older environments, first update with

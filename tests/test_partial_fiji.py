@@ -131,6 +131,15 @@ record_completion(0, True)
                     self.assertIn("bad_WellB03.tiff", errors)
                     self.assertNotIn("._good", errors)
                     self.assertTrue(status["summary_sha256"])
+                    if command == "uma_alignment":
+                        journal = (
+                            source / "uma_assay/UMA_Logs/1_alignment.log"
+                        ).read_text()
+                        self.assertIn(
+                            "Projection: 2/2 finished | 1 failed", journal
+                        )
+                        self.assertIn("Orientation: 1/1 finished", journal)
+                        self.assertIn("Summary: 1/1 finished", journal)
 
             container = source / "uma_assay"
             collected = subprocess.run(

@@ -59,6 +59,8 @@ class ImageRun:
             started_utc=utc_now(),
         )
         self.token = None
+        self._stage_totals = {}
+        self._stage_completed = {}
         _LOG.info("Analysis parameters: %s", parameters)
         self.save()
 
@@ -107,15 +109,30 @@ class ImageRun:
             self.records[name]["Status"] != "FAILED"
         )
 
+    def _show_progress(self, name, stage):
+        """Count completed attempts in this stage, not final assay rows."""
+        completed = self._stage_completed[stage]
+        failed = sum(
+            self.records[item]["Status"] == "FAILED" for item in completed
+        )
+        label = (
+            f"{stage}: {len(completed)}/{self._stage_totals[stage]} finished"
+        )
+        if failed:
+            label += f" | {failed} failed"
+        phase(f"{label} | {name}")
+
     @contextmanager
     def attempt(self, name, stage, *, final=False):
+        if stage not in self._stage_totals:
+            self._stage_totals[stage] = sum(
+                self.eligible(item) for item in self.records
+            )
+            self._stage_completed[stage] = set()
         record = self.records[name]
         record.update(Status="RUNNING", Stage=stage)
         self.save()
-        finished = sum(
-            r["Status"] in ("SUCCESS", "FAILED") for r in self.records.values()
-        )
-        phase(f"{finished}/{len(self.records)} finished | {stage} | {name}")
+        self._show_progress(name, stage)
         try:
             with bioformats_log():
                 yield
@@ -133,6 +150,8 @@ class ImageRun:
             if final:
                 record["Status"] = "SUCCESS"
         self.save()
+        self._stage_completed[stage].add(name)
+        self._show_progress(name, stage)
 
     def finish(self, summary=None):
         self.save()
