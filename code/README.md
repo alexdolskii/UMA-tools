@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.15**.
+development; the current Python package version is **0.2.16**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.

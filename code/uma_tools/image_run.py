@@ -13,7 +13,7 @@ from pathlib import Path
 from . import package_version
 from .files import save_csv, save_json, sha256_file
 from .imagej import bioformats_log
-from .progress import CANCELLATIONS, image_progress, outcome, phase
+from .progress import CANCELLATIONS, console, image_progress, outcome, phase
 from .run import utc_now
 
 SCHEMA = "uma-image-run-v1"
@@ -38,7 +38,17 @@ def image_names(folder, extensions):
 class ImageRun:
     """Publish a completion marker only after the summary is durable."""
 
-    def __init__(self, output, source, names, parameters, status=None):
+    def __init__(
+        self,
+        output,
+        source,
+        names,
+        parameters,
+        status=None,
+        *,
+        stages=(),
+        operations=(),
+    ):
         self.output = Path(output)
         self.records = {
             name: {
@@ -59,10 +69,24 @@ class ImageRun:
             started_utc=utc_now(),
         )
         self.token = None
+        self.stages = tuple(stages)
+        self.operations = tuple(operations)
         self._stage_totals = {}
         self._stage_completed = {}
         _LOG.info("Analysis parameters: %s", parameters)
         self.save()
+        if self.stages:
+            plan = "Stages per folder: " + " -> ".join(
+                f"{index}/{len(self.stages)} {stage}"
+                for index, stage in enumerate(self.stages, 1)
+            )
+            if self.operations:
+                plan += (
+                    f"; {len(self.operations)} operations per image. "
+                    "The image counter continues across operations."
+                )
+            _LOG.info(plan)
+            console(f"{Path(source).name}: {plan}")
 
     def save(self):
         rows = list(self.records.values())
@@ -118,6 +142,9 @@ class ImageRun:
         label = (
             f"{stage}: {len(completed)}/{self._stage_totals[stage]} finished"
         )
+        if stage in self.stages:
+            index = self.stages.index(stage) + 1
+            label = f"Stage {index}/{len(self.stages)} | {label}"
         if failed:
             label += f" | {failed} failed"
         return label
@@ -138,7 +165,11 @@ class ImageRun:
         self._show_progress(name, stage)
         try:
             with (
-                image_progress(self._progress_label(stage), name),
+                image_progress(
+                    self._progress_label(stage),
+                    name,
+                    operations=self.operations,
+                ),
                 bioformats_log(),
             ):
                 yield

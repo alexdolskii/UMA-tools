@@ -33,6 +33,21 @@ from .runtime import temporary_path
 
 _LOGGER = logging.getLogger(__name__)
 
+PROGRESS_STAGES = ("Thickness",)
+PROGRESS_OPERATIONS = (
+    "Opening image...",
+    "Extracting fibronectin channel...",
+    "Performing Reslice...",
+    "Performing Z projection...",
+    "Applying Maximum filter...",
+    "Applying Gaussian Blur...",
+    "Subtracting background...",
+    "Applying threshold...",
+    "Running Local Thickness...",
+    "Measuring thickness...",
+    "Closed all images.",
+)
+
 
 def import_java_classes():
     """
@@ -376,6 +391,8 @@ def process_single_folder(
         folder,
         image_files,
         {"channel_index": fibronectin_channel, "extension": file_extension},
+        stages=PROGRESS_STAGES,
+        operations=PROGRESS_OPERATIONS,
     )
     with scoped_file_log(_LOGGER, output), run:
         summary_data = []

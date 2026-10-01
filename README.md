@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.15**; this is separate from the V2
+The current Python package version is **0.2.16**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -239,16 +239,25 @@ codes. Full error traces belong in the logs. Prompts retry invalid answers;
 `q`, EOF or Ctrl-C cancels with exit code 130. Help and version do not start
 Fiji or create logs.
 
-Image counters track the current stage and update after each image. For
-alignment, `Projection: 12/144 finished` means 12 projection attempts have
-finished; orientation and summary each have their own counter. Failed attempts
-are included in that stage's count and shown separately as `N failed`. Later
-stages count only the remaining eligible images. Counters start again for each
-source folder; the final summary reports images saved and failures for the
-whole assay. Elapsed time is measured from the start of the command.
-The counter and current filename remain visible during individual operations,
-for example `Thickness: 12/144 finished | Running Local Thickness... | image.nd2`.
-They also remain visible when area analysis reports projection/mask events.
+The terminal announces the processing stages for each source folder:
+
+- **Alignment has three passes:** `Stage 1/3` Projection, `Stage 2/3`
+  Orientation, and `Stage 3/3` Summary. Each pass has its own image counter.
+- **Thickness has one pass:** `Stage 1/1` Thickness. Its 11 displayed operations
+  run within each image. `Operation 9/11` is Local Thickness. Operation numbers
+  restart for the next image; the image counter continues through the folder.
+
+For example: `Stage 2/3 | Orientation: 12/144 finished`, or
+`Stage 1/1 | Thickness: 12/144 finished | Operation 9/11: Running Local Thickness...`.
+The current filename follows the operation. Fiji initialization happens before
+image processing, and closing Fiji follows the analysis.
+
+Image counters update after each completed attempt. Failed attempts are
+included in the stage's count and shown separately as `N failed`. Later
+alignment stages count only the remaining eligible images. Counters start
+again for each source folder; the final summary reports images saved and
+failures for the whole assay. Elapsed time is measured from the start of the
+command. Counters also stay visible during area projection/mask events.
 
 An image failure does not stop other images or source folders. Successful rows
 remain available, while `run_status.json` records `PARTIAL`, every selected
@@ -483,10 +492,12 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.15`.
-Version 0.2.15 keeps image counters visible during individual operations;
-0.2.14 added per-stage progress. These fixes do not change calculations or
-dependencies. Version 0.2.13 introduced the unified figure/workbook styling.
+versions change. Both version commands should report `0.2.16`.
+Version 0.2.16 shows stage totals for alignment and thickness and operation
+numbers within each thickness image. Versions 0.2.14 and 0.2.15 added per-stage
+counters and kept them visible during operations. These fixes do not change
+calculations or dependencies. Version 0.2.13 introduced the unified
+figure/workbook styling.
 If updating from before 0.2.11, rerun analyses to populate the `uma_assay`
 layout before collecting results and generating reports.
 For older environments, first update with

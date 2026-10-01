@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from uma_tools import alignment_analysis as alignment
 from uma_tools import thickness_analysis as thickness
 from uma_tools.image_run import ImageRun
 from uma_tools.progress import (
@@ -46,10 +47,10 @@ class ImageProgressTests(unittest.TestCase):
         )
         contexts.enter_context(self.session)
 
-    def make_run(self, source, names):
+    def make_run(self, source, names, **progress_options):
         output = source / "uma_assay" / "test_results"
         output.mkdir()
-        return ImageRun(output, source, names, {})
+        return ImageRun(output, source, names, {}, **progress_options)
 
     def assert_progress(
         self, source, stage, done, total, name, failed=0, *, label=None
@@ -303,3 +304,84 @@ class ImageProgressTests(unittest.TestCase):
         )
         journal = (source / "uma_assay/UMA_Logs/1_alignment.log").read_text()
         self.assertEqual(journal.count("SUM32 verified"), 1)
+
+    def test_alignment_stage_totals_survive_failures_and_folder_changes(self):
+        names = ("bad.nd2", "good.nd2")
+        for source in self.sources:
+            run = self.make_run(
+                source, names, stages=alignment.PROGRESS_STAGES
+            )
+            with folder_scope(source), run:
+                for number, stage in enumerate(alignment.PROGRESS_STAGES, 1):
+                    selected = [name for name in names if run.eligible(name)]
+                    total = len(selected)
+                    for index, name in enumerate(selected):
+                        with run.attempt(
+                            name, stage, final=stage == "Summary"
+                        ):
+                            during = self.session.progress.label
+                            if source == self.sources[0] and name == "bad.nd2":
+                                raise ValueError("Deliberate projection error")
+                        prefix = f"{source.name}: Stage {number}/3 | {stage}: "
+                        self.assertTrue(
+                            during.startswith(
+                                f"{prefix}{index}/{total} finished"
+                            ),
+                            during,
+                        )
+                    self.assertTrue(
+                        self.session.progress.label.startswith(
+                            f"{prefix}{total}/{total} finished"
+                        )
+                    )
+                expected = (
+                    "PARTIAL" if source == self.sources[0] else "SUCCESS"
+                )
+                self.assertEqual(run.finish(), expected)
+        self.assertIn(
+            "1/3 Projection -> 2/3 Orientation -> 3/3 Summary",
+            self.terminal.getvalue(),
+        )
+
+    def test_thickness_operation_numbers_restart_without_resetting_images(
+        self,
+    ):
+        source = self.sources[0]
+        run = self.make_run(
+            source,
+            ["one.nd2", "two.nd2"],
+            stages=thickness.PROGRESS_STAGES,
+            operations=thickness.PROGRESS_OPERATIONS,
+        )
+        observed = []
+        with folder_scope(source), run:
+            for index, name in enumerate(run.records):
+                with run.attempt(name, "Thickness", final=True):
+                    for number, message in enumerate(
+                        thickness.PROGRESS_OPERATIONS, 1
+                    ):
+                        phase(message)
+                        observed.append(
+                            (
+                                index,
+                                name,
+                                number,
+                                message,
+                                self.session.progress.label,
+                            )
+                        )
+                self.assertEqual(
+                    self.session.progress.label,
+                    f"plate1: Stage 1/1 | Thickness: {index + 1}/2 finished "
+                    f"| {name}",
+                )
+            self.assertEqual(run.finish(), "SUCCESS")
+        self.assertEqual(len(observed), 22)
+        for index, name, number, message, label in observed:
+            expected = (
+                f"plate1: Stage 1/1 | Thickness: {index}/2 finished | "
+                f"Operation {number}/11: {message} | {name}"
+            )
+            self.assertEqual(label, expected)
+            self.assertIn(expected, self.terminal.getvalue())
+        self.assertIn("11 operations per image", self.terminal.getvalue())

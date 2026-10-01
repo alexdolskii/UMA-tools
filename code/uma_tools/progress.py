@@ -291,9 +291,11 @@ def folder_scope(folder):
 
 
 @contextmanager
-def image_progress(counter, filename):
+def image_progress(counter, filename, *, operations=()):
     """Keep an image's counter visible while its operations change."""
-    token = _IMAGE_PROGRESS.set((current_folder(), counter, filename))
+    token = _IMAGE_PROGRESS.set(
+        (current_folder(), counter, filename, tuple(operations))
+    )
     try:
         yield
     finally:
@@ -306,7 +308,12 @@ def update_activity(message, *, record=False):
     folder = current_folder()
     image = _IMAGE_PROGRESS.get()
     if image is not None and image[0] == folder:
-        message = f"{image[1]} | {str(message).strip()} | {image[2]}"
+        message = str(message).strip()
+        operations = image[3]
+        if message in operations:
+            index = operations.index(message) + 1
+            message = f"Operation {index}/{len(operations)}: {message}"
+        message = f"{image[1]} | {message} | {image[2]}"
     if session is None:
         if record:
             print(message, flush=True)

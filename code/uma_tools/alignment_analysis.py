@@ -43,6 +43,8 @@ from orientationpy import (  # noqa: E402
 )
 from skimage import io  # noqa: E402
 
+PROGRESS_STAGES = ("Projection", "Orientation", "Summary")
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -123,7 +125,7 @@ def process_part1(
         Dict[str, Dict]: Information about Z-stacks processed for each
         folder.
     """
-    phase("Part 1: Processing images")
+    phase(f"Stage 1/{len(PROGRESS_STAGES)}: {PROGRESS_STAGES[0]}")
     z_stacks_info_folder = {}
 
     # Import IJ and ZProjector
@@ -222,7 +224,7 @@ def process_part1(
                 "z_stack_type": "slices",
             }
 
-    phase("Part 1 finished")
+    phase(f"Stage 1/{len(PROGRESS_STAGES)}: Projection finished")
     return z_stacks_info_folder
 
 
@@ -448,7 +450,7 @@ def process_part2_orientationpy(
         images_folder (str): Path to the folder where images will be
         saved.
     """
-    phase("Part 2: Orientation analysis")
+    phase(f"Stage 2/{len(PROGRESS_STAGES)}: {PROGRESS_STAGES[1]}")
 
     # Create subfolder for normalized images
     normalized_images_folder = os.path.join(images_folder, "normalized_images")
@@ -516,7 +518,7 @@ def process_part3(results_folder, analysis_folder, angle_value, z_stacks_info):
         z_stacks_info (Dict[str, Dict]): Z-stack information from Part
         1.
     """
-    phase("Part 3: Alignment summary")
+    phase(f"Stage 3/{len(PROGRESS_STAGES)}: {PROGRESS_STAGES[2]}")
 
     table_folder = os.path.join(results_folder, "Tables")
     if not os.path.exists(table_folder):
@@ -703,6 +705,7 @@ def process_folder(
             "width": desired_width,
             "height": desired_height,
         },
+        stages=PROGRESS_STAGES,
     )
     with scoped_file_log(_LOGGER, Path(results_folder)), run:
         if not names:

@@ -136,32 +136,41 @@ record_completion(0, True)
                         journal = (
                             source / "uma_assay/UMA_Logs/1_alignment.log"
                         ).read_text()
-                        self.assertIn(
-                            "Projection: 2/2 finished | 1 failed", journal
-                        )
-                        self.assertIn("Orientation: 1/1 finished", journal)
-                        self.assertIn("Summary: 1/1 finished", journal)
+                        for number, stage, count in (
+                            (1, "Projection", 2),
+                            (2, "Orientation", 1),
+                            (3, "Summary", 1),
+                        ):
+                            self.assertIn(
+                                f"Stage {number}/3 | {stage}: "
+                                f"{count}/{count} finished",
+                                journal,
+                            )
                     if command == "uma_thickness":
                         journal = (
                             source / "uma_assay/UMA_Logs/2_thickness.log"
                         ).read_text()
-                        for operation in (
-                            "Opening image...",
-                            "Extracting fibronectin channel...",
-                            "Performing Reslice...",
-                            "Performing Z projection...",
-                            "Applying Maximum filter...",
-                            "Applying Gaussian Blur...",
-                            "Subtracting background...",
-                            "Applying threshold...",
-                            "Running Local Thickness...",
-                            "Measuring thickness...",
-                            "Closed all images.",
+                        for number, operation in enumerate(
+                            (
+                                "Opening image...",
+                                "Extracting fibronectin channel...",
+                                "Performing Reslice...",
+                                "Performing Z projection...",
+                                "Applying Maximum filter...",
+                                "Applying Gaussian Blur...",
+                                "Subtracting background...",
+                                "Applying threshold...",
+                                "Running Local Thickness...",
+                                "Measuring thickness...",
+                                "Closed all images.",
+                            ),
+                            1,
                         ):
                             self.assertRegex(
                                 journal,
-                                r"Thickness: [01]/2 finished"
+                                r"Stage 1/1 \| Thickness: [01]/2 finished"
                                 r"(?: \| 1 failed)? \| "
+                                + f"Operation {number}/11: "
                                 + re.escape(operation)
                                 + r" \| good_WellB02\.tiff",
                             )
