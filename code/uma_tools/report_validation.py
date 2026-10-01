@@ -34,6 +34,7 @@ from .report_tables import (
     parse_filenames,
     read_csv_table,
     read_template,
+    summarize_fn_mask_settings,
     validate_fibronectin,
     validate_fn_threshold,
 )
@@ -740,6 +741,7 @@ def validate_and_merge(
         log,
     )
     pixel_counts_checked = _validate_measurements(tables, log)
+    fn_mask_settings = summarize_fn_mask_settings(tables.fibronectin, log)
     observations = _merge_observations(
         tables,
         plate,
@@ -762,6 +764,16 @@ def validate_and_merge(
         excluded,
         group_counts,
     )
+    checks.append(
+        {
+            "Check": "FN mask intensity thresholds",
+            "Value": fn_mask_settings["caption"],
+            "Details": (
+                "Read from the selected area CSV; "
+                "independent of the FN coverage filter."
+            ),
+        }
+    )
     return {
         "columns": observations.columns,
         "rows": observations.rows,
@@ -770,6 +782,7 @@ def validate_and_merge(
         "retained_rows": retained,
         "excluded_rows": excluded,
         "fn_threshold": fn_threshold,
+        "fn_mask_settings": fn_mask_settings,
         "group_filter_counts": group_counts,
         "well_filter_counts": well_counts,
         "group_order": observations.group_order,

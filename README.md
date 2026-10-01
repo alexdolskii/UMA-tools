@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.16**; this is separate from the V2
+The current Python package version is **0.2.17**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -389,6 +389,25 @@ These tables also have CSV exports. Input summaries and measurement columns
 are unchanged. Embedded figures are snapshots; rerun the report after editing
 inputs.
 
+Every report figure, including Excel previews, labels the **FN mask intensity
+thresholds** from the selected Area CSV separately from the **FN coverage
+filter**. For example, `area_analysis -i input_paths.json -t 2000` records a
+lower raw-intensity cutoff of 2000 for the SUM projection; its default upper
+bound is the maximum finite float32 value. The plot caption states
+`FN mask: SUM projection; raw intensity [2000, float32 max] (inclusive)`.
+A supplied upper threshold is displayed as well. This is independent of
+`Coverage filter: FN ≥ 20%`, which selects images for filtered plots and
+statistics. **20% is also the default when `--fn-threshold` is omitted.**
+
+Captions use the saved effective thresholds, not guessed defaults or the
+current Area command options. Mixed settings are explicitly marked; each
+setting and its image count is listed in **Overview**, with per-image values
+in the `FN_Source__...` columns. Threshold provenance is also recorded in
+`run_parameters.json`, **Run_Info**, and **Plot_Info**. Missing metadata in
+older CSVs is labelled `not recorded`; invalid supplied bounds fail validation.
+Rerun only `uma_report` to add these captions when the selected Area CSV already
+contains the thresholds; image analysis does not need to be repeated.
+
 ```bash
 # Default: vector PDF figures, with embedded Excel previews
 uma_report -i input_paths.json --fn-threshold 20
@@ -492,7 +511,10 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.16`.
+versions change. Both version commands should report `0.2.17`.
+Version 0.2.17 adds saved FN mask intensity thresholds to report captions and
+provenance, separately from the FN coverage filter. Measurements and statistical
+results are unchanged.
 Version 0.2.16 shows stage totals for alignment and thickness and operation
 numbers within each thickness image. Versions 0.2.14 and 0.2.15 added per-stage
 counters and kept them visible during operations. These fixes do not change

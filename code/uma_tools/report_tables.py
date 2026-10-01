@@ -369,6 +369,118 @@ def validate_fibronectin(records, columns):
     return reconcile_pixels
 
 
+def _mask_bound(record, column):
+    """Read an optional effective bound without inventing defaults."""
+    value = record["raw"].get(column, "").strip()
+    if not value:
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        number = math.nan
+    if not math.isfinite(number) or number < 0:
+        raise ValidationError(
+            f"Invalid FN mask {column} in source row {record['source_row']}: "
+            f"{value!r}",
+            [
+                {
+                    "Table": "Fibronectin",
+                    "Source_Row": record["source_row"],
+                    "File_Name": record["raw"]["File_Name"],
+                    "Issue": f"Invalid {column}: {value!r}",
+                }
+            ],
+        )
+    return number
+
+
+def _mask_description(projection, lower, upper, units):
+    """Describe source mask bounds separately from a coverage cutoff."""
+
+    def bound(value):
+        if value is None:
+            return "not recorded"
+        if value == float.fromhex("0x1.fffffep+127"):
+            return "float32 max"
+        return f"{value:.9g}"
+
+    method = (
+        f"{projection} projection" if projection else "projection not recorded"
+    )
+    if lower is None and upper is None:
+        return f"{method}; intensity thresholds not recorded"
+    intensity = (
+        "raw intensity"
+        if units.lower() == "raw projection intensity"
+        else units or "intensity (units not recorded)"
+    )
+    if lower is None or upper is None:
+        return (
+            f"{method}; {intensity} lower={bound(lower)}, upper={bound(upper)}"
+        )
+    return (
+        f"{method}; {intensity} [{bound(lower)}, {bound(upper)}] (inclusive)"
+    )
+
+
+def summarize_fn_mask_settings(records, log):
+    """Label FN masks from area CSV metadata, not report defaults."""
+    profiles = {}
+    for record in records:
+        raw = record["raw"]
+        lower = _mask_bound(record, "Threshold_Lower")
+        upper_column = (
+            "Effective_Threshold_Upper"
+            if raw.get("Effective_Threshold_Upper", "").strip()
+            else "Threshold_Upper"
+        )
+        upper = _mask_bound(record, upper_column)
+        if lower is not None and upper is not None and upper < lower:
+            raise ValidationError(
+                "FN mask upper threshold is below its lower threshold in "
+                f"source row {record['source_row']} ({raw['File_Name']})."
+            )
+        projection = raw.get("Projection_Method", "").strip().upper()
+        units = raw.get("Threshold_Units", "").strip()
+        key = (projection, lower, upper, units)
+        if key not in profiles:
+            profiles[key] = {
+                "projection": projection or None,
+                "lower": lower,
+                "upper": upper,
+                "units": units or None,
+                "images": 0,
+                "description": _mask_description(*key),
+            }
+        profiles[key]["images"] += 1
+    values = list(profiles.values())
+    mixed = len(values) > 1
+    complete = all(
+        item["lower"] is not None
+        and item["upper"] is not None
+        and item["projection"]
+        and item["units"]
+        for item in values
+    )
+    caption = (
+        f"FN mask: mixed intensity/projection settings ({len(values)}); "
+        "see Overview and FN_Source columns."
+        if mixed
+        else f"FN mask: {values[0]['description']}."
+    )
+    log.event(
+        "PASS" if complete and not mixed else "WARNING",
+        "FN mask thresholds",
+        caption,
+    )
+    return {
+        "caption": caption,
+        "profiles": values,
+        "complete": complete,
+        "mixed": mixed,
+    }
+
+
 def read_template(
     path: Path, sheet_name: str | None
 ) -> tuple[str, list[list[Any]], dict[str, str], dict[str, str]]:
@@ -460,6 +572,7 @@ def prepare_display_tables(data, plots, parameters, manifests):
             len(data.get("processing_exclusions", [])),
         ),
         ("FN cutoff (%)", data["fn_threshold"]),
+        ("FN mask intensity thresholds", data["fn_mask_settings"]["caption"]),
         ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
         ("Figures", "Seven full-data and seven filtered views on Plots"),
         ("Plot format", parameters.get("plot_format", "pdf")),
@@ -474,6 +587,15 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "embedded plots do not recalculate.",
         ),
     ]
+    overview.extend(
+        (
+            f"FN mask setting {index}",
+            f"{profile['description']}; {profile['images']} source image(s)",
+        )
+        for index, profile in enumerate(
+            data["fn_mask_settings"]["profiles"], 1
+        )
+    )
     add(
         "Overview",
         ["Item", "Value"],

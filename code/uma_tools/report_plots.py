@@ -579,11 +579,17 @@ def _render_plot(
         for s in labels.values()
     )
     levels = max(levels for _, levels in layouts.values())
-    caption = "One point = one image. Box: median and IQR; whiskers: 1.5 IQR. "
+    mask_caption = data.get("fn_mask_settings", {}).get(
+        "caption", "FN mask intensity thresholds: not recorded."
+    )
+    caption = f"{mask_caption}\nCoverage filter: FN ≥ {threshold:g}%; "
     caption += (
-        f"{len(rows)} retained images; FN ≥ {threshold:g}%. "
+        f"{len(rows)} retained images. "
         if filtered
-        else f"{len(rows)} images; low FN outlined in red. "
+        else f"all {len(rows)} images shown; lower coverage outlined in red. "
+    )
+    caption += (
+        "\nOne point = one image. Box: median and IQR; whiskers: 1.5 IQR. "
     )
     caption += (
         f"Welch + Holm; test unit: {stats_unit}. Symbols: Statistics table."
@@ -852,6 +858,7 @@ def _render_plot(
         "font": plot_font(),
         "png_dpi": PNG_DPI,
         "caption": caption,
+        "fn_mask_caption": mask_caption,
         "statistics_note": stats_note,
         "point_count": len(rendered_ids),
         "red_outline_count": len(red_ids),

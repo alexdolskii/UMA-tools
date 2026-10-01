@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.16**.
+development; the current Python package version is **0.2.17**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -65,6 +65,15 @@ without leaving PNG files. PNG orientation compositions from alignment also
 use the shared typography and 300 dpi; both retain the original HSV encoding.
 The display resolution does not alter scientific pixels, masks or measurements.
 See [figure and workbook details](../README.md#figures-and-workbook).
+
+All report captions distinguish the saved **mask intensity thresholds** from
+the **FN coverage cutoff**. For example, `[2000, float32 max]` describes mask
+creation from the SUM projection; `FN ≥ 20%` describes which images enter the
+filtered view. The coverage default is 20%, even without `--fn-threshold`.
+Values come from the selected Area CSV. Missing metadata is labelled
+`not recorded`; mixed settings are flagged and detailed in Overview and the
+per-image source columns. Both thresholds also appear in the report's run and
+plot metadata. No recalculation of measurements is performed.
 
 ## One package directory
 
@@ -181,3 +190,9 @@ layouts and formats, preserve well colors and low-FN outlines, exercise
 uncolored and tinted templates without statistics, and verify 14 pictures on
 one Plots sheet. Numeric exports, raw/adjusted p-values, and the frozen
 alignment distributions/RGB samples remain covered by regression checks.
+
+Threshold-caption regressions distinguish intensity from coverage, retain the
+coverage boundary, preserve source files, label missing/mixed metadata, and
+reject invalid saved bounds. PNG/PDF captions are checked for clipping and
+unchanged observations, axes, colors and statistics; the installed report
+command verifies captions and provenance in all 14 figures and Excel.

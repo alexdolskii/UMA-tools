@@ -633,6 +633,7 @@ def process_folder(source, input_json, args):
             full_data_images=len(data["rows"]),
             filtered_images=len(data["retained_rows"]),
             excluded_from_filtered_plots=len(data["excluded_rows"]),
+            fn_mask_settings=data["fn_mask_settings"],
         )
         save_json(directory / "run_parameters.json", parameters)
         save_report_tables(data, directory)

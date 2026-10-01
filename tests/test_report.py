@@ -135,6 +135,7 @@ class ReportFixture(unittest.TestCase):
         annotations=None,
         alignment_originals=False,
         area_ids=True,
+        mask_thresholds=None,
     ):
         combined = combined or self.make_combined()
         names = names or (
@@ -201,6 +202,10 @@ class ReportFixture(unittest.TestCase):
             + [int(percent * 100), percent, 1200.55, "SUM"]
             for name, percent in reversed(list(zip(names, percentages)))
         ]
+        if mask_thresholds is not None:
+            columns.extend(mask_thresholds)
+            for row in rows:
+                row.extend(mask_thresholds.values())
         self.write_csv(paths["fibronectin"], columns, rows)
         paths["template"] = self.make_template(
             combined / "synthetic_96_well_plate_template.xlsx", annotations
@@ -712,7 +717,15 @@ class ReportCommandTests(ReportFixture):
             "D03": "Mixed group",
         }
         paths = self.inputs(
-            names=names, percentages=[5, 20, 10, 30, 45], annotations=groups
+            names=names,
+            percentages=[5, 20, 10, 30, 45],
+            annotations=groups,
+            mask_thresholds={
+                "Threshold_Lower": 2000,
+                "Threshold_Upper": "",
+                "Effective_Threshold_Upper": float.fromhex("0x1.fffffep+127"),
+                "Threshold_Units": "Raw projection intensity",
+            },
         )
         combined = paths["template"].parent
         original_bytes = {path: path.read_bytes() for path in paths.values()}
@@ -759,6 +772,13 @@ class ReportCommandTests(ReportFixture):
         self.assertEqual(status["included_images"], 3)
         self.assertEqual(status["excluded_images"], 2)
         self.assertEqual(status["annotation_coverage_percent"], 100)
+        parameters = json.loads(
+            (output / "run_parameters.json").read_text(encoding="utf-8")
+        )
+        profile = parameters["fn_mask_settings"]["profiles"][0]
+        self.assertEqual(profile["lower"], 2000)
+        self.assertEqual(profile["upper"], float.fromhex("0x1.fffffep+127"))
+        self.assertEqual(profile["images"], 5)
         self.assertEqual(Path(status["combined_results_folder"]), combined)
         self.assertEqual(
             list(older.glob("UMA_Report_*")),
@@ -798,6 +818,8 @@ class ReportCommandTests(ReportFixture):
         self.assertEqual(len(list(output.rglob("*.pdf"))), 14)
         by_sheet = {plot["plot_id"]: plot for plot in plots}
         for plot in plots:
+            self.assertIn("raw intensity [2000, float32 max]", plot["caption"])
+            self.assertIn("Coverage filter: FN ≥ 20%", plot["caption"])
             filtered = plot["view"] == "Filtered"
             self.assertEqual(plot["point_count"], 3 if filtered else 5)
             self.assertEqual(plot["red_outline_count"], 0 if filtered else 2)
@@ -834,6 +856,11 @@ class ReportCommandTests(ReportFixture):
             workbook_path, read_only=True, data_only=False
         )
         try:
+            overview = dict(list(workbook["Overview"].values)[1:])
+            self.assertIn(
+                "raw intensity [2000, float32 max]",
+                overview["FN mask intensity thresholds"],
+            )
             self.assertEqual(
                 workbook.sheetnames,
                 ["Overview"]
