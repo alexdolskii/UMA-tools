@@ -1,0 +1,1 @@
+FIJI_ENDPOINT = "sc.fiji:fiji:2.14.0"

@@ -4,8 +4,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from .progress import current_folder, current_session, phase
-
-FIJI_ENDPOINT = "sc.fiji:fiji:2.14.0"
+from .constants import FIJI_ENDPOINT
 
 
 class ImageJInitializationError(Exception):
