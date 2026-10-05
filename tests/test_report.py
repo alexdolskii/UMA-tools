@@ -606,8 +606,16 @@ class ReportCommandTests(ReportFixture):
             )
             raise RuntimeError("synthetic workbook verification failure")
 
+        def skip_figures(data, *args):
+            data["plot_palette"] = report.report_plots.report_palette(
+                data, report.report_plots.plot_panels(data), self.log
+            )
+            return []
+
         with (
-            patch.object(report.report_plots, "create_plots", return_value=[]),
+            patch.object(
+                report.report_plots, "create_plots", side_effect=skip_figures
+            ),
             patch.object(
                 report.report_workbook, "build_workbook", return_value=workbook
             ),
@@ -835,9 +843,10 @@ class ReportCommandTests(ReportFixture):
                 full = by_sheet[plot["name"] + " Plot"]
                 self.assertEqual(plot["y_max"], full["y_max"])
                 self.assertEqual(
-                    plot["technical_replicate_colors"],
-                    full["technical_replicate_colors"],
+                    plot["condition_styles"],
+                    full["condition_styles"],
                 )
+                self.assertEqual(plot["well_markers"], full["well_markers"])
                 self.assertEqual(
                     plot["x_positions"],
                     {

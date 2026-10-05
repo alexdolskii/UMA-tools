@@ -99,10 +99,30 @@ class StatisticsCommandTests(ReportFixture):
                 self.assertTrue((output / "well_means.csv").is_file())
                 self.assertTrue((output / "comparison_design.csv").is_file())
                 plots = json.loads((output / "plot_manifest.json").read_text())
+                styles = parameters["plot_palette"]
+                self.assertEqual(
+                    styles["conditions"]["Control"]["color"], "#B5B1D8"
+                )
+                self.assertEqual(
+                    styles["conditions"]["Treatment"]["color"], "#004F46"
+                )
                 for plot in plots:
                     self.assertEqual(
                         len(plot["statistical_comparisons"]),
                         int(plot["view"] == "Filtered"),
+                    )
+                    self.assertEqual(
+                        plot["condition_styles"], styles["conditions"]
+                    )
+                    self.assertEqual(plot["well_markers"], styles["wells"])
+                observations = self.read_csv(output / "plot_data.csv")
+                for point in observations:
+                    self.assertEqual(
+                        point["Point_Color"],
+                        styles["conditions"][point["Group"]]["color"],
+                    )
+                    self.assertEqual(
+                        point["Point_Marker"], styles["wells"][point["Well"]]
                     )
                 workbook = openpyxl.load_workbook(
                     status["workbook"], read_only=True, data_only=False
@@ -116,6 +136,20 @@ class StatisticsCommandTests(ReportFixture):
                             "Comparison Design",
                         }.issubset(workbook.sheetnames)
                     )
+                    sheet_rows = workbook["Plot_Data"].iter_rows(
+                        values_only=True
+                    )
+                    columns = next(sheet_rows)
+                    exported = [dict(zip(columns, row)) for row in sheet_rows]
+                    self.assertEqual(len(exported), len(observations))
+                    for cell_row, csv_row in zip(exported, observations):
+                        for key in (
+                            "Group",
+                            "Well",
+                            "Point_Color",
+                            "Point_Marker",
+                        ):
+                            self.assertEqual(cell_row[key], csv_row[key])
                 finally:
                     workbook.close()
                 self.assertFalse((output / "report_pending.xlsx").exists())

@@ -10,13 +10,13 @@ from .contracts import ALIGNMENT_SUFFIX
 from .contracts import EVENT_COLUMNS as EVENT_COLUMNS
 from .contracts import THICKNESS_METRICS as THICKNESS_METRICS
 from .contracts import THICKNESS_UNITS as THICKNESS_UNITS
+from .plot_palette import LOW_FN_EDGE_COLOR as LOW_FN_EDGE_COLOR
 
 FN_METRIC = "FN_Area_Percent"
 FN_THRESHOLD_COLUMN = "FN_Area_Threshold_Percent"
 FN_LOW_FLAG = "Below_FN_Threshold"
 FN_INCLUDED_FLAG = "Included_In_Filtered_Plots"
 FN_REASON_COLUMN = "Exclusion_Reason"
-LOW_FN_EDGE_COLOR = "#D62728"
 ALIGNMENT_PATTERN = re.compile(
     r"^Percentage_Fibers_Aligned_Within_([0-9]+(?:\.[0-9]+)?)_Degree$"
 )
@@ -34,16 +34,6 @@ POINT_PATTERN = re.compile(
 NUMBER_PATTERN = re.compile(
     r"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$"
 )
-BASE_COLORS = [
-    "#2478B4",
-    "#E67E22",
-    "#2E9D63",
-    "#B34C8C",
-    "#8A6D3B",
-    "#6C63B5",
-    "#C44E52",
-    "#4C9A9A",
-]
 PLOT_NAMES = [
     "Fibronectin Plot",
     "Alignment Plot",

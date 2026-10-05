@@ -652,6 +652,8 @@ def process_folder(source, input_json, args):
         plots = report_plots.create_plots(
             data, directory / "Plots", log, status["plot_format"]
         )
+        parameters["plot_palette"] = data["plot_palette"]
+        save_json(directory / "run_parameters.json", parameters)
         save_json(directory / "plot_manifest.json", plots)
         report_tables.prepare_display_tables(
             data, plots, parameters, manifests

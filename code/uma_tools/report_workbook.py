@@ -459,10 +459,12 @@ def _apply_comparison_styles(sheet, design):
     for record in design:
         row, column = coordinate_to_tuple(record["Excel_Cell"])
         cell = sheet.cell(row + 5, column)
-        cell.fill = _comparison_fill(record)
         font = copy(cell.font)
-        font.bold = record["Is_Control"]
-        font.color = _comparison_text_color(sheet.parent, record)
+        if record.get("Color_Code") is not None:
+            cell.fill = _comparison_fill(record)
+            font.color = _comparison_text_color(sheet.parent, record)
+        if record["Is_Control"] is not None:
+            font.bold = record["Is_Control"]
         cell.font = font
 
 
@@ -707,11 +709,17 @@ def _verify_plate_map(workbook, data):
     for record in design:
         row, column = coordinate_to_tuple(record["Excel_Cell"])
         cell = cells[row - 1][column - 1]
-        expected = _comparison_fill(record)
+        fill_changed = False
+        if record.get("Color_Code") is not None:
+            expected = _comparison_fill(record)
+            fill_changed = (
+                cell.fill.patternType != expected.patternType
+                or cell.fill.fgColor != expected.fgColor
+            )
         if (
-            cell.fill.patternType != expected.patternType
-            or cell.fill.fgColor != expected.fgColor
-            or bool(cell.font.bold) != record["Is_Control"]
+            fill_changed
+            or record["Is_Control"] is not None
+            and bool(cell.font.bold) != record["Is_Control"]
         ):
             raise RuntimeError(
                 "Plate Map comparison formatting changed for "

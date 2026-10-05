@@ -575,6 +575,8 @@ def prepare_display_tables(data, plots, parameters, manifests):
         ("FN mask intensity thresholds", data["fn_mask_settings"]["caption"]),
         ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
         ("Figures", "Seven full-data and seven filtered views on Plots"),
+        ("Point color", "Condition; lavender reserved for a bold control"),
+        ("Point shape", "Technical well within each condition; see Plot_Data"),
         ("Plot format", parameters.get("plot_format", "pdf")),
         (
             "Population",
@@ -622,9 +624,10 @@ def prepare_display_tables(data, plots, parameters, manifests):
                     "Image_ID": image_id,
                     "Value": row[plot["metric"]],
                     "Technical_Replicate": replicate + 1,
-                    "Point_Color": plot["technical_replicate_colors"][
-                        replicate
+                    "Point_Color": plot["condition_styles"][row["Group"]][
+                        "color"
                     ],
+                    "Point_Marker": plot["well_markers"][row["Well"]],
                     "Red_Outline": image_id in plot["red_outline_image_ids"],
                     "Panel_X": plot["rendered_x_positions"][image_id],
                 }
@@ -640,6 +643,18 @@ def prepare_display_tables(data, plots, parameters, manifests):
                         "Panel_Title": panel["title"],
                         "Group": group,
                         "Display_Label": panel["labels"][group],
+                        "Point_Color": plot["condition_styles"][group][
+                            "color"
+                        ],
+                        "Color_Name": plot["condition_styles"][group][
+                            "color_name"
+                        ],
+                        "Is_Control": plot["condition_styles"][group][
+                            "is_control"
+                        ],
+                        "Palette_Mode": plot["condition_styles"][group][
+                            "palette_mode"
+                        ],
                         "N_Images": plot["group_counts"][group],
                         "N_Wells": plot["group_well_counts"][group],
                     }
@@ -681,6 +696,7 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "Value",
             "Technical_Replicate",
             "Point_Color",
+            "Point_Marker",
             "Red_Outline",
             "Panel_X",
         ],
@@ -696,6 +712,10 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "Panel_Title",
             "Group",
             "Display_Label",
+            "Point_Color",
+            "Color_Name",
+            "Is_Control",
+            "Palette_Mode",
             "N_Images",
             "N_Wells",
         ],

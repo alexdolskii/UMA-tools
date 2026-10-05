@@ -12,7 +12,7 @@ from PIL import Image
 from test_report import ReportFixture
 from test_report_statistics_plots import comparison, report_data
 
-from uma_tools import plot_style, report_plots
+from uma_tools import plot_palette, plot_style, report_plots
 from uma_tools.report import parse_args
 
 
@@ -27,7 +27,9 @@ def render(data, folder, filtered=False, plot_format="png"):
         folder,
         specs[0],
         filtered,
-        report_plots.replicate_colors(2),
+        plot_palette.report_palette(
+            data, report_plots.plot_panels(data), Mock()
+        ),
         upper,
         report_plots._point_positions(data, 2),
         Mock(),
@@ -120,7 +122,7 @@ class PlotAppearanceTests(unittest.TestCase):
             filtered = render(data, self.folder, True)
         for key in (
             "boxes",
-            "technical_replicate_colors",
+            "well_markers",
             "plotted_image_ids",
             "red_outline_image_ids",
             "y_min",
@@ -130,6 +132,9 @@ class PlotAppearanceTests(unittest.TestCase):
             self.assertEqual(full[key], original[key], key)
         self.assertEqual(len(full["panels"]), 2)
         self.assertEqual(full["panels"], filtered["panels"])
+        self.assertEqual(
+            full["condition_styles"], filtered["condition_styles"]
+        )
         self.assertEqual(filtered["empty_groups"], ["Empty"])
         for image_id, position in filtered["rendered_x_positions"].items():
             self.assertEqual(position, full["rendered_x_positions"][image_id])

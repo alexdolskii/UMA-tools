@@ -4,12 +4,12 @@ Render fourteen image views and optional filtered-data statistics.
 
 from __future__ import annotations
 
-import colorsys
 import math
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from .plot_palette import POINT_EDGE_COLOR, report_palette
 from .plot_style import (
     FONT_SIZES,
     PNG_DPI,
@@ -21,7 +21,6 @@ from .plot_style import (
 )
 from .progress import phase
 from .report_schema import (
-    BASE_COLORS,
     FN_LOW_FLAG,
     FN_METRIC,
     LOW_FN_EDGE_COLOR,
@@ -32,18 +31,6 @@ from .report_schema import (
     ReportData,
     ValidationError,
 )
-
-
-def replicate_colors(count):
-    colors = BASE_COLORS.copy()
-    index = 0
-    while len(colors) < count:
-        rgb = colorsys.hls_to_rgb((index * 0.61803398875) % 1, 0.44, 0.62)
-        color = "#" + "".join(f"{round(value * 255):02x}" for value in rgb)
-        if color.lower() not in [item.lower() for item in colors]:
-            colors.append(color)
-        index += 1
-    return colors[:count]
 
 
 def box_definition(values):
@@ -158,15 +145,15 @@ def _draw_boxes(axis, rows, groups, field):
 
 
 def _draw_points(
-    axis, data, rows, field, filtered, colors, x_positions, groups=None
+    axis, data, rows, field, filtered, styles, x_positions, groups=None
 ):
     """
-    Draw each image once using its original well color and FN flag.
+    Draw each image with its condition color, well marker and FN flag.
     """
     groups = groups if groups is not None else data["group_order"]
     plotted_ids, red_ids = [], []
     for group in groups:
-        for rep_index, well in enumerate(data["group_wells"][group]):
+        for well in data["group_wells"][group]:
             records = [row for row in rows if row["Well"] == well]
             if not records:
                 continue
@@ -177,12 +164,14 @@ def _draw_points(
                 [x_positions[row["Image_ID"]] for row in records],
                 [row[field] for row in records],
                 s=52,
-                color=colors[rep_index],
+                color=styles["conditions"][group]["color"],
+                marker=styles["wells"][well],
                 edgecolors=[
-                    LOW_FN_EDGE_COLOR if low else "white" for low in outlined
+                    LOW_FN_EDGE_COLOR if low else POINT_EDGE_COLOR
+                    for low in outlined
                 ],
-                linewidths=[1.9 if low else 0.6 for low in outlined],
-                alpha=0.95,
+                linewidths=[1.9 if low else 0.8 for low in outlined],
+                alpha=1,
                 zorder=3,
                 clip_on=False,
             )
@@ -369,7 +358,11 @@ def prepare_plot_design(data, template, log):
 
     from .report_statistics import _color_fields, _reject_conditional_styles
 
-    workbook = openpyxl.load_workbook(template, data_only=False)
+    workbook = openpyxl.load_workbook(
+        template, data_only=False, rich_text=True
+    )
+    from openpyxl.cell.rich_text import CellRichText
+
     design = []
     try:
         sheet = workbook[data["template_sheet"]]
@@ -395,13 +388,15 @@ def prepare_plot_design(data, template, log):
                 try:
                     fields = _color_fields(cell)
                 except ValueError:
-                    continue
+                    fields = {"Color_Code": None}
                 design.append(
                     {
                         "Group": data["well_map"][well],
                         "Well": well,
                         "Excel_Cell": cell.coordinate,
-                        "Is_Control": bool(cell.font.bold),
+                        "Is_Control": None
+                        if isinstance(cell.value, CellRichText)
+                        else bool(cell.font.bold),
                         **fields,
                     }
                 )
@@ -459,21 +454,21 @@ def plot_panels(data):
     return panels
 
 
-def _legend_handles(name, threshold, filtered, colors):
+def _legend_handles(name, threshold, filtered, markers):
     from matplotlib.lines import Line2D
 
     handles = [
         Line2D(
             [0],
             [0],
-            marker="o",
+            marker=marker,
             linestyle="none",
-            markerfacecolor=color,
-            markeredgecolor="white",
+            markerfacecolor="#CBD5E1",
+            markeredgecolor=POINT_EDGE_COLOR,
             markersize=8,
             label=f"Technical well {index}",
         )
-        for index, color in enumerate(colors, 1)
+        for index, marker in enumerate(markers, 1)
     ]
     if not filtered:
         handles.append(
@@ -507,13 +502,13 @@ def _render_plot(
     directory,
     spec,
     filtered,
-    colors,
+    styles,
     shared_upper,
     x_positions,
     log,
     plot_format="pdf",
 ):
-    """Render all panels with unchanged image values and well colors."""
+    """Render panels with stable condition colors and well shapes."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -548,7 +543,7 @@ def _render_plot(
     subtitle = wrap_label(
         panels[0]["context"], (width - 0.6) * 72, FONT_SIZES["panel"]
     )
-    handles = _legend_handles(name, threshold, filtered, colors)
+    handles = _legend_handles(name, threshold, filtered, styles["markers"])
     legend_columns = min(4, max(2, int(width / 3)))
     legend_rows = math.ceil(len(handles) / legend_columns)
     panel_labels, layouts, local_positions = {}, {}, {}
@@ -596,6 +591,9 @@ def _render_plot(
         if filtered and stats_unit
         else "Descriptive view; no tests."
     )
+    caption += "\nColor = condition; shape = technical well within condition."
+    if any(style["is_control"] for style in styles["conditions"].values()):
+        caption += " Lavender = bold-marked control."
     display_caption = wrap_label(
         caption, (width - 0.6) * 72, FONT_SIZES["note"]
     )
@@ -713,7 +711,7 @@ def _render_plot(
                     local_rows,
                     field,
                     filtered,
-                    colors,
+                    styles,
                     local_positions,
                     panel["groups"],
                 )
@@ -881,7 +879,10 @@ def _render_plot(
         "rendered_x_positions": {
             key: local_positions[key] for key in rendered_ids
         },
-        "technical_replicate_colors": colors,
+        "condition_styles": styles["conditions"],
+        "well_markers": styles["wells"],
+        "technical_well_markers": styles["markers"],
+        "palette_blocks": styles["blocks"],
         "boxes": boxes_by_group,
     }
     log.event(
@@ -905,7 +906,8 @@ def create_plots(
         raise ValueError("plot_format must be pdf, png, or both")
     directory.mkdir()
     max_replicates = max(map(len, data["group_wells"].values()))
-    colors = replicate_colors(max_replicates)
+    styles = report_palette(data, plot_panels(data), log)
+    data["plot_palette"] = styles
     specs = _plot_specs(data)
     shared_upper = {
         field: (
@@ -926,7 +928,7 @@ def create_plots(
                 directory,
                 spec,
                 filtered,
-                colors,
+                styles,
                 shared_upper,
                 x_positions,
                 log,

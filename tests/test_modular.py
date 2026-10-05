@@ -171,6 +171,7 @@ class EntryPointTests(unittest.TestCase):
             "progress",
             "image_run",
             "contracts",
+            "constants",
             "imagej",
             "area_imagej",
             "report_inputs",
@@ -180,6 +181,7 @@ class EntryPointTests(unittest.TestCase):
             "report_statistics",
             "report_plots",
             "plot_style",
+            "plot_palette",
             "report_workbook",
         }
         package = REPOSITORY / "code" / "uma_tools"

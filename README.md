@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.17**; this is separate from the V2
+The current Python package version is **0.2.18**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -428,10 +428,53 @@ data and label mapping. Each condition shows image and well counts, including
 zero after filtering. All panels of a metric and its full/filtered pair share
 Y limits; alignment and FN coverage remain 0–100%.
 
-Every point remains one image. Technical-well colors, red outlines for low FN
-in full-data plots, and image-based boxes are preserved. Choosing an export
-format does not select metrics or change tests; all seven metrics are shown.
+Every point remains one image. Color identifies the condition; marker shape
+identifies a technical well **within that condition**. Wells use circle,
+square, triangle, etc., in their existing order; after twelve shapes, numbered
+markers avoid repeating a shape within a condition. Actual well IDs, marker
+codes and colors are recorded in `Plot_Data` and `plot_data.csv`.
+Red outlines still identify low FN in full-data plots. Light points have dark
+outlines. Boxes still summarize individual images. Choosing an export format
+does not select metrics or change tests; all seven metrics are shown.
 PDF-only exports create Excel previews in memory, without standalone PNGs.
+
+Condition colors are assigned separately within each Excel color block,
+before FN filtering. A whole-cell bold control uses Grayish Lavender A;
+treatments follow the existing condition order, without moving the control
+on the X axis. For **2–8 conditions in total, including the control**:
+
+| Role | Color | HEX |
+|---|---|---|
+| Control | Grayish Lavender A | `#B5B1D8` |
+| Treatment 1 | Dusky Green | `#004F46` |
+| Treatment 2 | Orange | `#F37420` |
+| Treatment 3 | Deep Indigo | `#051230` |
+| Treatment 4 | Dull Blue Violet | `#80719E` |
+| Treatment 5 | Ivory Buff | `#EBD3A2` |
+| Treatment 6 | Violet | `#4F4086` |
+| Treatment 7 | Verditter Blue | `#6FB5A8` |
+
+For **9+ conditions**, the control stays lavender and treatments use Dusky
+Green tints from `#004F46` to `#BFD3D1` (evenly spaced sRGB blends toward white,
+up to 75%). Template conditions with no source images still count when
+selecting a block's palette. Colors and well shapes remain identical across
+metrics, full/filtered views and PNG/PDF/Excel, including conditions with
+zero retained images. The exact mapping is also saved in `Plot_Labels`,
+`plot_manifest.json` and `run_parameters.json`.
+
+Descriptive reports still accept unmarked templates. If a panel has no
+unambiguous bold control, the log warns and lavender remains unused; the
+other seven colors are used, or green tints for eight or more unmarked
+conditions. No control is inferred from a condition's name or position.
+The existing stricter control validation applies when statistics are enabled.
+
+This palette is a new selection of historical digital colors, using the
+[Wada color catalogue](https://colors.elwyn.co/) and
+[Werner color catalogue](https://www.c82.net/werner/); it is not an original
+numbered Wada combination. Green tints are adaptations. Color alone is not
+a reliable identifier for many conditions or in grayscale: use the labeled
+condition positions and exported mapping. The palette and well-marker rules
+are centralized in `code/uma_tools/plot_palette.py`.
 
 Alignment's original and normalized orientation PNGs also use the shared
 fonts, white background, full filename footer, right-hand angular colorbar,
@@ -484,7 +527,7 @@ Filtered FN% results describe only images that passed the FN filter.
 Filtered plots show adjusted significance: `*` for p < 0.05, `**` for p < 0.01,
 `***` for p < 0.001, `****` for p < 0.0001, and `ns` otherwise. Points remain individual images;
 captions identify the test unit and show image and well counts. Full-data
-plots retain technical-well colors and red low-FN outlines. The selected
+plots retain condition colors, technical-well shapes and red low-FN outlines. The selected
 mode is recorded in the logs and run metadata.
 
 Enabled statistics add `Well Means`, `Statistics`, and `Comparison Design`
@@ -511,7 +554,11 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.17`.
+versions change. Both version commands should report `0.2.18`.
+Version 0.2.18 adds the shared condition palette and technical-well marker
+shapes to reports, with the exact mapping exported alongside the plots.
+No environment changes or repeated image analyses are needed; rerun
+`uma_report` to generate the new figures from existing collected results.
 Version 0.2.17 adds saved FN mask intensity thresholds to report captions and
 provenance, separately from the FN coverage filter. Measurements and statistical
 results are unchanged.

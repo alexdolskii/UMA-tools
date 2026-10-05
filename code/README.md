@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.17**.
+development; the current Python package version is **0.2.18**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -96,6 +96,7 @@ The remaining modules have these responsibilities:
 | `runtime.py` | Worker supervision, owned temporary directories, and cleanup after verified completion |
 | `diagnostics.py` | Bounded inspection of known temporary files, caches, processes, memory, and disks |
 | `contracts.py` | Shared assay names, columns, and data definitions |
+| `constants.py` | Pinned Fiji endpoint |
 | `imagej.py` | Headless Fiji initialization and worker cleanup |
 | `area_imagej.py` | SUM32 projection, threshold bounds, masks, and area measurements |
 | `report_inputs.py` | Select, verify, and archive collected report inputs |
@@ -104,6 +105,7 @@ The remaining modules have these responsibilities:
 | `report_schema.py` | Report constants, data types, and validation errors |
 | `report_statistics.py` | Validate color/bold controls and calculate optional Welch/Holm comparisons |
 | `plot_style.py` | Shared figure fonts, label wrapping, and export settings |
+| `plot_palette.py` | Condition palette, bold-control color, technical-well shapes, and low-FN outline colors |
 | `report_plots.py` | Generate all report figures and descriptive color panels |
 | `report_workbook.py` | Build and verify the Excel workbook |
 
@@ -186,7 +188,8 @@ partial scientific results. Diagnostics tests cover bounded scans, corrupt
 metadata, symbolic links, lightweight imports, and log copying/rotation.
 
 Appearance regressions reconcile every plotted image and box across panel
-layouts and formats, preserve well colors and low-FN outlines, exercise
+layouts and formats, preserve condition colors, well shapes and low-FN
+outlines, exercise
 uncolored and tinted templates without statistics, and verify 14 pictures on
 one Plots sheet. Numeric exports, raw/adjusted p-values, and the frozen
 alignment distributions/RGB samples remain covered by regression checks.
@@ -196,3 +199,10 @@ coverage boundary, preserve source files, label missing/mixed metadata, and
 reject invalid saved bounds. PNG/PDF captions are checked for clipping and
 unchanged observations, axes, colors and statistics; the installed report
 command verifies captions and provenance in all 14 figures and Excel.
+
+Palette tests cover 2–8 conditions, 9–96-condition green tints, controls in
+different positions or without images, multiple comparison blocks, ambiguous
+markup, and 96 non-repeating well markers. Rendered face colors, marker paths
+and red outlines are checked against the source well and FN flag. All metrics
+retain their image populations and box values; installed CLI tests reconcile
+the color/marker mapping between CSV, JSON and Excel.

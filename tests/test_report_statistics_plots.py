@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from uma_tools import plot_palette
 from uma_tools import report_plots as plots
 from uma_tools.report_schema import FN_LOW_FLAG, FN_METRIC
 
@@ -103,7 +104,9 @@ class StatisticalPlotsTests(unittest.TestCase):
                 self.directory,
                 spec,
                 filtered,
-                plots.replicate_colors(2),
+                plot_palette.report_palette(
+                    data, plots.plot_panels(data), self.log
+                ),
                 upper,
                 plots._point_positions(data, 2),
                 self.log,
@@ -149,7 +152,8 @@ class StatisticalPlotsTests(unittest.TestCase):
             "plotted_image_ids",
             "red_outline_image_ids",
             "x_positions",
-            "technical_replicate_colors",
+            "condition_styles",
+            "well_markers",
             "boxes",
         )
         for field in stable_fields:
