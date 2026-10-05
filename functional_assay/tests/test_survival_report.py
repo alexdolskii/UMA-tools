@@ -19,7 +19,6 @@ import openpyxl
 from functional_assay import report_data, survival_data, survival_report
 from functional_assay.cell_analysis import SUMMARY_COLUMNS
 from test_functional_report import create_analysis, create_template
-
 from uma_tools.files import save_csv, save_json, sha256_file
 from uma_tools.report_schema import ValidationError
 
@@ -372,9 +371,9 @@ class SurvivalReportTests(unittest.TestCase):
         )
 
     def test_latest_successful_selection_is_independent_per_day(self):
-        source = self.analyses[2].parent
+        source = self.analyses[2].parent.parent
         partial, _, _ = create_analysis(
-            source, "20260929_130000_000001", "partial"
+            source, "20260929_130000_000001", "PARTIAL"
         )
         config = survival_data.read_config(self.path)
         out = self.root / "snapshots"
@@ -389,8 +388,11 @@ class SurvivalReportTests(unittest.TestCase):
         )
         self.assertEqual(len(measurements), 4)
         selected = next(r for r in selections if r["Day"] == 2)
-        self.assertEqual(selected["Selected_Analysis"], str(self.analyses[2]))
-        self.assertNotEqual(selected["Selected_Analysis"], str(partial))
+        self.assertEqual(selected["Selected_Analysis"], str(partial))
+        self.assertNotEqual(
+            selected["Selected_Analysis"], str(self.analyses[2])
+        )
+        self.assertEqual(len(measurements[2]), 11)
         self.assertEqual(
             len(
                 list((out / "inputs").glob("day_*/Cell_Analysis_Summary.csv"))
@@ -398,14 +400,19 @@ class SurvivalReportTests(unittest.TestCase):
             4,
         )
 
-    def test_newest_completed_missing_csv_fails_without_older_fallback(self):
-        source = self.analyses[2].parent
+    def test_invalid_later_day_is_missing_without_older_fallback(self):
+        source = self.analyses[2].parent.parent
         latest, _, _ = create_analysis(source, "20260929_130000_000001")
         (latest / "Cell_Analysis_Summary.csv").unlink()
         result = self.report()
-        self.assertEqual(result["status"], "failed")
-        self.assertIn(str(latest), result["error"])
-        self.assertFalse(list(Path(result["output"]).glob("*.png")))
+        self.assertEqual(result["status"], "PARTIAL", result)
+        self.assertEqual(result["missing_days"], [2])
+        selection = next(
+            row for row in result["selections"] if row["Day"] == 2
+        )
+        self.assertIn(str(latest), selection["Reason"])
+        self.assertEqual(result["paired_well_changes"], 24)
+        self.assertEqual(len(list(Path(result["output"]).glob("*.png"))), 6)
 
     def test_configuration_snapshot_detects_changes_after_parsing(self):
         config = survival_data.read_config(self.path)
@@ -416,7 +423,7 @@ class SurvivalReportTests(unittest.TestCase):
             status = survival_report.run_report(
                 config, self.path, False, before
             )
-        self.assertEqual(status["status"], "failed")
+        self.assertEqual(status["status"], "FAILED")
         self.assertIn("configuration changed", status["error"])
 
     def test_help_version_and_rejected_units_without_fiji(self):
@@ -479,7 +486,11 @@ class SurvivalReportTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("E02", result.stdout)
-        output = next((self.root / "results").glob("Survival_Report_*"))
+        output = next(
+            (self.root / "results" / "uma_functional_assay").glob(
+                "Survival_Report_*"
+            )
+        )
         status = json.loads((output / "run_status.json").read_text())
         self.assertEqual(status["raw_measurements"], 49)
         self.assertEqual(status["unmapped_measurements"], 1)
@@ -506,7 +517,7 @@ class SurvivalReportTests(unittest.TestCase):
             book.close()
         before = {p: sha256_file(p) for p in output.rglob("*") if p.is_file()}
         repeated = self.report(statistics=False)
-        self.assertEqual(repeated["status"], "completed", repeated)
+        self.assertEqual(repeated["status"], "SUCCESS", repeated)
         second = Path(repeated["output"])
         self.assertNotEqual(second, output)
         self.assertFalse((second / "Statistics.csv").exists())

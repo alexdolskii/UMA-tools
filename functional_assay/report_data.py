@@ -86,31 +86,50 @@ def normalize_well(value: str) -> str:
 
 
 def completed_status(path: Path) -> dict:
-    """Require a consistent completion record, not just a folder name."""
+    """Accept finalized SUCCESS/PARTIAL runs with explicit well outcomes."""
     if path.is_symlink() or not path.is_file():
         raise ValidationError(f"Missing regular completion record: {path}")
     status = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(status, dict) or status.get("status") != "completed":
-        raise ValidationError("Cell analysis is not fully completed")
+    if not isinstance(status, dict) or status.get("status") not in {
+        "SUCCESS",
+        "PARTIAL",
+    }:
+        raise ValidationError(
+            "Cell analysis is not a finalized SUCCESS/PARTIAL run"
+        )
     wells = status.get("wells")
     if (
         not isinstance(wells, dict)
         or not wells
-        or status.get("failures") != 0
-        or status.get("completed_wells") != len(wells)
         or any(
-            not isinstance(row, dict) or row.get("status") != "completed"
+            not isinstance(row, dict)
+            or row.get("status") not in {"completed", "failed"}
+            or (row.get("status") == "failed" and not row.get("error"))
             for row in wells.values()
         )
+    ):
+        raise ValidationError("Inconsistent cell-analysis completion record")
+    completed = sum(row["status"] == "completed" for row in wells.values())
+    failures = len(wells) - completed + bool(status.get("error"))
+    if (
+        not completed
+        or status.get("completed_wells") != completed
+        or status.get("failures") != failures
+        or status["status"] != ("PARTIAL" if failures else "SUCCESS")
     ):
         raise ValidationError("Inconsistent cell-analysis completion record")
     return status
 
 
 def select_analysis(source: Path, messages: list[str]) -> Path:
-    """Choose the newest complete run before examining its CSV or template."""
+    """Choose a finalized run in the new layout; never merge older wells."""
+    from .workflow import NoInputError, assay_directory
+
+    directory = assay_directory(source, create=False)
+    if not directory.is_dir():
+        raise NoInputError(f"Functional assay results not found: {directory}")
     candidates = []
-    for folder in sorted(source.iterdir()):
+    for folder in sorted(directory.iterdir()):
         if (
             not folder.name.startswith("Cell_Analysis_")
             or folder.is_symlink()
@@ -128,7 +147,9 @@ def select_analysis(source: Path, messages: list[str]) -> Path:
             continue
         candidates.append((stamp, folder))
     if not candidates:
-        raise ValidationError("No fully successful Cell_Analysis run found")
+        raise NoInputError(
+            "No finalized SUCCESS/PARTIAL Cell_Analysis run found"
+        )
     newest = max(stamp for stamp, _ in candidates)
     selected = [folder for stamp, folder in candidates if stamp == newest]
     if len(selected) != 1:
@@ -292,6 +313,26 @@ def _validate_row(raw: dict, parameters: dict) -> dict:
 
 
 def read_measurements(path: Path, status: dict) -> list[dict]:
+    from uma_tools.files import sha256_file
+
+    if path.is_symlink() or not path.is_file():
+        raise ValidationError(f"Missing regular cell summary: {path}")
+    if (
+        status.get("summary_sha256")
+        and sha256_file(path) != status["summary_sha256"]
+    ):
+        raise ValidationError(
+            f"Cell summary checksum disagrees with run metadata: {path}"
+        )
+    records = {
+        normalize_well(well): record
+        for well, record in status["wells"].items()
+    }
+    if len(records) != len(status["wells"]):
+        raise ValidationError(
+            "Duplicate well identifiers in completion record"
+        )
+    seen = set()
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         columns = reader.fieldnames or []
@@ -305,16 +346,36 @@ def read_measurements(path: Path, status: dict) -> list[dict]:
         for raw in reader:
             if None in raw or any(raw[key] is None for key in SUMMARY_COLUMNS):
                 raise ValidationError(f"Malformed CSV row {reader.line_num}")
-            rows.append(_validate_row(raw, status.get("parameters", {})))
-    wells = [row["Well"] for row in rows]
-    if len(set(wells)) != len(wells):
-        raise ValidationError("Duplicate well identifiers in cell summary")
-    expected = [normalize_well(well) for well in status["wells"]]
-    if len(set(expected)) != len(expected) or sorted(wells) != sorted(
-        expected
-    ):
+            well = normalize_well(raw["Well"])
+            if well in seen:
+                raise ValidationError(
+                    "Duplicate well identifiers in cell summary"
+                )
+            seen.add(well)
+            record = records.get(well)
+            if record is None or raw["Status"] != record["status"]:
+                raise ValidationError(
+                    f"{well}: summary and completion status disagree"
+                )
+            if record["status"] == "completed":
+                rows.append(_validate_row(raw, status.get("parameters", {})))
+            else:
+                if raw["Error"] != record.get("error") or any(
+                    raw[key] != ""
+                    for key in SUMMARY_COLUMNS
+                    if key not in {"Well", "File_Name", "Status", "Error"}
+                ):
+                    raise ValidationError(
+                        f"{well}: failed well contains measurements "
+                        "or lacks its recorded error"
+                    )
+    if seen != records.keys():
         raise ValidationError(
             "Summary wells do not match the completed analysis"
+        )
+    if len(rows) != status["completed_wells"]:
+        raise ValidationError(
+            "Successful summary count disagrees with completion record"
         )
     return sorted(rows, key=lambda row: row["Well"])
 

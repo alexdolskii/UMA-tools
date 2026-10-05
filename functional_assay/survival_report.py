@@ -13,10 +13,18 @@ from pathlib import Path
 
 from uma_tools.files import safe_label, save_csv, save_json, sha256_file
 from uma_tools.report_schema import ValidationError
-from uma_tools.run import RunLog, unique_output, utc_now
+from uma_tools.run import unique_output, utc_now
 
 from . import report_data, survival_data
 from .functional_report import verify_inputs
+from .workflow import (
+    EXCLUSION_COLUMNS,
+    NoInputError,
+    RunLog,
+    assay_directory,
+    command_error,
+    exclusions,
+)
 
 
 def parse_args(argv: Sequence[str] | None = None):
@@ -69,46 +77,111 @@ def archive_input(source, relative, output, manifest, role):
 
 
 def load_days(config, output, log, manifest):
+    """Keep failed later days explicit; never replace them with older data."""
     measurements, selections = {}, []
-    for point in config["timepoints"]:
+    for index, point in enumerate(config["timepoints"]):
         day, folder = point["day"], point["folder"]
+        measurements[day] = []
+        selection = {
+            "Day": day,
+            "Source_Folder": str(folder),
+            "Selected_Analysis": None,
+            "Summary_File": None,
+            "Completed_Wells": 0,
+            "Parameters": None,
+            "Status": "RUNNING",
+            "Reason": "",
+            "Exclusions": [],
+        }
+        selections.append(selection)
+        if isinstance(log, RunLog):
+            log.phase(
+                1,
+                4,
+                "Load days",
+                finished=index,
+                count=len(config["timepoints"]),
+                unit="days",
+                detail=f"Day {day}",
+            )
         messages = []
-        if not folder.is_dir():
-            raise ValidationError(f"Day {day}: folder not found: {folder}")
         try:
+            if not folder.is_dir():
+                raise NoInputError(f"Day {day}: folder not found: {folder}")
             selected = report_data.select_analysis(folder, messages)
+            selection.update(
+                Selected_Analysis=str(selected),
+                Summary_File=str(selected / "Cell_Analysis_Summary.csv"),
+            )
+            log.event("INFO", "Analysis selection", f"Day {day}: {selected}")
+            snapshot_dir = Path(f"day_{day}")
+            status_path = archive_input(
+                selected / "run_status.json",
+                snapshot_dir / "run_status.json",
+                output,
+                manifest,
+                f"Day {day} completion record",
+            )
+            summary_path = archive_input(
+                selected / "Cell_Analysis_Summary.csv",
+                snapshot_dir / "Cell_Analysis_Summary.csv",
+                output,
+                manifest,
+                f"Day {day} measurements",
+            )
+            status = report_data.completed_status(status_path)
+            measurements[day] = report_data.read_measurements(
+                summary_path, status
+            )
+            selection.update(
+                Completed_Wells=len(measurements[day]),
+                Status=status["status"],
+                Parameters=json.dumps(status["parameters"], sort_keys=True),
+                Reason=status.get("error", ""),
+                Exclusions=exclusions(status),
+            )
+            for row in selection["Exclusions"]:
+                log.event(
+                    "WARNING",
+                    "Excluded well",
+                    f"Day {day}, {row['Well']}: {row['Reason']}",
+                )
+        except Exception as error:
+            measurements[day] = []
+            selection.update(
+                Status="NO_INPUT"
+                if isinstance(error, NoInputError)
+                else "FAILED",
+                Reason=str(error) or type(error).__name__,
+            )
+            log.event(
+                "WARNING", "Excluded day", f"Day {day}: {selection['Reason']}"
+            )
+            log.event(
+                "ERROR", "Traceback", traceback.format_exc(), console=False
+            )
         finally:
             for message in messages:
                 log.event(
                     "WARNING", "Analysis selection", f"Day {day}: {message}"
                 )
-        log.event("INFO", "Analysis selection", f"Day {day}: {selected}")
-        snapshot_dir = Path(f"day_{day}")
-        status_path = archive_input(
-            selected / "run_status.json",
-            snapshot_dir / "run_status.json",
-            output,
-            manifest,
-            f"Day {day} completion record",
-        )
-        summary_path = archive_input(
-            selected / "Cell_Analysis_Summary.csv",
-            snapshot_dir / "Cell_Analysis_Summary.csv",
-            output,
-            manifest,
-            f"Day {day} measurements",
-        )
-        status = report_data.completed_status(status_path)
-        measurements[day] = report_data.read_measurements(summary_path, status)
-        selections.append(
-            {
-                "Day": day,
-                "Source_Folder": str(folder),
-                "Selected_Analysis": str(selected),
-                "Summary_File": str(selected / "Cell_Analysis_Summary.csv"),
-                "Completed_Wells": len(measurements[day]),
-                "Parameters": json.dumps(status["parameters"], sort_keys=True),
-            }
+    save_csv(
+        output / "Selected_Analyses.csv",
+        survival_data.SELECTION_COLUMNS,
+        (
+            {key: row.get(key) for key in survival_data.SELECTION_COLUMNS}
+            for row in selections
+        ),
+        encoding="utf-8-sig",
+    )
+    if isinstance(log, RunLog):
+        log.phase(
+            1,
+            4,
+            "Load days",
+            finished=len(selections),
+            count=len(selections),
+            unit="days",
         )
     return measurements, selections
 
@@ -118,12 +191,13 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
     parent = config["output_dir"]
     parent.mkdir(parents=True, exist_ok=True)
     run_id, output = unique_output(
-        parent, f"Survival_Report_{safe_label(config['experiment_name'])}_"
+        assay_directory(parent),
+        f"Survival_Report_{safe_label(config['experiment_name'])}_",
     )
-    log = RunLog(output)
+    log = RunLog(output, parent, "survival_report")
     status_path = output / "run_status.json"
     status = {
-        "status": "running",
+        "status": "RUNNING",
         "started_utc": utc_now(),
         "experiment_name": config["experiment_name"],
         "output": str(output),
@@ -139,6 +213,13 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
         save_json(status_path, status, allow_nan=False)
         log.event("STARTED", "Survival report", config["experiment_name"])
         log.event("INFO", "Output", output)
+        log.event(
+            "INFO",
+            "Plan",
+            "1/4 load days; 2/4 paired changes/statistics; "
+            "3/4 six plots; 4/4 verify workbook",
+        )
+        log.phase(1, 4, "Validate configuration and plate")
         archive_input(
             input_path,
             Path("survival_config.json"),
@@ -162,6 +243,27 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
             template, config["sheet"], statistics=statistics
         )
         measurements, selections = load_days(config, output, log, manifest)
+        status["selections"] = selections
+        excluded = [
+            {"Day": selection["Day"], **row}
+            for selection in selections
+            for row in selection["Exclusions"]
+        ]
+        save_csv(
+            output / "Processing_Exclusions.csv",
+            ("Day", *EXCLUSION_COLUMNS),
+            excluded,
+            encoding="utf-8-sig",
+        )
+        if not any(
+            row["Well"] in plate["well_map"]
+            for row in measurements[config["baseline_day"]]
+        ):
+            raise ValidationError(
+                f"Baseline day {config['baseline_day']} has no usable, "
+                "mapped wells; changes cannot be calculated"
+            )
+        log.phase(2, 4, "Paired changes and statistics")
         rows, coverage, warnings = survival_data.join_days(
             measurements, plate, config["baseline_day"]
         )
@@ -169,7 +271,16 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
             raise ValidationError(
                 "No measured wells match the plate-map annotations"
             )
-        warnings = plate["warnings"] + warnings
+        warnings = (
+            plate["warnings"]
+            + warnings
+            + [
+                f"Day {row['Day']}: {row['Status']}; "
+                + (row["Reason"] or "unsuccessful wells excluded")
+                for row in selections
+                if row["Status"] != "SUCCESS"
+            ]
+        )
         for warning in warnings:
             log.event("WARNING", "Well/parameter checks", warning)
         changes = survival_data.calculate_changes(
@@ -198,6 +309,9 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
             "difference_days": config["difference_days"],
             "days": sorted(measurements),
             "statistics_enabled": statistics,
+            "exclusions": excluded,
+            "partial": any(row["Status"] != "SUCCESS" for row in selections)
+            or any(row["Status"] != "PAIRED" for row in changes),
         }
         data["summary"] = survival_data.summarize(data)
         data["comparisons"] = (
@@ -236,6 +350,8 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
                 encoding="utf-8-sig",
             )
         plots = render_plots(data, output, config["experiment_name"])
+        log.phase(4, 4, "Workbook and verification")
+        status["status"] = "PARTIAL" if data["partial"] else "SUCCESS"
         build_workbook(data, plots, template, pending, status)
         verify_workbook(pending, data, plots)
         verify_inputs(manifest)
@@ -257,7 +373,7 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
             allow_nan=False,
         )
         status.update(
-            status="completed",
+            status="PARTIAL" if data["partial"] else "SUCCESS",
             workbook=workbook.name,
             days=data["days"],
             raw_measurements=len(rows),
@@ -271,17 +387,26 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
                 r["Status"] == "Tested" for r in data["comparisons"]
             ),
             selections=selections,
+            exclusions=excluded,
+            missing_days=[
+                row["Day"]
+                for row in selections
+                if row["Status"] not in {"SUCCESS", "PARTIAL"}
+            ],
             warnings=warnings,
             inputs=manifest,
             plots=[plot["path"].name for plot in plots],
         )
-        log.event("SUCCESS", "Survival report", workbook)
+        log.event(status["status"], "Survival report", workbook)
     except (Exception, KeyboardInterrupt) as error:
         status.update(
-            status="failed", error=str(error) or type(error).__name__
+            status="CANCELLED"
+            if isinstance(error, KeyboardInterrupt)
+            else "FAILED",
+            error=str(error) or type(error).__name__,
         )
         pending.unlink(missing_ok=True)
-        log.event("FAILED", "Survival report", status["error"])
+        log.event(status["status"], "Survival report", status["error"])
         log.event("ERROR", "Traceback", traceback.format_exc(), console=False)
         if isinstance(error, ValidationError) and error.details:
             columns = list(
@@ -317,15 +442,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "Survival configuration changed while being read"
             )
         result = run_report(config, path, args.stats_unit is not None, digest)
-    except KeyboardInterrupt:
-        print("Survival report interrupted.", file=sys.stderr)
+    except KeyboardInterrupt as error:
+        command_error("survival_report", error)
         return 130
     except Exception as error:
-        print(f"Survival report failed: {error}", file=sys.stderr)
+        command_error("survival_report", error)
         return 1
-    if result["status"] != "completed":
+    if result["status"] != "SUCCESS":
         print(
-            f"Survival report failed. Diagnostics: {result['output']}",
+            f"Survival report {result['status']}. "
+            f"Diagnostics: {result['output']}",
             file=sys.stderr,
         )
         return 1

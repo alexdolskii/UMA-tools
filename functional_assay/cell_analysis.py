@@ -7,7 +7,6 @@ import json
 import math
 import re
 import shutil
-import sys
 from collections.abc import Callable, Sequence
 from importlib.metadata import version
 from pathlib import Path
@@ -17,10 +16,21 @@ from uma_tools.cli import _run_imagej_command
 from uma_tools.config import read_config
 from uma_tools.files import safe_label, save_csv, save_json, sha256_file
 from uma_tools.imagej import FIJI_ENDPOINT, initialize_imagej
-from uma_tools.run import close_logger, make_logger, unique_output, utc_now
+from uma_tools.run import unique_output, utc_now
 
 from .calibration import read_well_calibration
 from .stitching import discover_wells, validate_frames
+from .workflow import (
+    NoInputError,
+    RunLog,
+    activity,
+    assay_directory,
+    batch_error,
+    command_error,
+    exclusions,
+    outcome,
+    save_exclusions,
+)
 
 SUMMARY_COLUMNS = (
     "Well",
@@ -124,8 +134,8 @@ def minimum_sizes(args: argparse.Namespace, pixel_area: float) -> tuple:
 
 def discover_stitched(folder: Path) -> dict[str, Path]:
     """Find only visible stitched TIFFs; reject ambiguous duplicate wells."""
-    if not folder.is_dir():
-        raise ValueError(f"Stitching results not found: {folder}")
+    if folder.is_symlink() or not folder.is_dir():
+        raise NoInputError(f"Stitching results not found: {folder}")
     images = {}
     for path in sorted(folder.iterdir()):
         if path.name.startswith(".") or not path.is_file():
@@ -138,20 +148,37 @@ def discover_stitched(folder: Path) -> dict[str, Path]:
             raise ValueError(f"Duplicate stitched TIFF for {well}")
         images[well] = path
     if not images:
-        raise ValueError(f"No *_stitched.tif images found in {folder}")
+        raise NoInputError(f"No *_stitched.tif images found in {folder}")
     return images
 
 
-def read_stitching_metadata(folder: Path) -> dict | None:
-    """Allow legacy outputs, but never invent missing overlap information."""
+def read_stitching_metadata(folder: Path) -> dict:
+    """Require a finalized, auditable new-layout stitching run."""
     path = folder / "stitching_metadata.json"
-    if not path.exists():
-        return None
+    if folder.is_symlink() or path.is_symlink() or not path.is_file():
+        raise NoInputError(f"Missing regular stitching metadata: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 1 or not isinstance(
         data.get("wells"), dict
     ):
         raise ValueError("Unsupported or invalid stitching_metadata.json")
+    records = data["wells"]
+    completed = sum(r.get("status") == "completed" for r in records.values())
+    if data.get("status") not in {"SUCCESS", "PARTIAL"}:
+        raise NoInputError(
+            f"Stitching run is not usable: {data.get('status')}"
+        )
+    if (
+        not completed
+        or data.get("completed_wells") != completed
+        or data.get("failures") != len(records) - completed
+        or any(
+            r.get("status") not in {"completed", "failed"}
+            for r in records.values()
+        )
+        or data["status"] != outcome(completed, len(records) - completed)
+    ):
+        raise ValueError("Inconsistent stitching completion record")
     overlap = data.get("overlap_percent")
     if (
         not isinstance(overlap, (int, float))
@@ -203,11 +230,13 @@ def measure_well(
     from .cell_imagej import analyze_image, save_contours, save_mask
 
     validate_frames(files)
+    activity(f"{well}: original calibration and TIFF provenance")
     calibration = read_well_calibration(files)
     provenance = verify_stitching_record(path, well, metadata, calibration)
     minimum_px, minimum_um2 = minimum_sizes(
         args, calibration["pixel_area_um2"]
     )
+    activity(f"{well}: projection, filters, masks and object detection")
     result = analyze_image(path, args.threshold, minimum_px)
     width, height = result["width_px"], result["height_px"]
     if metadata is not None:
@@ -218,6 +247,7 @@ def measure_well(
     areas = result["object_areas_px2"]
     mask_area = int(result["area_mask"].sum())
     counted_area = int(areas.sum())
+    activity(f"{well}: save masks, contours and object areas")
     for name in ("area_mask", "counting_mask"):
         save_mask(output / f"{well}_{name}.tif", result[name], calibration)
     save_contours(output / f"{well}_counted_contours.png", result)
@@ -268,15 +298,16 @@ def process_folder(
 ) -> tuple[int, int]:
     """Write a fresh run; preserve diagnostics and continue past a bad well."""
     _, output = unique_output(
-        folder, f"Cell_Analysis_{safe_label(folder.name)}_"
+        assay_directory(folder), f"Cell_Analysis_{safe_label(folder.name)}_"
     )
-    logger = make_logger(output)
+    log = RunLog(output, folder, "cell_count")
     rows, records = [], {}
     failures = 0
     status = {
-        "status": "running",
+        "status": "RUNNING",
         "started_utc": utc_now(),
         "source": str(folder),
+        "output": str(output),
         "functional_assay_version": version("uma-functional-assay"),
         "uma_tools_version": version("uma-tools"),
         "fiji_endpoint": FIJI_ENDPOINT,
@@ -284,22 +315,55 @@ def process_folder(
         "wells": records,
     }
     status_path = output / "run_status.json"
+
+    def checkpoint():
+        summary = output / "Cell_Analysis_Summary.csv"
+        save_csv(summary, SUMMARY_COLUMNS, rows)
+        status["summary_sha256"] = sha256_file(summary)
+        save_json(status_path, status, allow_nan=False)
+
     try:
         save_json(status_path, status, allow_nan=False)
-        logger.info("Output: %s", output)
-        stitched = folder / "Stitched_Results"
-        images = discover_stitched(stitched)
+        log.event("STARTED", "Cell analysis", folder)
+        log.event("INFO", "Output", output)
+        log.event(
+            "INFO", "Plan", "1/3 inputs; 2/3 measure wells; 3/3 save audit"
+        )
+        log.phase(1, 3, "Validate stitching")
+        stitched = assay_directory(folder) / "Stitched_Results"
         metadata = read_stitching_metadata(stitched)
-        if metadata is None:
-            logger.warning(
-                "Overlap was not recorded by the earlier stitching run"
+        records.update(
+            {well: {"status": "pending"} for well in metadata["wells"]}
+        )
+        shutil.copy2(stitched / "stitching_metadata.json", output)
+        images = discover_stitched(stitched)
+        unknown = set(images) - metadata["wells"].keys()
+        if unknown:
+            raise ValueError(
+                f"TIFFs absent from stitching audit: {sorted(unknown)}"
             )
-        else:
-            shutil.copy2(stitched / "stitching_metadata.json", output)
+        status["stitching_status"] = metadata["status"]
         originals = discover_wells(folder)
-        ensure_context()
-        for well, path in images.items():
+        for index, (well, stitched_record) in enumerate(
+            metadata["wells"].items()
+        ):
+            path = images.get(well, stitched / f"{well}_stitched.tif")
+            log.phase(
+                2,
+                3,
+                "Measure",
+                finished=index,
+                count=len(metadata["wells"]),
+                detail=well,
+            )
             try:
+                if stitched_record["status"] != "completed":
+                    raise ValueError(
+                        "Excluded by stitching: "
+                        + stitched_record.get("error", "Failed well")
+                    )
+                activity(f"{well}: initialize ImageJ if needed")
+                ensure_context()
                 files = [
                     item
                     for name, items in originals.items()
@@ -311,60 +375,101 @@ def process_folder(
                 )
                 rows.append(row)
                 records[well] = {"status": "completed", **record}
-                logger.info(
-                    "%s: %s objects; mask %s px² / %.6f µm²; threshold %s–%s",
+                log.event(
+                    "INFO",
                     well,
-                    row["Object_Count"],
-                    row["Mask_Area_px2"],
-                    row["Mask_Area_um2"],
-                    row["Threshold_Lower"],
-                    row["Threshold_Upper"],
+                    (
+                        f"{row['Object_Count']} objects; "
+                        f"mask {row['Mask_Area_um2']} µm²; "
+                        f"threshold {row['Threshold_Lower']}–"
+                        f"{row['Threshold_Upper']}"
+                    ),
+                    console=False,
                 )
             except Exception as error:
                 failures += 1
+                message = str(error) or type(error).__name__
                 rows.append(
                     {
                         "Well": well,
                         "File_Name": path.name,
                         "Status": "failed",
-                        "Error": str(error),
+                        "Error": message,
                     }
                 )
-                records[well] = {"status": "failed", "error": str(error)}
-                logger.exception("Skipping %s: %s", well, error)
-            save_json(status_path, status, allow_nan=False)
-    except BaseException as error:
+                records[well] = {
+                    "status": "failed",
+                    "error": message,
+                    "stage": "Stitching"
+                    if stitched_record["status"] != "completed"
+                    else "Cell analysis",
+                }
+                log.record_error(f"Skipping {well}", error)
+            checkpoint()
+            log.phase(
+                2,
+                3,
+                "Measure",
+                finished=index + 1,
+                count=len(metadata["wells"]),
+            )
+    except (Exception, KeyboardInterrupt) as error:
         failures += 1
         status["error"] = str(error) or type(error).__name__
-        logger.exception("Folder failed: %s", error)
-        if not isinstance(error, Exception):
+        status["status"] = (
+            "CANCELLED"
+            if isinstance(error, KeyboardInterrupt)
+            else ("NO_INPUT" if isinstance(error, NoInputError) else "FAILED")
+        )
+        log.record_error("Cell analysis", error)
+        if isinstance(error, KeyboardInterrupt):
             raise
     finally:
+        for well, record in records.items():
+            if record["status"] == "pending":
+                error = status.get("error", "folder interrupted")
+                reason = f"Not completed: {error}"
+                record.update(
+                    status="failed", error=reason, stage="Cell analysis"
+                )
+                rows.append(
+                    {
+                        "Well": well,
+                        "File_Name": f"{well}_stitched.tif",
+                        "Status": "failed",
+                        "Error": reason,
+                    }
+                )
         completed = sum(row["Status"] == "completed" for row in rows)
+        failures = sum(
+            row["status"] != "completed" for row in records.values()
+        ) + bool(status.get("error"))
         status.update(
-            status=("partial" if completed else "failed")
-            if failures
-            else "completed",
+            status=status["status"]
+            if status["status"] in {"CANCELLED", "NO_INPUT"}
+            else outcome(completed, failures),
             completed_wells=completed,
             failures=failures,
             finished_utc=utc_now(),
         )
         try:
-            save_csv(
-                output / "Cell_Analysis_Summary.csv", SUMMARY_COLUMNS, rows
-            )
-            save_json(status_path, status, allow_nan=False)
-            logger.info(
-                "Finished: %s successful well(s), %s failure(s)",
-                completed,
-                failures,
+            log.phase(3, 3, "Save audit")
+            save_exclusions(output, exclusions(status))
+            checkpoint()
+            log.event(
+                status["status"],
+                "Cell analysis",
+                (
+                    f"{completed} well(s) saved; {failures} failure(s). "
+                    f"Results: {output}"
+                ),
             )
         finally:
-            close_logger(logger)
+            log.close()
     return completed, failures
 
 
-def run_analysis(args: argparse.Namespace) -> None:
+def run_analysis(args: argparse.Namespace) -> int:
     """Initialize one Fiji context for the batch and always dispose it."""
     folders = read_config(Path(args.input))
     context = None
@@ -381,22 +486,22 @@ def run_analysis(args: argparse.Namespace) -> None:
     completed, failures = 0, 0
     try:
         for folder in dict.fromkeys(folders):
-            if not folder.is_dir():
-                print(f"Folder not found: {folder}", file=sys.stderr)
+            try:
+                success, failed = process_folder(folder, args, ensure_context)
+            except Exception as error:
+                command_error("cell_count", error, folder)
                 failures += 1
                 continue
-            success, failed = process_folder(folder, args, ensure_context)
             completed += success
             failures += failed
     finally:
         if context is not None:
             context.dispose()
-    if failures or not completed:
-        raise RuntimeError(
-            f"Cell analysis: {completed} well(s) succeeded; "
-            f"{failures} failure(s). See the new Cell_Analysis folders."
-        )
-    print(f"Cell analysis completed: {completed} well(s).", flush=True)
+    print(
+        f"Cell analysis: {completed} well(s) saved; {failures} failure(s).",
+        flush=True,
+    )
+    return 1 if failures or not completed else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -404,8 +509,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         return _run_imagej_command(run_analysis, args)
+    except KeyboardInterrupt as error:
+        batch_error("cell_count", error, args.input)
+        return 130
     except Exception as error:
-        print(f"Cell analysis failed: {error}", file=sys.stderr, flush=True)
+        batch_error("cell_count", error, args.input)
         return 1
 
 

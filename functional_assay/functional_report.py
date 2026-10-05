@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import sys
 import traceback
 from collections.abc import Sequence
 from importlib.metadata import version
@@ -13,16 +12,24 @@ from pathlib import Path
 from uma_tools.config import read_config
 from uma_tools.files import safe_label, save_csv, save_json, sha256_file
 from uma_tools.report_schema import ValidationError
-from uma_tools.run import RunLog, unique_output, utc_now
+from uma_tools.run import unique_output, utc_now
 
 from . import report_data
+from .workflow import (
+    NoInputError,
+    RunLog,
+    assay_directory,
+    command_error,
+    exclusions,
+    save_exclusions,
+)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Plot object count and mask area from the latest "
-            "completed cell analysis"
+            "finalized cell analysis (including partial results)"
         )
     )
     parser.add_argument(
@@ -125,12 +132,13 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
     except Exception as error:
         selection_error = error
     run_id, output = unique_output(
-        selected or source, f"Functional_Report_{safe_label(source.name)}_"
+        assay_directory(source),
+        f"Functional_Report_{safe_label(source.name)}_",
     )
-    log = RunLog(output)
+    log = RunLog(output, source, "functional_report")
     status_path = output / "run_status.json"
     status = {
-        "status": "running",
+        "status": "RUNNING",
         "started_utc": utc_now(),
         "source": str(source),
         "analysis": str(selected) if selected else None,
@@ -148,6 +156,13 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             f"Functional assay {status['functional_assay_version']}; {source}",
         )
         log.event("INFO", "Output", output)
+        log.event(
+            "INFO",
+            "Plan",
+            "1/4 inputs; 2/4 tables/statistics; "
+            "3/4 two plots; 4/4 verify workbook",
+        )
+        log.phase(1, 4, "Validate inputs")
         for message in messages:
             log.event("WARNING", "Analysis selection", message)
         if selection_error is not None:
@@ -155,7 +170,7 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
         log.event(
             "INFO",
             "Analysis selection",
-            f"Latest fully completed run: {selected}",
+            f"Latest finalized run: {selected}",
         )
         paths = report_data.discover_inputs(selected)
         paths["input_json"] = input_json
@@ -166,6 +181,15 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
         rows = report_data.read_measurements(
             snapshots["summary"], original_status
         )
+        excluded = exclusions(original_status)
+        status.update(
+            analysis_status=original_status["status"], exclusions=excluded
+        )
+        save_exclusions(output, excluded)
+        for row in excluded:
+            log.event(
+                "WARNING", "Excluded well", f"{row['Well']}: {row['Reason']}"
+            )
         plate = report_data.read_design(
             snapshots["template"],
             args.sheet,
@@ -173,7 +197,15 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             measured_wells=[row["Well"] for row in rows],
         )
         rows, diagnostics = report_data.annotate_wells(rows, plate)
+        log.phase(
+            2, 4, "Tables and statistics", detail=f"{len(rows)} usable wells"
+        )
         warnings = plate["warnings"] + report_data.comparability_notes(rows)
+        if original_status.get("error"):
+            warnings.append(
+                "Cell analysis ended with an error: "
+                + original_status["error"]
+            )
         no_result = [
             row["Well"] for row in diagnostics if row["Status"] == "NO_RESULT"
         ]
@@ -193,6 +225,8 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             "comparisons": report_data.comparisons(rows, plate)
             if args.stats_unit
             else [],
+            "exclusions": excluded,
+            "partial": original_status["status"] == "PARTIAL",
         }
         for comparison in data["comparisons"]:
             if comparison["Status"] == "Not tested":
@@ -219,6 +253,8 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
         )
 
         plots = render_plots(data, output, source.name)
+        log.phase(4, 4, "Workbook and verification")
+        status["status"] = "PARTIAL" if data["partial"] else "SUCCESS"
         build_workbook(data, plots, snapshots["template"], pending, status)
         verify_workbook(pending, data, plots)
         verify_inputs(manifest)
@@ -238,7 +274,7 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
         ]
         save_json(output / "plot_manifest.json", plot_records, allow_nan=False)
         status.update(
-            status="completed",
+            status="PARTIAL" if data["partial"] else "SUCCESS",
             workbook=final_path.name,
             measured_wells=len(rows),
             comparison_blocks=len(plate["blocks"]),
@@ -252,14 +288,20 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             plots=[plot["path"].name for plot in plots],
         )
         log.event(
-            "SUCCESS", "Report", f"{len(rows)} wells; workbook: {final_path}"
+            status["status"],
+            "Report",
+            f"{len(rows)} wells; {len(excluded)} excluded; "
+            f"workbook: {final_path}",
         )
     except (Exception, KeyboardInterrupt) as error:
         status.update(
-            status="failed", error=str(error) or type(error).__name__
+            status="CANCELLED"
+            if isinstance(error, KeyboardInterrupt)
+            else ("NO_INPUT" if isinstance(error, NoInputError) else "FAILED"),
+            error=str(error) or type(error).__name__,
         )
         pending.unlink(missing_ok=True)
-        log.event("FAILED", "Report", status["error"])
+        log.event(status["status"], "Report", status["error"])
         log.event("ERROR", "Traceback", traceback.format_exc(), console=False)
         if isinstance(error, ValidationError) and error.details:
             details = error.details
@@ -289,7 +331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         folders = read_config(path)
     except (OSError, ValueError) as error:
-        print(f"Functional report failed: {error}", file=sys.stderr)
+        command_error("functional_report", error)
         return 1
     succeeded, failed, seen = 0, 0, set()
     for folder in folders:
@@ -300,22 +342,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         seen.add(canonical)
         try:
             if not folder.is_dir():
-                raise ValueError(f"Folder not found: {folder}")
+                raise NoInputError(f"Folder not found: {folder}")
             result = process_folder(folder, path, args)
-            succeeded += result["status"] == "completed"
-            failed += result["status"] != "completed"
-        except KeyboardInterrupt:
-            print("Functional report interrupted.", file=sys.stderr)
+            succeeded += result["status"] == "SUCCESS"
+            failed += result["status"] != "SUCCESS"
+        except KeyboardInterrupt as error:
+            command_error("functional_report", error, folder)
             return 130
         except Exception as error:
             failed += 1
-            print(
-                f"Functional report failed for {folder}: {error}",
-                file=sys.stderr,
-            )
+            command_error("functional_report", error, folder)
     print(
         f"Functional reports: {succeeded} folder(s) succeeded; "
-        f"{failed} failed.",
+        f"{failed} partial/failed.",
         flush=True,
     )
     return 1 if failed else 0

@@ -18,7 +18,6 @@ import openpyxl
 from functional_assay import functional_report, report_data
 from functional_assay.cell_analysis import SUMMARY_COLUMNS
 from openpyxl.styles import Font, PatternFill
-
 from uma_tools.files import save_csv, save_json, sha256_file
 from uma_tools.report_schema import ValidationError
 
@@ -65,22 +64,32 @@ def example_rows():
     return result
 
 
-def create_analysis(source, stamp="20260928_120000_000001", state="completed"):
-    folder = source / f"Cell_Analysis_plate_{stamp}"
-    folder.mkdir()
+def create_analysis(source, stamp="20260928_120000_000001", state="SUCCESS"):
+    folder = source / "uma_functional_assay" / f"Cell_Analysis_plate_{stamp}"
+    folder.mkdir(parents=True)
     rows = example_rows()
+    if state == "PARTIAL":
+        rows[-1] = {
+            "Well": rows[-1]["Well"],
+            "File_Name": rows[-1]["File_Name"],
+            "Status": "failed",
+            "Error": "Synthetic segmentation failure",
+        }
     save_csv(folder / "Cell_Analysis_Summary.csv", SUMMARY_COLUMNS, rows)
     status = {
         "status": state,
-        "failures": 0 if state == "completed" else 1,
-        "completed_wells": len(rows),
+        "failures": 1 if state == "PARTIAL" else 0,
+        "completed_wells": sum(row["Status"] == "completed" for row in rows),
         "source": str(source),
         "parameters": {
             "threshold": None,
             "min_size_px": 5,
             "min_size_um2": None,
         },
-        "wells": {row["Well"]: {"status": "completed"} for row in rows},
+        "wells": {
+            row["Well"]: {"status": row["Status"], "error": row["Error"]}
+            for row in rows
+        },
     }
     save_json(folder / "run_status.json", status)
     return folder, rows, status
@@ -142,19 +151,19 @@ class FunctionalReportTests(unittest.TestCase):
         workbook.save(self.template)
         workbook.close()
 
-    def test_selects_latest_complete_run_and_skips_partial_despite_mtime(
+    def test_selects_latest_finalized_partial_despite_mtime(
         self,
     ):
         latest, _, _ = create_analysis(self.root, "20260928_130000_000001")
         partial, _, _ = create_analysis(
-            self.root, "20260928_140000_000001", "partial"
+            self.root, "20260928_140000_000001", "PARTIAL"
         )
         os.utime(self.analysis, (2100000000, 2100000000))
         messages = []
         self.assertEqual(
-            report_data.select_analysis(self.root, messages), latest
+            report_data.select_analysis(self.root, messages), partial
         )
-        self.assertIn(partial.name, "\n".join(messages))
+        self.assertEqual(messages, [])
         self.assertNotEqual(latest, self.analysis)
 
     def test_latest_without_template_fails_without_using_older_marked_run(
@@ -162,7 +171,7 @@ class FunctionalReportTests(unittest.TestCase):
     ):
         latest, _, _ = create_analysis(self.root, "20260928_130000_000001")
         result = self.run_report()
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "FAILED")
         self.assertEqual(result["analysis"], str(latest))
         self.assertIn("Expected one plate-template", result["error"])
         self.assertFalse(list(self.analysis.glob("Functional_Report_*")))
@@ -172,11 +181,13 @@ class FunctionalReportTests(unittest.TestCase):
         create_template(latest)
         (latest / "Cell_Analysis_Summary.csv").unlink()
         result = self.run_report()
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "FAILED")
         self.assertIn(str(latest), result["error"])
 
     def test_equal_latest_timestamps_are_rejected(self):
-        other = self.root / "Cell_Analysis_other_20260928_120000_000001"
+        other = (
+            self.analysis.parent / "Cell_Analysis_other_20260928_120000_000001"
+        )
         other.mkdir()
         save_json(other / "run_status.json", self.status)
         with self.assertRaisesRegex(ValidationError, "share the latest"):
@@ -322,7 +333,7 @@ class FunctionalReportTests(unittest.TestCase):
     def test_unannotated_well_stops_report_and_identifies_the_excel_cell(self):
         self.edit_template(lambda sheet: setattr(sheet["C3"], "value", None))
         result = self.run_report()
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "FAILED")
         self.assertIn("B02 (Plate Map!C3)", result["error"])
         output = Path(result["output"])
         self.assertTrue((output / "validation_errors.csv").is_file())
@@ -447,7 +458,7 @@ class FunctionalReportTests(unittest.TestCase):
             )
         }
         result = self.run_report()
-        self.assertEqual(result["status"], "completed", result.get("error"))
+        self.assertEqual(result["status"], "SUCCESS", result.get("error"))
         self.assertEqual(
             (
                 result["measured_wells"],
@@ -498,8 +509,8 @@ class FunctionalReportTests(unittest.TestCase):
         ):
             first = self.run_report(stats=False)
             second = self.run_report(stats=False)
-        self.assertEqual(first["status"], "completed", first.get("error"))
-        self.assertEqual(second["status"], "completed", second.get("error"))
+        self.assertEqual(first["status"], "SUCCESS", first.get("error"))
+        self.assertEqual(second["status"], "SUCCESS", second.get("error"))
         self.assertNotEqual(first["output"], second["output"])
         for result in (first, second):
             output = Path(result["output"])

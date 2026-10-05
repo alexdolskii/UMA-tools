@@ -21,6 +21,7 @@ from .survival_data import (
     SUMMARY_COLUMNS,
     observations,
 )
+from .workflow import EXCLUSION_COLUMNS, plot_progress
 
 METHOD = (
     "For each matched well, subtract its baseline-day measurement. "
@@ -49,6 +50,12 @@ VIEWS = (
 
 def tables(data):
     result = [
+        (
+            "Processing Exclusions",
+            "Processing_Exclusions.csv",
+            ("Day", *EXCLUSION_COLUMNS),
+            data.get("exclusions", []),
+        ),
         (
             "Group Summary",
             "Group_Summary.csv",
@@ -141,6 +148,9 @@ def render_plots(data, output: Path, label: str):
             else data["days"]
         )
         for metric, title, unit in METRICS:
+            plot_progress(
+                len(plots), len(VIEWS) * len(METRICS), f"{title}: {view}"
+            )
             observed = observations(data, view, metric)
             ratios = []
             for block in data["blocks"]:
@@ -391,6 +401,11 @@ def render_plots(data, output: Path, label: str):
                         )
                     else:
                         note += "\nDescriptive distributions; no tests."
+                    if data.get("partial"):
+                        note += (
+                            "\nPARTIAL: missing wells/days remain missing; "
+                            "see Selected Analyses and Processing Exclusions."
+                        )
                     figure.supxlabel(note, fontsize=8)
                     prefix = (
                         "Object_Count"
@@ -419,6 +434,7 @@ def render_plots(data, output: Path, label: str):
                     )
                 finally:
                     plt.close(figure)
+            plot_progress(len(plots), len(VIEWS) * len(METRICS))
     return plots
 
 
@@ -504,6 +520,7 @@ def build_workbook(data, plots, template: Path, path: Path, metadata):
         finally:
             source.close()
         details = [
+            {"Item": "Report status", "Value": metadata["status"]},
             {"Item": "Experiment", "Value": metadata["experiment_name"]},
             {"Item": "Baseline day", "Value": data["baseline_day"]},
             {

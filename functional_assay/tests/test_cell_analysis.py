@@ -13,7 +13,6 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 from functional_assay import calibration, cell_analysis, cell_imagej
-
 from uma_tools import cli
 from uma_tools.files import sha256_file
 
@@ -175,8 +174,10 @@ class OutputTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="UMA cells, ")
         self.addCleanup(self.temporary.cleanup)
         self.folder = Path(self.temporary.name)
-        self.stitched = self.folder / "Stitched_Results"
-        self.stitched.mkdir()
+        self.stitched = (
+            self.folder / "uma_functional_assay" / "Stitched_Results"
+        )
+        self.stitched.mkdir(parents=True)
         self.path = self.stitched / "WellA1_stitched.tif"
         self.path.write_bytes(b"test input TIFF")
         self.files = []
@@ -191,10 +192,16 @@ class OutputTests(unittest.TestCase):
             "tiles": [{"filename": path.name} for _, path in self.files],
         }
         self.args = cell_analysis.parse_args(["-i", "input.json"])
+        (self.stitched / "stitching_metadata.json").write_text(
+            json.dumps(self.metadata())
+        )
 
     def metadata(self):
         return {
             "schema_version": 1,
+            "status": "SUCCESS",
+            "completed_wells": 1,
+            "failures": 0,
             "overlap_percent": 30,
             "wells": {
                 "WellA1": {
@@ -301,7 +308,10 @@ class OutputTests(unittest.TestCase):
     ):
         (self.stitched / "WellB2_stitched.tif").write_bytes(b"incomplete well")
         metadata_path = self.stitched / "stitching_metadata.json"
-        metadata_path.write_text(json.dumps(self.metadata()))
+        metadata = self.metadata()
+        metadata["wells"]["WellB2"] = {"status": "completed"}
+        metadata["completed_wells"] = 2
+        metadata_path.write_text(json.dumps(metadata))
         outputs = []
         for _ in range(2):
             with (
@@ -321,13 +331,13 @@ class OutputTests(unittest.TestCase):
                     self.folder, self.args, Mock()
                 )
             self.assertEqual((count, failures), (1, 1))
-            outputs = sorted(self.folder.glob("Cell_Analysis_*"))
+            outputs = sorted(self.stitched.parent.glob("Cell_Analysis_*"))
         self.assertEqual(len(outputs), 2)
         self.assertTrue(all(path.exists() for _, path in self.files))
         self.assertEqual(self.path.read_bytes(), b"test input TIFF")
         for output in outputs:
             status = json.loads((output / "run_status.json").read_text())
-            self.assertEqual(status["status"], "partial")
+            self.assertEqual(status["status"], "PARTIAL")
             self.assertEqual(
                 (output / metadata_path.name).read_bytes(),
                 metadata_path.read_bytes(),
@@ -347,11 +357,11 @@ class OutputTests(unittest.TestCase):
                 Mock(side_effect=RuntimeError("JVM unavailable")),
             )
         self.assertEqual((count, failures), (0, 1))
-        output = next(self.folder.glob("Cell_Analysis_*"))
+        output = next(self.stitched.parent.glob("Cell_Analysis_*"))
         self.assertIn("JVM unavailable", (output / "run.log").read_text())
         self.assertEqual(
             json.loads((output / "run_status.json").read_text())["status"],
-            "failed",
+            "FAILED",
         )
 
     def test_explicit_appledouble_json_rejected_before_startup(self):
@@ -373,9 +383,9 @@ class OutputTests(unittest.TestCase):
                     self.args,
                     Mock(side_effect=KeyboardInterrupt),
                 )
-        output = next(self.folder.glob("Cell_Analysis_*"))
+        output = next(self.stitched.parent.glob("Cell_Analysis_*"))
         status = json.loads((output / "run_status.json").read_text())
-        self.assertEqual(status["status"], "failed")
+        self.assertEqual(status["status"], "CANCELLED")
         self.assertEqual(status["error"], "KeyboardInterrupt")
 
     def test_context_and_workers_close_on_success_and_failure(self):

@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from functional_assay import stitching
-
+from functional_assay.workflow import assay_directory
 from uma_tools import cli
 
 
@@ -81,25 +81,23 @@ class StitchingTests(unittest.TestCase):
         with contextlib.redirect_stdout(stream):
             with patch.object(stitching, "stitch_well") as fuse:
                 count = stitching.process_folder(self.folder, 32.8)
-        self.assertEqual(count, 1)
+        self.assertEqual(count["completed_wells"], 1)
+        self.assertEqual(count["status"], "PARTIAL")
         self.assertEqual(fuse.call_args.args[1], "WellA1")
         self.assertIn("Skipping WellB2", stream.getvalue())
         self.assertIn("missing=[8]", stream.getvalue())
 
     def test_previous_results_are_replaced_but_sources_are_retained(self):
         frames = self.frames()
-        output = self.folder / "Stitched_Results"
+        output = assay_directory(self.folder) / "Stitched_Results"
         (output / "old_nested").mkdir(parents=True)
         (output / "old_nested" / "old.tif").write_bytes(b"old")
         with patch.object(stitching, "stitch_well"):
             stitching.process_folder(self.folder, 32.8)
-        self.assertEqual(
-            [path.name for path in output.iterdir()],
-            ["stitching_metadata.json"],
-        )
+        self.assertFalse((output / "old_nested").exists())
         metadata = json.loads((output / "stitching_metadata.json").read_text())
         self.assertEqual(metadata["overlap_percent"], 32.8)
-        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(metadata["status"], "SUCCESS")
         self.assertEqual(
             [
                 item["grid_position"]
@@ -109,23 +107,25 @@ class StitchingTests(unittest.TestCase):
         )
         self.assertTrue(all(path.is_file() for _, path in frames))
 
-    def test_invalid_folder_preserves_previous_results(self):
+    def test_invalid_attempt_removes_stale_results_and_records_failure(self):
         self.frames(indices=range(8))
-        output = self.folder / "Stitched_Results"
+        output = assay_directory(self.folder) / "Stitched_Results"
         output.mkdir()
         previous = output / "WellA1_stitched.tif"
         previous.write_bytes(b"old valid output")
         with patch.object(stitching, "stitch_well") as fuse:
-            self.assertEqual(stitching.process_folder(self.folder, 32.8), 0)
+            result = stitching.process_folder(self.folder, 32.8)
+            self.assertEqual(result["completed_wells"], 0)
+            self.assertEqual(result["status"], "FAILED")
         fuse.assert_not_called()
-        self.assertEqual(previous.read_bytes(), b"old valid output")
+        self.assertFalse(previous.exists())
 
     def test_output_symlink_does_not_delete_its_target(self):
         target = self.folder / "originals"
         target.mkdir()
         original = target / "keep.nd2"
         original.write_bytes(b"keep")
-        (self.folder / "Stitched_Results").symlink_to(target)
+        (assay_directory(self.folder) / "Stitched_Results").symlink_to(target)
         with self.assertRaisesRegex(ValueError, "symbolic link"):
             stitching.reset_output_folder(self.folder)
         self.assertEqual(original.read_bytes(), b"keep")
@@ -302,34 +302,32 @@ class StitchingTests(unittest.TestCase):
         for error in (None, RuntimeError("stitching failed")):
             with self.subTest(error=error):
                 context = Mock()
+
+                def process(folder, overlap, ensure):
+                    ensure()
+                    if error:
+                        raise error
+                    return {"status": "SUCCESS"}
+
                 with patch.object(
                     stitching, "initialize_imagej", return_value=context
                 ):
                     with patch.object(
                         stitching,
                         "process_folder",
-                        return_value=1,
-                        side_effect=error,
+                        side_effect=process,
                     ):
                         with patch("scyjava.jvm_started", return_value=False):
                             with patch("scyjava.config.add_option") as option:
                                 with patch.object(
                                     cli, "_shutdown_imagej_workers"
                                 ) as workers:
-                                    if error:
-                                        with self.assertRaisesRegex(
-                                            RuntimeError, "stitching failed"
-                                        ):
-                                            stitching.main(
-                                                ["-i", str(configuration)]
-                                            )
-                                    else:
-                                        self.assertEqual(
-                                            stitching.main(
-                                                ["-i", str(configuration)]
-                                            ),
-                                            0,
-                                        )
+                                    self.assertEqual(
+                                        stitching.main(
+                                            ["-i", str(configuration)]
+                                        ),
+                                        1 if error else 0,
+                                    )
                 option.assert_called_once_with("-Xmx16g")
                 context.dispose.assert_called_once_with()
                 workers.assert_called_once_with()

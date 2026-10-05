@@ -25,6 +25,18 @@ from uma_tools.imagej import FIJI_ENDPOINT, initialize_imagej
 from uma_tools.run import utc_now
 
 from .calibration import read_well_calibration
+from .workflow import (
+    NoInputError,
+    RunLog,
+    activity,
+    assay_directory,
+    batch_error,
+    command_error,
+    exclusions,
+    outcome,
+    save_exclusions,
+    warning,
+)
 
 FRAME_POSITIONS = {0: 1, 1: 2, 2: 3, 5: 4, 4: 5, 3: 6, 6: 7, 7: 8, 8: 9}
 FILENAME_PATTERN = re.compile(
@@ -43,7 +55,7 @@ def discover_wells(folder: Path) -> dict[str, list[tuple[int, Path]]]:
             continue
         match = FILENAME_PATTERN.fullmatch(path.name)
         if match is None:
-            print(f"Skipping unrecognized ND2 filename: {path.name}")
+            warning(f"Skipping unrecognized ND2 filename: {path.name}")
             continue
         well_id, frame = match.groups()
         wells.setdefault(well_id, []).append((int(frame), path))
@@ -122,7 +134,7 @@ def stitch_well(
         try:
             if image.getNChannels() != 1:
                 raise ValueError(f"{well_id}: exactly one channel is required")
-            print("  Applying Sharpen to all slices in the stitched stack...")
+            activity(f"{well_id}: Sharpen, all slices")
             ij.run(image, "Sharpen", "stack")
             output_file = output_folder / f"{well_id}_stitched.tif"
             ij.saveAs(image, "Tiff", str(output_file))
@@ -136,7 +148,7 @@ def stitch_well(
                     slices=int(image.getNSlices()),
                     sha256=sha256_file(output_file),
                 )
-            print(f"Saved: {output_file} (overlap: {overlap}%)")
+            activity(f"{well_id}: TIFF saved (overlap {overlap}%)")
             return output_file
         finally:
             image.close()
@@ -144,38 +156,21 @@ def stitch_well(
 
 def reset_output_folder(folder: Path) -> Path:
     """Replace the previous Stitched_Results directory as requested."""
-    output = folder / "Stitched_Results"
+    output = assay_directory(folder) / "Stitched_Results"
     if output.is_symlink():
         raise ValueError(
             f"Output directory must not be a symbolic link: {output}"
         )
     if output.exists():
-        print(f"Replacing previous results: {output}")
         shutil.rmtree(output)
     output.mkdir()
     return output
 
 
-def process_folder(folder: Path, overlap: float) -> int:
-    """Skip invalid frame sets and stitch the complete wells."""
-    if not folder.is_dir():
-        print(f"Folder not found, skipping: {folder}")
-        return 0
-    print(f"\n--- Processing folder: {folder} ---")
-    wells = discover_wells(folder)
-    valid_wells = {}
-    for well_id, files in wells.items():
-        try:
-            validate_frames(files)
-        except ValueError as error:
-            print(f"Skipping {well_id}: {error}")
-            continue
-        valid_wells[well_id] = files
-    if not valid_wells:
-        print("No complete nine-frame wells found, skipping folder.")
-        return 0
-
+def process_folder(folder: Path, overlap: float, ensure_context=None) -> dict:
+    """Replace stale outputs and finish every independent well."""
     output = reset_output_folder(folder)
+    log = RunLog(output, folder, "stitching")
     metadata = {
         "schema_version": 1,
         "created_utc": utc_now(),
@@ -184,52 +179,131 @@ def process_folder(folder: Path, overlap: float) -> int:
         "fiji_endpoint": FIJI_ENDPOINT,
         "overlap_percent": overlap,
         "grid": "3x3, row-by-row, right and down",
-        "status": "running",
+        "status": "RUNNING",
+        "source": str(folder),
+        "output": str(output),
         "wells": {},
     }
     metadata_path = output / "stitching_metadata.json"
-    save_json(metadata_path, metadata, allow_nan=False)
     try:
-        for well_id, files in valid_wells.items():
-            print(f"Stitching {well_id}...")
+        save_json(metadata_path, metadata, allow_nan=False)
+        log.event("STARTED", "Stitching", folder)
+        log.event("INFO", "Output", output)
+        log.event(
+            "INFO", "Plan", "1/3 discover; 2/3 stitch wells; 3/3 save audit"
+        )
+        log.phase(1, 3, "Discover frames")
+        wells = discover_wells(folder)
+        if not wells:
+            raise NoInputError("No eligible ND2 wells found")
+        metadata["wells"] = {well: {"status": "pending"} for well in wells}
+        for index, (well_id, files) in enumerate(wells.items()):
+            log.phase(
+                2,
+                3,
+                "Stitch",
+                finished=index,
+                count=len(wells),
+                detail=f"{well_id}: validate nine frames",
+            )
             record = {
                 "status": "running",
                 "source_frames": [
                     {
                         "filename": path.name,
                         "frame_index": index,
-                        "grid_position": FRAME_POSITIONS[index],
+                        "grid_position": FRAME_POSITIONS.get(index),
                     }
                     for index, path in sorted(files)
                 ],
             }
             metadata["wells"][well_id] = record
             try:
-                record["calibration"] = read_well_calibration(files)
-            except Exception as error:
-                # Preserve stitching for legacy files lacking usable scale.
-                # Cell analysis will require nine valid scales and skip them.
-                record["calibration_error"] = str(error)
-                print(f"{well_id}: calibration unavailable: {error}")
-            try:
+                validate_frames(files)
+                if ensure_context is not None:
+                    activity(f"{well_id}: initialize ImageJ if needed")
+                    ensure_context()
+                try:
+                    record["calibration"] = read_well_calibration(files)
+                except Exception as error:
+                    # The TIFF remains useful; cell analysis requires a scale.
+                    record["calibration_error"] = str(error)
+                    log.event("WARNING", well_id, f"Calibration: {error}")
+                activity(f"{well_id}: fuse nine stacks")
                 stitch_well(folder, well_id, files, output, overlap, record)
                 record["status"] = "completed"
+                log.event(
+                    "INFO", well_id, "Stitched TIFF saved", console=False
+                )
             except Exception as error:
-                record.update(status="failed", error=str(error))
-                raise
+                record.update(
+                    status="failed",
+                    error=str(error) or type(error).__name__,
+                    stage="Stitching",
+                )
+                try:
+                    (output / f"{well_id}_stitched.tif").unlink(
+                        missing_ok=True
+                    )
+                except OSError as cleanup_error:
+                    log.event(
+                        "WARNING",
+                        well_id,
+                        "Could not remove incomplete TIFF: "
+                        + str(cleanup_error),
+                    )
+                log.record_error(f"Skipping {well_id}", error)
             finally:
                 save_json(metadata_path, metadata, allow_nan=False)
-        metadata["status"] = "completed"
-    except BaseException:
-        metadata["status"] = "failed"
-        raise
+            log.phase(2, 3, "Stitch", finished=index + 1, count=len(wells))
+        completed = sum(
+            r["status"] == "completed" for r in metadata["wells"].values()
+        )
+        metadata["status"] = outcome(completed, len(wells) - completed)
+    except (Exception, KeyboardInterrupt) as error:
+        metadata.update(
+            status="CANCELLED"
+            if isinstance(error, KeyboardInterrupt)
+            else ("NO_INPUT" if isinstance(error, NoInputError) else "FAILED"),
+            error=str(error) or type(error).__name__,
+        )
+        log.record_error("Stitching", error)
+        if isinstance(error, KeyboardInterrupt):
+            raise
     finally:
+        records = metadata["wells"]
+        for record in records.values():
+            if record["status"] in {"pending", "running"}:
+                error = metadata.get("error", metadata["status"])
+                record.update(
+                    status="failed",
+                    stage="Stitching",
+                    error=f"Not completed: {error}",
+                )
+        metadata["completed_wells"] = sum(
+            r["status"] == "completed" for r in records.values()
+        )
+        metadata["failures"] = len(records) - metadata["completed_wells"]
         metadata["finished_utc"] = utc_now()
-        save_json(metadata_path, metadata, allow_nan=False)
-    return len(valid_wells)
+        try:
+            log.phase(3, 3, "Save audit")
+            save_exclusions(output, exclusions(metadata))
+            save_json(metadata_path, metadata, allow_nan=False)
+            save_json(output / "run_status.json", metadata, allow_nan=False)
+            log.event(
+                metadata["status"],
+                "Stitching",
+                (
+                    f"{metadata['completed_wells']} well(s) saved; "
+                    f"{metadata['failures']} excluded. Results: {output}"
+                ),
+            )
+        finally:
+            log.close()
+    return metadata
 
 
-def process_wells_stitching(json_path: str, overlap: float = 32.8) -> None:
+def process_wells_stitching(json_path: str, overlap: float = 32.8) -> int:
     """Read UMA input folders, initialize Fiji once, and dispose it."""
     if not math.isfinite(overlap) or not 0 <= overlap < 100:
         raise ValueError("Overlap must be a finite percentage from 0 to <100")
@@ -240,14 +314,27 @@ def process_wells_stitching(json_path: str, overlap: float = 32.8) -> None:
     # Preserve the original 16 GiB heap cap without global Java flags.
     if not jvm_started():
         config.add_option("-Xmx16g")
-    context: Any = initialize_imagej()
+    context: Any = None
+
+    def ensure_context():
+        nonlocal context
+        if context is None:
+            context = initialize_imagej()
+
+    results = []
     try:
-        count = sum(process_folder(folder, overlap) for folder in folders)
-        if count == 0:
-            raise ValueError("No complete wells were stitched")
-        print(f"Stitching completed: {count} well(s).")
+        for folder in dict.fromkeys(folders):
+            try:
+                results.append(process_folder(folder, overlap, ensure_context))
+            except Exception as error:
+                command_error("stitching", error, folder)
+                results.append({"status": "ERROR"})
     finally:
-        context.dispose()
+        if context is not None:
+            context.dispose()
+    return (
+        0 if results and all(r["status"] == "SUCCESS" for r in results) else 1
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -275,9 +362,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not math.isfinite(args.overlap) or not 0 <= args.overlap < 100:
         parser.error("--overlap must be a finite percentage from 0 to <100")
-    return _run_imagej_command(
-        process_wells_stitching, args.input, args.overlap
-    )
+    try:
+        return _run_imagej_command(
+            process_wells_stitching, args.input, args.overlap
+        )
+    except KeyboardInterrupt as error:
+        batch_error("stitching", error, args.input)
+        return 130
+    except Exception as error:
+        batch_error("stitching", error, args.input)
+        return 1
 
 
 if __name__ == "__main__":

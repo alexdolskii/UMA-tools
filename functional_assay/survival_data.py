@@ -78,6 +78,8 @@ STATISTICS_COLUMNS = (
 )
 SELECTION_COLUMNS = (
     "Day",
+    "Status",
+    "Reason",
     "Source_Folder",
     "Selected_Analysis",
     "Summary_File",

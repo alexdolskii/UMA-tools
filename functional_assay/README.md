@@ -13,19 +13,67 @@ In your existing UMA environment, from the repository root:
 
 ```bash
 conda activate uma_tools_new
+python -m pip install --no-deps .
 python -m pip install --no-deps ./functional_assay
 uma_stitching -i input_paths.json
 uma_cell_count -i input_paths.json
-# Add your Excel plate map to the completed Cell_Analysis_... folder first:
+# Add your Excel plate map to the selected Cell_Analysis_... folder first:
 uma_functional_report -i input_paths.json --stats-unit well
 ```
 
 Use your actual environment name. UMA-tools must already be installed in
-that environment. No additional scientific dependencies are needed; follow
+that environment (UMA-tools 0.2.21 or later in the 0.2 series).
+No additional scientific dependencies or environment recreation are needed; follow
 the main README's [Java/Fiji check](../README.md#verify-java-and-fiji-after-installation)
 on a new computer. All commands support `--help` and `--version` without
 starting Fiji. To update, pull `UMA-tools-V2` and repeat the installation
-command above; recreating the environment is unnecessary.
+commands above.
+
+## Output locations, progress, and recovery
+
+Keep JSON paths pointing to the **original image folders**. All new results
+are stored inside `<original-images>/uma_functional_assay/`:
+
+```text
+uma_functional_assay/
+  Stitched_Results/
+  Cell_Analysis_<source>_<timestamp>/
+  Functional_Report_<source>_<timestamp>/
+  UMA_Logs/
+    1_stitching.log
+    2_cell_count.log
+    3_functional_report.log
+    archive/
+```
+
+Survival reports use `<output_dir>/uma_functional_assay/`, with
+`Survival_Report_<experiment>_<timestamp>/` and `UMA_Logs/4_survival_report.log`.
+Only this layout is searched. Results directly in original folders are
+neither read nor moved; rerun stitching and cell analysis after this update.
+
+The terminal shows the stage number and total, completed/total wells (or
+days/plots), the current operation, and live elapsed time. A blocking Fiji
+operation keeps its elapsed display active without inventing a percentage.
+Redirected output uses plain progress lines. Detailed events, Python
+warnings, and tracebacks are saved in each result's `run.log` and
+`run_log.csv`, and in the numbered current journal. The previous journal is
+archived when that command starts a new run for the source.
+
+An unsuccessful well does not stop other wells or source folders.
+`Processing_Exclusions.csv` records the well, stage, and reason; reports
+also include a **Processing Exclusions** Excel sheet. `run_status.json`
+records `SUCCESS`, `PARTIAL`, `FAILED`, `NO_INPUT`, or `CANCELLED`.
+`PARTIAL` means usable results were saved with exclusions; it is not full
+success. Unfinished `RUNNING` and cancelled runs are not report inputs.
+Startup/output errors are recorded in the command journal when writable;
+if no source folder is available, diagnostics use the working directory's
+`uma_functional_assay/UMA_Logs/`.
+
+Exit codes: **0** for complete success, **1** for partial/failed/no-input
+results, **2** for invalid CLI arguments, and **130** for Ctrl-C. Reports
+use the latest finalized `SUCCESS` or `PARTIAL` cell-analysis run. They
+retain successful wells and never fill gaps from older runs. Missing values
+stay missing; actual measured zeros remain valid.
 
 ## 1. Stitching
 
@@ -48,9 +96,11 @@ Each file must contain one channel. The fixed 3 × 3 grid is:
 | Bottom | 0006 | 0007 | 0008 |
 
 The original Linear Blending settings and **Sharpen on all slices** are
-retained. Output: `Stitched_Results/WellB02_stitched.tif` for each well.
-**A new run deletes and replaces the previous `Stitched_Results`** when a
-folder contains a valid well. Original ND2 files are retained.
+retained. Output: `uma_functional_assay/Stitched_Results/WellB02_stitched.tif`
+for each well. **A new attempt deletes and replaces the previous
+`Stitched_Results`, including when the inputs are empty or invalid.** This
+prevents a failed attempt from silently reusing stale TIFFs. Original ND2
+files and timestamped cell-analysis/report folders are retained.
 
 Hidden/`._` files are ignored; explicitly selected `._…json` files are
 rejected. Incomplete or duplicate frame sets are reported and skipped.
@@ -64,7 +114,7 @@ The stitching settings and image pixels are unchanged by this addition.
 
 ## 2. Cell count and mask area
 
-`uma_cell_count` finds `Stitched_Results` inside each image folder in the
+`uma_cell_count` finds `uma_functional_assay/Stitched_Results` inside each image folder in the
 same JSON and reads only `Well…_stitched.tif` files. Keep the original nine
 ND2 tiles in that folder: they are required to validate the physical scale.
 
@@ -111,14 +161,15 @@ runs are retained. It contains:
 - `Well…_area_mask.tif`: size-filtered mask before Watershed.
 - `Well…_counting_mask.tif`: accepted objects after Watershed and filtering.
 - `Well…_counted_contours.png`: green outlines on the processed MAX image.
-- `run.log`, `run_status.json`, and a copy of `stitching_metadata.json`
-  when available. TIFF masks contain physical XY calibration.
+- `run.log`, `run_log.csv`, `run_status.json`, `Processing_Exclusions.csv`,
+  and a copy of `stitching_metadata.json`. TIFF masks contain physical XY
+  calibration. The summary is checkpointed after each well; its checksum
+  binds the final CSV to the completion record.
 
-For older stitched TIFFs without metadata, the nine original ND2 files
-still provide calibration; overlap is marked `not_recorded`, never assumed
-to be 32.8%. New metadata is checked against the TIFF checksum before use.
-To record overlap for an old dataset, rerun stitching with its intended
-`--overlap` value (this replaces `Stitched_Results`).
+Stitching metadata is required and checked against each TIFF checksum before
+use. Only finalized `SUCCESS`/`PARTIAL` stitching runs are accepted. Wells
+excluded by stitching stay excluded in cell analysis, with their reasons
+preserved. Rerun stitching to use an older dataset in the new layout.
 
 A valid empty mask produces zero count/area and a header-only object CSV.
 Failed wells have blank measurements and an error, rather than artificial
@@ -142,10 +193,11 @@ uma_functional_report -i input_paths.json --stats-unit well
 
 ### Select the results and add the plate map
 
-The program selects the **latest fully completed** `Cell_Analysis_...`
-directly inside each source folder. It uses the timestamp in the folder
-name and verifies `run_status.json`. Newer failed or partial runs are
-skipped with a message. A missing CSV or Excel file in the selected run
+The program selects the **latest finalized `SUCCESS` or `PARTIAL`**
+`Cell_Analysis_...` inside `<source>/uma_functional_assay/`. It uses the
+timestamp in the folder name and verifies the counts and well outcomes in
+`run_status.json`. Failed, unfinished, cancelled, or inconsistent completion
+records are skipped with a message. A missing/invalid CSV or Excel file in the selected run
 is an error: the program does **not** fall back to an older marked run.
 
 Place exactly **one `.xlsx` directly inside that selected folder**. Its
@@ -210,13 +262,15 @@ These are within-plate technical comparisons, not biological replication.
 ### Saved report
 
 Each run creates `Functional_Report_<original-folder-name>_<UTC-timestamp>`
-**inside the selected `Cell_Analysis_...`**; previous reports are retained.
+**beside the selected `Cell_Analysis_...`, inside `uma_functional_assay`**;
+previous reports are retained. The Excel input stays inside `Cell_Analysis_...`.
 It contains:
 
 - One Excel workbook with the two plots, condition summaries, well data,
   all 96 well annotations/coverage, the plate map, and run details.
 - `Object_Count.png` and `Mask_Area.png`.
-- `Well_Data.csv`, `Condition_Summary.csv`, and `Plate_Coverage.csv`.
+- `Well_Data.csv`, `Condition_Summary.csv`, `Plate_Coverage.csv`, and
+  `Processing_Exclusions.csv` (also in Excel).
 - A `Statistics` Excel sheet and `Statistics.csv` only when requested.
 - Exact input copies in `inputs/`, input checksums, plot provenance,
   `run.log`, and `run_status.json`.
@@ -255,15 +309,17 @@ Copy [survival_paths.example.json](survival_paths.example.json), rename it
 
 - Paths can be absolute or **relative to this JSON**, regardless of the
   terminal's working directory. In this example, place the JSON alongside
-  the day folders and the Excel map. `output_dir: "."` saves reports there.
+  the day folders and the Excel map. `output_dir: "."` saves reports in the
+  `uma_functional_assay` subfolder there.
 - `plate_template` is the exact path to your shared `.xlsx`, under any name.
   The grid, fill colors, and bold control rules are the same as in step 3.
   Use optional `"sheet": "Plate Map"` to select a worksheet; otherwise the
   first sheet is read. Instructions inside the older template about
   `Combined_Results` do not apply to this command.
 - Each `folder` is an **original image folder**, not `Cell_Analysis_...`.
-  Its latest fully completed analysis is selected independently. A missing
-  CSV in that selected run is an error; older data are not substituted.
+  Its latest finalized `SUCCESS`/`PARTIAL` analysis inside
+  `uma_functional_assay` is selected independently. Missing/invalid data in
+  that selected run make the day unavailable; older data are not substituted.
 - Days are explicit, unique, non-negative integers, including **0**.
   Folder names do not need to contain day numbers. Plots are ordered by day.
 - `baseline_day` must be a recorded day. `difference_days` explicitly lists
@@ -287,6 +343,12 @@ and zero changes. The two endpoints remain **Object Count** and **Mask Area
 Missing measurements affect only the relevant day pair. A measured well
 without a baseline stays in the raw table, but has no calculated change.
 Each distribution shows its own `n`; missing measurements are never zeros.
+If a later day is entirely missing or unusable, the report continues with
+the other days and is marked **PARTIAL**. Its original measurements stay
+absent, its changes stay blank, and untestable comparisons remain in the
+planned Holm family. A baseline without usable wells mapped to the template
+stops the report; day diagnostics are still saved. A partial baseline is
+usable, with changes calculated only for wells present in both days.
 
 **Additional/unannotated wells do not stop this multi-day report.** Their
 measurements stay in `Raw_Measurements.csv` and Excel, marked `UNMAPPED`,
@@ -327,7 +389,7 @@ Different automatic RenyiEntropy thresholds are retained as measured.
 ### Survival output
 
 Each run creates `Survival_Report_<experiment_name>_<UTC-timestamp>` inside
-`output_dir`, preserving earlier reports. It contains:
+`<output_dir>/uma_functional_assay`, preserving earlier reports. It contains:
 
 - One Excel workbook with six embedded plots, raw measurements, per-well
   changes, condition summaries, coverage of all 96 wells for every day,
@@ -335,14 +397,16 @@ Each run creates `Survival_Report_<experiment_name>_<UTC-timestamp>` inside
 - Six PNGs: `Object_Count_...` / `Mask_Area_...` with suffixes `By_Day`,
   `Baseline`, and `Changes`.
 - `Raw_Measurements.csv`, `Changes_by_Well.csv`, `Group_Summary.csv`,
-  `Well_Coverage.csv`, and `Selected_Analyses.csv`.
+  `Well_Coverage.csv`, `Selected_Analyses.csv` (including each day's status
+  and exclusion reason), and `Processing_Exclusions.csv` (day and well).
 - `Statistics.csv` and the Excel Statistics sheet only when requested.
 - Separate input copies for every day in `inputs/day_<number>/`, the JSON
   and plate map, SHA256 checksums, plot provenance, logs, and run status.
 
 The report uses the saved summaries and completion records; it does not
 start Fiji or reopen original images. Exit codes are `0` for success,
-`1` for a report/input failure, and `2` for invalid command arguments.
+`1` for partial results or a report/input failure, `2` for invalid command
+arguments, and `130` for interruption.
 
 ## Checks
 
@@ -355,7 +419,7 @@ The second command also runs native Fiji comparisons and checks that a
 Java worker process exits. Tests cover threshold modes, calibration from
 nine tiles, size and edge filters, mask area before Watershed, physical
 units, provenance, failure reporting, and preservation of earlier runs.
-Report tests also cover completed-run selection, flexible Excel filenames,
+Report tests also cover finalized partial-run selection, flexible Excel filenames,
 missing annotations, independent color blocks, Welch/CI calculations and
 Holm families, true zeros versus missing wells, optional statistics,
 Excel round-trip checks, plotted well counts, and command startup without
@@ -364,3 +428,8 @@ Survival tests additionally verify explicit day assignments (including day
 zero), within-well subtraction, negative/zero changes, independent handling
 of missing pairs, unmapped extra wells, Welch confidence intervals, Holm
 across days, six complete plot exports, input preservation, and repeat runs.
+Recovery checks cover a failed stitching well followed by successful wells,
+propagation to cell analysis, stale-TIFF rejection, ignored old locations,
+per-command journal rotation, live progress shutdown, folder I/O failures,
+missing whole days, absent/unmapped baselines, audited exclusions, and
+reduced sample counts without substituting zero or older measurements.

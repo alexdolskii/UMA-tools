@@ -22,6 +22,7 @@ from .report_data import (
     GROUP_COLUMNS,
     METRICS,
 )
+from .workflow import EXCLUSION_COLUMNS, plot_progress
 
 WELL_COLUMNS = (
     "Comparison_Block",
@@ -56,6 +57,7 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
 
     plots = []
     for metric, title, unit in METRICS:
+        plot_progress(len(plots), len(METRICS), title)
         panels = []
         for block in data["blocks"]:
             tests = [
@@ -201,6 +203,11 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
                     if data["statistics_enabled"]
                     else "Statistics disabled."
                 )
+                if data.get("partial"):
+                    notes += (
+                        "\nPARTIAL: unsuccessful wells excluded; "
+                        "see Processing Exclusions."
+                    )
                 figure.supxlabel(notes, fontsize=9)
                 filename = (
                     "Object_Count.png"
@@ -225,6 +232,7 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
                 )
             finally:
                 plt.close(figure)
+        plot_progress(len(plots), len(METRICS))
     return plots
 
 
@@ -233,6 +241,11 @@ def _tables(data):
         ("Condition Summary", GROUP_COLUMNS, data["summary"]),
         ("Well Data", WELL_COLUMNS, data["rows"]),
         ("Plate Coverage", ANNOTATION_COLUMNS, data["diagnostics"]),
+        (
+            "Processing Exclusions",
+            EXCLUSION_COLUMNS,
+            data.get("exclusions", []),
+        ),
     ]
     if data["statistics_enabled"]:
         tables.append(("Statistics", COMPARISON_COLUMNS, data["comparisons"]))
@@ -317,6 +330,7 @@ def build_workbook(data, plots, template: Path, path: Path, metadata: dict):
             source.close()
         sheet = workbook.create_sheet("Run Details")
         details = [
+            {"Item": "Report status", "Value": metadata["status"]},
             {"Item": "Source folder", "Value": metadata["source"]},
             {"Item": "Selected analysis", "Value": metadata["analysis"]},
             {
