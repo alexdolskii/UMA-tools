@@ -57,6 +57,7 @@ class CollectionTests(unittest.TestCase):
         source=None,
         angle="15",
         status="SUCCESS",
+        threshold_label=None,
     ):
         source = source or self.source
         if analysis == "Alignment":
@@ -101,8 +102,15 @@ class CollectionTests(unittest.TestCase):
                 for name in names
             ]
         else:
+            threshold = (
+                f"threshold_{threshold_label}_"
+                if threshold_label is not None
+                else ""
+            )
             run = (
-                source / "uma_assay" / f"Area_assay_results_{stamp}_000123_42"
+                source
+                / "uma_assay"
+                / f"Area_assay_results_{threshold}{stamp}_000123_42"
             )
             path = run / "Fibronectin_Area_Summary.csv"
             columns = [
@@ -198,6 +206,57 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(
             sum(row["Status"] == "SELECTED" for row in records), 3
         )
+
+    def test_area_threshold_names_keep_timestamp_selection_and_csv_bytes(self):
+        for index, label in enumerate(
+            (None, "1500", "1500_to_50000", "1500.001", "1e-10_to_1e+20", "0")
+        ):
+            with self.subTest(threshold=label):
+                source = self.root / f"threshold naming {index}"
+                source.mkdir()
+                self.all_runs(source=source, stamp="20260914_080000")
+                older = self.make_run(
+                    "Area",
+                    source=source,
+                    stamp="20260914_090000",
+                    threshold_label="9000",
+                )
+                latest = self.make_run(
+                    "Area", source=source, threshold_label=label
+                )
+                self.make_run(
+                    "Area",
+                    source=source,
+                    stamp="20260914_140000",
+                    threshold_label="2500",
+                    status="RUNNING",
+                )
+                os.utime(older, (2000000000, 2000000000))
+                original = latest.read_bytes()
+                code, terminal = self.run_command(source)
+                self.assertEqual(code, 0, terminal)
+                status = self.status(source)
+                self.assertEqual(status["analyses_found"], 3)
+                self.assertEqual(
+                    status["selected"]["Area"]["summary"], str(latest)
+                )
+                self.assertEqual(
+                    status["selected"]["Area"]["run_timestamp"],
+                    "2026-09-14T12:00:00.000123",
+                )
+                target = self.output(source) / f"{source.name}_{latest.name}"
+                self.assertEqual(target.read_bytes(), original)
+                self.assertEqual(latest.read_bytes(), original)
+
+    def test_equal_area_timestamps_with_different_thresholds_are_ambiguous(
+        self,
+    ):
+        self.make_run("Area", threshold_label="1500")
+        self.make_run("Area", threshold_label="2000")
+        code, terminal = self.run_command()
+        self.assertEqual(code, 1, terminal)
+        self.assertIn("same latest timestamp", terminal)
+        self.assert_no_summaries()
 
     def move_runs_outside_container(self, paths):
         moved = {}

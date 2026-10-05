@@ -120,7 +120,8 @@ ASSAYS = (
     Assay(
         "Area",
         "Area_assay_results_",
-        r"Area_assay_results_" + ASSAY_TIMESTAMP_PATTERN,
+        r"Area_assay_results_(?:threshold_[^_]+(?:_to_[^_]+)?_)?"
+        + ASSAY_TIMESTAMP_PATTERN,
         SUMMARY_NAMES["Area"],
         ("File_Name", "FN_Positive_Pixels", "FN_Area_Percent", "FN_Area"),
         ("FN_Positive_Pixels", "FN_Area_Percent", "FN_Area"),

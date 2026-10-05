@@ -70,7 +70,10 @@ class PartialCollectionTests(unittest.TestCase):
 
     def add_partial(self):
         path = self.fixture.make_run(
-            "Area", self.names[:2], stamp="20261001_120000"
+            "Area",
+            self.names[:2],
+            stamp="20261001_120000",
+            threshold_label="2500",
         )
         audited_summary(path, self.names, {self.names[2]})
         return path

@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.20**.
+development; the current Python package version is **0.2.21**.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -24,6 +24,13 @@ layout.
 | Fibronectin area | `area_analysis` | `area_analysis.py` |
 | Collect results | `uma_collect_results` | `collect_results.py` |
 | Report | `uma_report` | `report.py` |
+
+Area result folders include the requested thresholds: `-t 1500` creates
+`Area_assay_results_threshold_1500_<timestamp>_<id>`; `-t 1500 50000` adds
+`threshold_1500_to_50000`. Omitting `-t` records the default `threshold_2000`.
+An omitted upper bound or `inf` uses the finite float32 maximum. Both Area
+naming formats remain discoverable inside `uma_assay`, ordered by timestamp.
+Projection-only runs and startup diagnostics keep the plain name.
 
 For example:
 

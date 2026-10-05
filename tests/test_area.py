@@ -1,6 +1,8 @@
 """Check source selection, error logs, and real SUM32 command results."""
 
+import contextlib
 import csv
+import io
 import json
 import os
 import subprocess
@@ -15,6 +17,55 @@ from uma_tools.area_imagej import FLOAT32_MAX
 
 
 class AreaInputTests(unittest.TestCase):
+    def test_area_run_names_record_requested_thresholds_before_imagej(self):
+        cases = (
+            ((), "threshold_2000_", (2000, None)),
+            (("-t", "1500"), "threshold_1500_", (1500, None)),
+            (
+                ("-t", "1500", "50000"),
+                "threshold_1500_to_50000_",
+                (1500, 50000),
+            ),
+            (("-t", "1500.125"), "threshold_1500.125_", (1500.125, None)),
+            (("-t", "1500.001"), "threshold_1500.001_", (1500.001, None)),
+            (("-t", "1e-10"), "threshold_1e-10_", (1e-10, None)),
+            (("-t", "0"), "threshold_0_", (0, None)),
+            (("-t", "1500", "inf"), "threshold_1500_", (1500, None)),
+            (("--projections-only",), "", (None, None)),
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            for index, (arguments, label, bounds) in enumerate(cases):
+                with self.subTest(arguments=arguments):
+                    root = Path(folder) / str(index)
+                    root.mkdir()
+                    with (
+                        patch.object(area, "ImageJEngine") as engine,
+                        patch.object(area, "shutdown_imagej_workers"),
+                        contextlib.redirect_stdout(io.StringIO()),
+                    ):
+                        result = area.main(
+                            ["--folder", str(root), "--channel", "1"]
+                            + list(arguments)
+                        )
+                    self.assertEqual(result, 1)
+                    engine.assert_not_called()
+                    (output,) = root.glob("uma_assay/Area_assay_results_*")
+                    status = json.loads(
+                        (output / "run_status.json").read_text()
+                    )
+                    self.assertEqual(status["status"], "NO_INPUT")
+                    self.assertEqual(
+                        output.name,
+                        f"Area_assay_results_{label}{status['run_id']}",
+                    )
+                    parameters = json.loads(
+                        (output / "run_parameters.json").read_text()
+                    )
+                    self.assertEqual(
+                        parameters["threshold"],
+                        area.threshold_settings(*bounds),
+                    )
+
     def test_direct_inventory_needs_no_alignment_or_sequence_identifier(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -187,6 +238,12 @@ class AreaCommandImageJTests(unittest.TestCase):
                     )
                     self.assertEqual(len(outputs), 1)
                     output = outputs.pop()
+                    tag = f"threshold_{lower}"
+                    if upper != FLOAT32_MAX:
+                        tag += f"_to_{upper}"
+                    self.assertTrue(
+                        output.name.startswith(f"Area_assay_results_{tag}_")
+                    )
                     projection = next(
                         (output / "Projections_32bit").glob("*.tif")
                     )

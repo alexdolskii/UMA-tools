@@ -21,8 +21,11 @@ are not scanned.
 Image_ID is the complete original filename, including its extension.
 
 Each source folder's uma_assay directory receives a unique
-Area_assay_results_<timestamp>_<id> folder with SUM32 projections, 0/255
-masks, area tables, parameters, status and logs. Startup failures use a
+Area_assay_results_threshold_<lower>[_to_<upper>]_<timestamp>_<id> folder
+with SUM32 projections, 0/255 masks, area tables, parameters, status and
+logs. Names show the requested thresholds; an omitted upper bound keeps
+the default float32 maximum. Projection-only runs and startup diagnostics
+keep the plain Area_assay_results_<timestamp>_<id> name. Startup failures use a
 new results folder in an available source's uma_assay, or in
 <working_directory>/uma_assay if no source folder is available. An image
 error is recorded; other images and folders continue. Successful
@@ -158,13 +161,20 @@ def utc_now() -> str:
     return _utc_now(timespec="seconds")
 
 
-def new_output_folder(parent: Path) -> tuple[str, Path]:
+def new_output_folder(parent: Path, limits=None) -> tuple[str, Path]:
     """
-    Allocate an Area run with its established UTC timestamp and PID.
+    Include requested thresholds while preserving the UTC run ID and PID.
     """
+    prefix = "Area_assay_results_"
+    if limits is not None:
+        bounds = [limits["requested_lower"]]
+        if not limits["upper_unbounded"]:
+            bounds.append(limits["requested_upper"])
+        label = "_to_".join(str(value).removesuffix(".0") for value in bounds)
+        prefix += f"threshold_{label}_"
     return unique_output(
         assay_directory(parent, create=True),
-        "Area_assay_results_",
+        prefix,
         include_pid=True,
         counter_width=3,
         max_attempts=10000,
@@ -505,7 +515,7 @@ def process_folder(
 ):
     if not source_folder.is_dir():
         raise ValidationError(f"Source folder does not exist: {source_folder}")
-    run_id, output = new_output_folder(source_folder)
+    run_id, output = new_output_folder(source_folder, limits)
     outputs.append(output)
     log = RunLog(output)
     mode = "AREA_MEASUREMENT" if limits is not None else "PROJECTIONS_ONLY"

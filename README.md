@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.20**; this is separate from the V2
+The current Python package version is **0.2.21**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -359,13 +359,27 @@ source folder; it does not enter `uma_assay`. Hidden files, including macOS
 |---|---|
 | Alignment | `uma_assay/Alignment_assay_results_angle_.../`: orientation images and tables; `Analysis/Alignment_Summary.csv` |
 | Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
-| Area | `uma_assay/Area_assay_results_.../`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
+| Area | `uma_assay/Area_assay_results_threshold_<lower>[_to_<upper>]_<timestamp>_<id>/`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
 | Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: separate CSVs prefixed with the original image folder's name; place one plate-template `.xlsx` here |
 | Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 8 plots, raw/filtered/excluded tables, input copies, and optional statistics |
 
 Reports are siblings of collections. The report's `run_status.json` and input
 provenance identify the selected `Combined_Results`; its template is still
 read from that collection, regardless of the Excel filename.
+
+Area folder names show the requested raw-intensity thresholds:
+
+- `-t 1500` → `Area_assay_results_threshold_1500_...`
+- `-t 1500 50000` → `Area_assay_results_threshold_1500_to_50000_...`
+- No `-t` → `Area_assay_results_threshold_2000_...`
+
+An omitted upper bound (or `inf`) uses the finite float32 maximum and adds no
+upper-bound tag. Decimal values are preserved in the name. Requested and
+effective float32 bounds remain recorded in the parameters and summary CSV.
+Projection-only runs and startup diagnostics keep the plain
+`Area_assay_results_<timestamp>_<id>` name. Collection recognizes both Area
+naming formats inside `uma_assay` and selects by the run timestamp, not by the
+threshold or file modification time.
 
 Collection selects the newest valid result independently for each assay,
 skipping newer invalid runs. **Selected tables must describe the same images**;
@@ -565,7 +579,10 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.20`.
+versions change. Both version commands should report `0.2.21`.
+Version 0.2.21 adds requested thresholds to Area result-folder names. The
+collector accepts both tagged and untagged Area names inside `uma_assay`;
+threshold calculations and measurements are unchanged.
 Version 0.2.20 omits thickness StdDev, Min, and Max plots in both full-data
 and filtered views. The eight remaining figures retain their styling;
 measurements, statistical tests, and Holm correction are unchanged.
