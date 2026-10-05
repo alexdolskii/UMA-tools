@@ -1,4 +1,4 @@
-"""Condition colors and technical-well markers for report figures.
+"""Box colors, neutral image points and well markers for reports.
 
 This is a new selection of historical digital colors, not a numbered
 Wada combination. Green tints are derived adaptations. See the README
@@ -15,9 +15,31 @@ TREATMENT_COLORS = (
     ("Violet", "#4F4086"),
     ("Verditter Blue", "#6FB5A8"),
 )
+POINT_COLOR = "#D0D0D0"
 POINT_EDGE_COLOR = "#111314"
 LOW_FN_EDGE_COLOR = "#D62728"
 WELL_MARKERS = ("o", "s", "^", "D", "v", "P", "X", "<", ">", "p", "h", "8")
+
+
+def median_color(fill):
+    """Choose a light or dark median to contrast with the box fill."""
+
+    def luminance(color):
+        rgb = [int(color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        linear = [
+            value / 12.92
+            if value <= 0.04045
+            else ((value + 0.055) / 1.055) ** 2.4
+            for value in rgb
+        ]
+        return sum(v * w for v, w in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    background, dark = luminance(fill), luminance(POINT_EDGE_COLOR)
+    light_contrast = 1.05 / (background + 0.05)
+    dark_contrast = (max(background, dark) + 0.05) / (
+        min(background, dark) + 0.05
+    )
+    return "#FFFFFF" if light_contrast > dark_contrast else POINT_EDGE_COLOR
 
 
 def well_markers(count):
@@ -57,6 +79,7 @@ def condition_palette(groups, control=None):
         group: {
             "color_name": assigned[group][0],
             "color": assigned[group][1],
+            "median_color": median_color(assigned[group][1]),
             "is_control": group == control,
             "palette_mode": "green_tints" if tinted else "historical",
         }
@@ -129,6 +152,8 @@ def report_palette(data, panels, log):
             )
     markers = well_markers(max(map(len, data["group_wells"].values())))
     return {
+        "point_color": POINT_COLOR,
+        "point_edge_color": POINT_EDGE_COLOR,
         "conditions": conditions,
         "blocks": blocks,
         "markers": markers,

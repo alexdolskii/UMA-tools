@@ -194,7 +194,7 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(manifest[7]["empty_groups"], ["Empty"])
         self.assertEqual(data["rows"], before["rows"])
 
-    def test_actual_scatter_uses_condition_fill_well_shape_and_fn_outline(
+    def test_actual_scatter_uses_gray_fill_well_shape_and_fn_outline(
         self,
     ):
         import matplotlib.pyplot as plt
@@ -207,6 +207,9 @@ class PaletteTests(unittest.TestCase):
             rows = data["retained_rows"] if filtered else data["rows"]
             figure, axis = plt.subplots()
             try:
+                plots._draw_boxes(
+                    axis, rows, data["group_order"], FN_METRIC, styles
+                )
                 ids, reds = plots._draw_points(
                     axis, data, rows, FN_METRIC, filtered, styles, positions
                 )
@@ -222,15 +225,12 @@ class PaletteTests(unittest.TestCase):
                 records = {r["Image_ID"]: r for r in rows}
                 for image_id, collection in zip(ids, axis.collections):
                     record = records[image_id]
-                    expected_color = (
-                        "#B5B1D8"
-                        if record["Group"] == "Control"
-                        else "#004F46"
-                        if record["Group"] == "Treatment"
-                        else "#F37420"
-                    )
                     np.testing.assert_array_equal(
-                        collection.get_facecolors()[0], to_rgba(expected_color)
+                        collection.get_facecolors()[0], to_rgba("#D0D0D0")
+                    )
+                    self.assertGreater(
+                        collection.get_zorder(),
+                        max(line.get_zorder() for line in axis.lines),
                     )
                     marker = MarkerStyle(
                         "s" if record["Well"].endswith("03") else "o"
@@ -258,6 +258,70 @@ class PaletteTests(unittest.TestCase):
                         original[image_id] = collection.get_offsets().copy()
             finally:
                 plt.close(figure)
+
+    def test_rendered_boxes_take_exact_palette_colors_and_keep_quartiles(self):
+        import matplotlib.pyplot as plt
+
+        for count in (2, 8, 10):
+            with self.subTest(conditions=count):
+                groups = [f"T{i}" for i in range(count - 1)] + ["Reference"]
+                styles = {
+                    "conditions": palette.condition_palette(
+                        groups, "Reference"
+                    )
+                }
+                rows = [
+                    {"Group": group, "value": value}
+                    for group in groups
+                    for value in (10, 20, 70)
+                ]
+                figure, axis = plt.subplots()
+                original_bxp, drawn = axis.bxp, {}
+
+                def capture(*args, **kwargs):
+                    artists = original_bxp(*args, **kwargs)
+                    drawn.update(artists)
+                    return artists
+
+                try:
+                    with patch.object(axis, "bxp", side_effect=capture):
+                        boxes, labels = plots._draw_boxes(
+                            axis, rows, groups, "value", styles
+                        )
+                    self.assertEqual(labels, groups)
+                    self.assertEqual(len(drawn["boxes"]), count)
+                    for index, group in enumerate(groups):
+                        style = styles["conditions"][group]
+                        box, median = (
+                            drawn["boxes"][index],
+                            drawn["medians"][index],
+                        )
+                        np.testing.assert_array_equal(
+                            box.get_facecolor(), to_rgba(style["color"])
+                        )
+                        self.assertEqual(
+                            median.get_color(), style["median_color"]
+                        )
+                        np.testing.assert_array_equal(
+                            median.get_ydata(), [20, 20]
+                        )
+                        self.assertEqual(
+                            boxes[index], plots.box_definition([10, 20, 70])
+                        )
+                    self.assertEqual(
+                        drawn["boxes"][-1].get_facecolor(), to_rgba("#B5B1D8")
+                    )
+                    self.assertEqual(
+                        drawn["boxes"][0].get_facecolor(), to_rgba("#004F46")
+                    )
+                finally:
+                    plt.close(figure)
+
+    def test_medians_remain_visible_on_light_and_dark_fills(self):
+        for fill in ("#004F46", "#051230", "#4F4086", "#000000"):
+            self.assertEqual(palette.median_color(fill), "#FFFFFF")
+        for fill in ("#B5B1D8", "#EBD3A2", "#BFD3D1", "#FFFFFF"):
+            self.assertEqual(palette.median_color(fill), "#111314")
 
 
 class TemplatePaletteTests(ReportFixture):

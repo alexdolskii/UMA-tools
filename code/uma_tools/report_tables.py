@@ -575,7 +575,8 @@ def prepare_display_tables(data, plots, parameters, manifests):
         ("FN mask intensity thresholds", data["fn_mask_settings"]["caption"]),
         ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
         ("Figures", "Seven full-data and seven filtered views on Plots"),
-        ("Point color", "Condition; lavender reserved for a bold control"),
+        ("Box color", "Condition; lavender reserved for a bold control"),
+        ("Point color", "Neutral gray with dark or low-FN red outlines"),
         ("Point shape", "Technical well within each condition; see Plot_Data"),
         ("Plot format", parameters.get("plot_format", "pdf")),
         (
@@ -624,9 +625,7 @@ def prepare_display_tables(data, plots, parameters, manifests):
                     "Image_ID": image_id,
                     "Value": row[plot["metric"]],
                     "Technical_Replicate": replicate + 1,
-                    "Point_Color": plot["condition_styles"][row["Group"]][
-                        "color"
-                    ],
+                    "Point_Color": plot["point_color"],
                     "Point_Marker": plot["well_markers"][row["Well"]],
                     "Red_Outline": image_id in plot["red_outline_image_ids"],
                     "Panel_X": plot["rendered_x_positions"][image_id],
@@ -643,11 +642,12 @@ def prepare_display_tables(data, plots, parameters, manifests):
                         "Panel_Title": panel["title"],
                         "Group": group,
                         "Display_Label": panel["labels"][group],
-                        "Point_Color": plot["condition_styles"][group][
-                            "color"
-                        ],
-                        "Color_Name": plot["condition_styles"][group][
+                        "Box_Color": plot["condition_styles"][group]["color"],
+                        "Box_Color_Name": plot["condition_styles"][group][
                             "color_name"
+                        ],
+                        "Median_Color": plot["condition_styles"][group][
+                            "median_color"
                         ],
                         "Is_Control": plot["condition_styles"][group][
                             "is_control"
@@ -712,8 +712,9 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "Panel_Title",
             "Group",
             "Display_Label",
-            "Point_Color",
-            "Color_Name",
+            "Box_Color",
+            "Box_Color_Name",
+            "Median_Color",
             "Is_Control",
             "Palette_Mode",
             "N_Images",

@@ -9,7 +9,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from .plot_palette import POINT_EDGE_COLOR, report_palette
+from .plot_palette import POINT_COLOR, POINT_EDGE_COLOR, report_palette
 from .plot_style import (
     FONT_SIZES,
     PNG_DPI,
@@ -112,7 +112,7 @@ def _point_positions(data, max_replicates):
     return x_positions
 
 
-def _draw_boxes(axis, rows, groups, field):
+def _draw_boxes(axis, rows, groups, field, styles):
     """Draw a box only when at least two observations are present."""
     boxes, box_groups, positions = [], [], []
     for position, group in enumerate(groups, 1):
@@ -122,25 +122,29 @@ def _draw_boxes(axis, rows, groups, field):
             box_groups.append(group)
             positions.append(position)
     if boxes:
-        axis.bxp(
+        artists = axis.bxp(
             boxes,
             positions=positions,
             widths=0.58,
             showfliers=False,
             patch_artist=True,
             boxprops={
-                "facecolor": "#E8EDF3",
                 "edgecolor": "#334155",
                 "linewidth": 1.4,
             },
             medianprops={
-                "color": "#111827",
                 "linewidth": 2,
                 "zorder": 4,
             },
             whiskerprops={"color": "#64748B"},
             capprops={"color": "#64748B"},
         )
+        for group, box, median in zip(
+            box_groups, artists["boxes"], artists["medians"]
+        ):
+            style = styles["conditions"][group]
+            box.set_facecolor(style["color"])
+            median.set_color(style["median_color"])
     return boxes, box_groups
 
 
@@ -148,7 +152,7 @@ def _draw_points(
     axis, data, rows, field, filtered, styles, x_positions, groups=None
 ):
     """
-    Draw each image with its condition color, well marker and FN flag.
+    Draw each image in neutral gray with its well marker and FN flag.
     """
     groups = groups if groups is not None else data["group_order"]
     plotted_ids, red_ids = [], []
@@ -164,7 +168,7 @@ def _draw_points(
                 [x_positions[row["Image_ID"]] for row in records],
                 [row[field] for row in records],
                 s=52,
-                color=styles["conditions"][group]["color"],
+                color=styles["point_color"],
                 marker=styles["wells"][well],
                 edgecolors=[
                     LOW_FN_EDGE_COLOR if low else POINT_EDGE_COLOR
@@ -172,7 +176,7 @@ def _draw_points(
                 ],
                 linewidths=[1.9 if low else 0.8 for low in outlined],
                 alpha=1,
-                zorder=3,
+                zorder=5,
                 clip_on=False,
             )
             plotted_ids.extend(row["Image_ID"] for row in records)
@@ -463,7 +467,7 @@ def _legend_handles(name, threshold, filtered, markers):
             [0],
             marker=marker,
             linestyle="none",
-            markerfacecolor="#CBD5E1",
+            markerfacecolor=POINT_COLOR,
             markeredgecolor=POINT_EDGE_COLOR,
             markersize=8,
             label=f"Technical well {index}",
@@ -477,7 +481,7 @@ def _legend_handles(name, threshold, filtered, markers):
                 [0],
                 marker="o",
                 linestyle="none",
-                markerfacecolor="#CBD5E1",
+                markerfacecolor=POINT_COLOR,
                 markeredgecolor=LOW_FN_EDGE_COLOR,
                 markeredgewidth=1.9,
                 markersize=8,
@@ -508,7 +512,7 @@ def _render_plot(
     log,
     plot_format="pdf",
 ):
-    """Render panels with stable condition colors and well shapes."""
+    """Render colored boxes and gray image points with well shapes."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -591,7 +595,10 @@ def _render_plot(
         if filtered and stats_unit
         else "Descriptive view; no tests."
     )
-    caption += "\nColor = condition; shape = technical well within condition."
+    caption += (
+        "\nBox color = condition; gray points = images; "
+        "shape = technical well within condition."
+    )
     if any(style["is_control"] for style in styles["conditions"].values()):
         caption += " Lavender = bold-marked control."
     display_caption = wrap_label(
@@ -703,7 +710,7 @@ def _render_plot(
                     pad=12,
                 )
                 boxes, box_groups = _draw_boxes(
-                    axis, local_rows, panel["groups"], field
+                    axis, local_rows, panel["groups"], field, styles
                 )
                 ids, reds = _draw_points(
                     axis,
@@ -880,6 +887,8 @@ def _render_plot(
             key: local_positions[key] for key in rendered_ids
         },
         "condition_styles": styles["conditions"],
+        "point_color": styles["point_color"],
+        "point_edge_color": styles["point_edge_color"],
         "well_markers": styles["wells"],
         "technical_well_markers": styles["markers"],
         "palette_blocks": styles["blocks"],

@@ -106,6 +106,7 @@ class StatisticsCommandTests(ReportFixture):
                 self.assertEqual(
                     styles["conditions"]["Treatment"]["color"], "#004F46"
                 )
+                self.assertEqual(styles["point_color"], "#D0D0D0")
                 for plot in plots:
                     self.assertEqual(
                         len(plot["statistical_comparisons"]),
@@ -115,15 +116,25 @@ class StatisticsCommandTests(ReportFixture):
                         plot["condition_styles"], styles["conditions"]
                     )
                     self.assertEqual(plot["well_markers"], styles["wells"])
+                    self.assertEqual(plot["point_color"], "#D0D0D0")
+                    self.assertIn("Box color = condition", plot["caption"])
                 observations = self.read_csv(output / "plot_data.csv")
                 for point in observations:
                     self.assertEqual(
                         point["Point_Color"],
-                        styles["conditions"][point["Group"]]["color"],
+                        "#D0D0D0",
                     )
                     self.assertEqual(
                         point["Point_Marker"], styles["wells"][point["Well"]]
                     )
+                labels = self.read_csv(output / "plot_labels.csv")
+                for label in labels:
+                    condition = styles["conditions"][label["Group"]]
+                    self.assertEqual(label["Box_Color"], condition["color"])
+                    self.assertEqual(
+                        label["Median_Color"], condition["median_color"]
+                    )
+                    self.assertNotIn("Point_Color", label)
                 workbook = openpyxl.load_workbook(
                     status["workbook"], read_only=True, data_only=False
                 )
@@ -149,6 +160,15 @@ class StatisticsCommandTests(ReportFixture):
                             "Point_Color",
                             "Point_Marker",
                         ):
+                            self.assertEqual(cell_row[key], csv_row[key])
+                    sheet_rows = workbook["Plot_Labels"].iter_rows(
+                        values_only=True
+                    )
+                    columns = next(sheet_rows)
+                    exported = [dict(zip(columns, row)) for row in sheet_rows]
+                    self.assertEqual(len(exported), len(labels))
+                    for cell_row, csv_row in zip(exported, labels):
+                        for key in ("Group", "Box_Color", "Median_Color"):
                             self.assertEqual(cell_row[key], csv_row[key])
                 finally:
                     workbook.close()
