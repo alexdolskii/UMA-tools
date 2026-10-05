@@ -118,20 +118,58 @@ class StatisticalPlotsTests(unittest.TestCase):
         return manifest, figure
 
     def test_disabled_report_includes_filtered_fn_without_annotations(self):
-        with patch("matplotlib.figure.Figure.savefig"):
-            manifest = plots.create_plots(
-                report_data(), self.directory / "plots", self.log
+        expected_stems = {
+            base + suffix
+            for base in (
+                "fibronectin_boxplot",
+                "alignment_boxplot",
+                "thickness_area_boxplot",
+                "thickness_median_boxplot",
             )
-        self.assertEqual(len(manifest), 14)
-        self.assertEqual(manifest[7]["plot_id"], "Fibronectin Filtered")
-        self.assertEqual(manifest[7]["point_count"], 3)
-        self.assertEqual(manifest[7]["red_outline_count"], 0)
-        for item in manifest:
-            self.assertIsNone(item["statistics_unit"])
-            self.assertEqual(item["statistical_comparisons"], [])
-            self.assertEqual(
-                item["statistics_note"], "Statistical tests disabled."
-            )
+            for suffix in ("", "_filtered")
+        }
+        for plot_format in ("pdf", "png", "both"):
+            with self.subTest(plot_format=plot_format):
+                with patch("matplotlib.figure.Figure.savefig") as save:
+                    manifest = plots.create_plots(
+                        report_data(),
+                        self.directory / plot_format,
+                        self.log,
+                        plot_format,
+                    )
+                files = {
+                    call.args[0].name
+                    for call in save.call_args_list
+                    if isinstance(call.args[0], Path)
+                }
+                extensions = (
+                    ("pdf", "png") if plot_format == "both" else (plot_format,)
+                )
+                self.assertEqual(
+                    files,
+                    {
+                        f"{stem}.{extension}"
+                        for stem in expected_stems
+                        for extension in extensions
+                    },
+                )
+                self.assertEqual(len(manifest), 8)
+                self.assertEqual(
+                    manifest[4]["plot_id"], "Fibronectin Filtered"
+                )
+                self.assertEqual(manifest[4]["point_count"], 3)
+                self.assertEqual(manifest[4]["red_outline_count"], 0)
+                self.assertEqual(
+                    {plot["metric"] for plot in manifest},
+                    {FN_METRIC, "Alignment", "Area (µm²)", "Median (µm)"},
+                )
+                for item in manifest:
+                    self.assertIsNone(item["statistics_unit"])
+                    self.assertEqual(item["statistical_comparisons"], [])
+                    self.assertEqual(
+                        item["statistics_note"],
+                        "Statistical tests disabled.",
+                    )
 
     def test_statistics_preserve_filtered_points_colors_and_axes(self):
         baseline, old_figure = self.render(report_data())

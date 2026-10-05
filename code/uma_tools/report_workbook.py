@@ -141,7 +141,7 @@ def _plot_statistics_note(data, plot):
 
 
 def _write_plot_sheets(workbook, data, plots):
-    """Place all fourteen figures vertically on one Plots sheet."""
+    """Place all report figures vertically on one Plots sheet."""
     from openpyxl.drawing.image import Image
     from openpyxl.styles import Alignment, Font
     from openpyxl.worksheet.pagebreak import Break
@@ -827,5 +827,5 @@ def verify_workbook(
         ]
         if len(pictures) != plot_count:
             raise RuntimeError(
-                "The Plots sheet does not contain all fourteen figures."
+                f"The Plots sheet must contain {plot_count} figures."
             )

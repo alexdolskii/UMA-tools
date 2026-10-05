@@ -38,16 +38,10 @@ PLOT_NAMES = [
     "Fibronectin Plot",
     "Alignment Plot",
     "Area Plot",
-    "StdDev Plot",
-    "Min Plot",
-    "Max Plot",
     "Median Plot",
     "Fibronectin Filtered",
     "Alignment Filtered",
     "Area Filtered",
-    "StdDev Filtered",
-    "Min Filtered",
-    "Max Filtered",
     "Median Filtered",
 ]
 SHEET_NAMES = [

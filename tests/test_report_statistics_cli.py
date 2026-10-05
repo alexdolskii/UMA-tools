@@ -49,7 +49,7 @@ class StatisticsCommandTests(ReportFixture):
         command = Path(sys.executable).with_name("uma_report")
         combined = paths["template"].parent
         results = {}
-        for unit in ("well", "image"):
+        for unit, plot_format in (("well", "pdf"), ("image", "both")):
             with self.subTest(unit=unit):
                 previous = set(combined.parent.glob("UMA_Report_*"))
                 result = subprocess.run(
@@ -61,6 +61,8 @@ class StatisticsCommandTests(ReportFixture):
                         "20",
                         "--stats-unit",
                         unit,
+                        "--plot-format",
+                        plot_format,
                     ],
                     cwd=self.root,
                     capture_output=True,
@@ -75,7 +77,7 @@ class StatisticsCommandTests(ReportFixture):
                 output = created.pop()
                 status = json.loads((output / "run_status.json").read_text())
                 self.assertEqual(status["stats_unit"], unit)
-                self.assertEqual(status["generated_plots"], 14)
+                self.assertEqual(status["generated_plots"], 8)
                 self.assertEqual(status["included_images"], 7)
                 self.assertEqual(status["planned_comparisons"], 7)
                 parameters = json.loads(
@@ -85,6 +87,19 @@ class StatisticsCommandTests(ReportFixture):
                 self.assertIn("scipy", parameters["dependency_versions"])
                 rows = self.read_csv(output / "statistics.csv")
                 self.assertEqual(len(rows), 7)
+                self.assertEqual(
+                    {row["Metric"] for row in rows},
+                    {
+                        ALIGNMENT_METRIC,
+                        "FN_Area_Percent",
+                        "Area (µm²)",
+                        "StdDev (µm)",
+                        "Min (µm)",
+                        "Max (µm)",
+                        "Median (µm)",
+                    },
+                )
+                self.assertEqual({row["Family_Size"] for row in rows}, {"7"})
                 row = next(r for r in rows if r["Metric"] == ALIGNMENT_METRIC)
                 self.assertEqual(row["Status"], "Tested")
                 self.assertEqual(row["Control_Wells"], "2")
@@ -99,6 +114,24 @@ class StatisticsCommandTests(ReportFixture):
                 self.assertTrue((output / "well_means.csv").is_file())
                 self.assertTrue((output / "comparison_design.csv").is_file())
                 plots = json.loads((output / "plot_manifest.json").read_text())
+                expected_stems = {
+                    base + suffix
+                    for base in (
+                        "fibronectin_boxplot",
+                        "alignment_boxplot",
+                        "thickness_area_boxplot",
+                        "thickness_median_boxplot",
+                    )
+                    for suffix in ("", "_filtered")
+                }
+                self.assertEqual(
+                    {path.stem for path in output.rglob("*.pdf")},
+                    expected_stems,
+                )
+                self.assertEqual(
+                    {path.stem for path in output.rglob("*.png")},
+                    expected_stems if plot_format == "both" else set(),
+                )
                 styles = parameters["plot_palette"]
                 self.assertEqual(
                     styles["conditions"]["Control"]["color"], "#B5B1D8"

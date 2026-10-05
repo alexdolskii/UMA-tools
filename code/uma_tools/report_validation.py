@@ -18,6 +18,7 @@ from .report_schema import (
     FN_METRIC,
     FN_REASON_COLUMN,
     FN_THRESHOLD_COLUMN,
+    PLOT_NAMES,
     THICKNESS_METRICS,
     THICKNESS_UNITS,
     EventLogger,
@@ -688,8 +689,8 @@ def _quality_checks(
         ),
         (
             "Generated plots",
-            14,
-            "Seven full-data plots and seven FN-filtered plots",
+            len(PLOT_NAMES),
+            "Four full-data plots and four FN-filtered plots",
         ),
         (
             "Template wells without images",

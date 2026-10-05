@@ -170,7 +170,7 @@ class PaletteTests(unittest.TestCase):
                 manifest = plots.create_plots(
                     data, Path(temp) / "Plots", Mock()
                 )
-        self.assertEqual(len(manifest), 14)
+        self.assertEqual(len(manifest), 8)
         for plot in manifest:
             self.assertEqual(
                 plot["condition_styles"], manifest[0]["condition_styles"]
@@ -191,7 +191,7 @@ class PaletteTests(unittest.TestCase):
                 ]
                 self.assertEqual(box, plots.box_definition(values))
             self.assertEqual(plot["statistics_unit"], None)
-        self.assertEqual(manifest[7]["empty_groups"], ["Empty"])
+        self.assertEqual(manifest[4]["empty_groups"], ["Empty"])
         self.assertEqual(data["rows"], before["rows"])
 
     def test_actual_scatter_uses_gray_fill_well_shape_and_fn_outline(

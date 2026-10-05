@@ -39,16 +39,10 @@ PLOT_SHEETS = [
     "Fibronectin Plot",
     "Alignment Plot",
     "Area Plot",
-    "StdDev Plot",
-    "Min Plot",
-    "Max Plot",
     "Median Plot",
     "Fibronectin Filtered",
     "Alignment Filtered",
     "Area Filtered",
-    "StdDev Filtered",
-    "Min Filtered",
-    "Max Filtered",
     "Median Filtered",
 ]
 DATA_SHEETS = ["Merged Data", "Filtered Data", "Excluded Data"]
@@ -710,7 +704,7 @@ class ReportCommandTests(ReportFixture):
     def test_cli_continues_after_latest_failure_and_exports_report(
         self,
     ):
-        """Exercise the installed command and all 14 figures exactly once."""
+        """Exercise the installed command and all eight report figures."""
         names = (
             "empty_WellB02.nd2",
             "equal_WellC02.nd2",
@@ -773,7 +767,7 @@ class ReportCommandTests(ReportFixture):
         self.assertEqual(
             status["status"], "SUCCESS", result.stdout + result.stderr
         )
-        self.assertEqual(status["generated_plots"], 14)
+        self.assertEqual(status["generated_plots"], 8)
         self.assertIsNone(status["stats_unit"])
         self.assertFalse((output / "statistics.csv").exists())
         self.assertEqual(status["total_images"], 5)
@@ -823,7 +817,12 @@ class ReportCommandTests(ReportFixture):
         )
         self.assertEqual([plot["plot_id"] for plot in plots], PLOT_SHEETS)
         self.assertEqual(len(list(output.rglob("*.png"))), 0)
-        self.assertEqual(len(list(output.rglob("*.pdf"))), 14)
+        self.assertEqual(len(list(output.rglob("*.pdf"))), 8)
+        qc = {
+            row["Check"]: row["Value"]
+            for row in self.read_csv(output / "qc.csv")
+        }
+        self.assertEqual(qc["Generated plots"], "8")
         by_sheet = {plot["plot_id"]: plot for plot in plots}
         for plot in plots:
             self.assertIn("raw intensity [2000, float32 max]", plot["caption"])
@@ -855,8 +854,7 @@ class ReportCommandTests(ReportFixture):
                     },
                 )
         self.assertEqual(by_sheet["Area Plot"]["unit"], "µm²")
-        for metric in ("StdDev", "Min", "Max", "Median"):
-            self.assertEqual(by_sheet[f"{metric} Plot"]["unit"], "µm")
+        self.assertEqual(by_sheet["Median Plot"]["unit"], "µm")
         self.assertEqual(by_sheet["Fibronectin Plot"]["y_max"], 100)
         self.assertEqual(by_sheet["Alignment Plot"]["y_max"], 100)
 
@@ -916,6 +914,11 @@ class ReportCommandTests(ReportFixture):
             self.assertFalse(equal_row["Below_FN_Threshold"])
             for row in exported["Merged Data"]:
                 self.assertIsNone(row["Biological_Replicate_ID"])
+            for records in exported.values():
+                for row in records:
+                    self.assertEqual(row["StdDev (µm)"], 0.900738580354334)
+                    self.assertEqual(row["Min (µm)"], 2.2360680103302)
+                    self.assertEqual(row["Max (µm)"], 7.0)
             self.assertEqual(
                 tuple(list(workbook["Run Log"].values)[-1][1:3]),
                 ("SUCCESS", "Run"),
@@ -931,14 +934,19 @@ class ReportCommandTests(ReportFixture):
                         if name.startswith("xl/media/")
                     ]
                 ),
-                14,
+                8,
             )
         for filename, count in (
             ("merged_data.csv", 5),
             ("filtered_data.csv", 3),
             ("excluded_data.csv", 2),
         ):
-            self.assertEqual(len(self.read_csv(output / filename)), count)
+            records = self.read_csv(output / filename)
+            self.assertEqual(len(records), count)
+            for row in records:
+                self.assertEqual(float(row["StdDev (µm)"]), 0.900738580354334)
+                self.assertEqual(float(row["Min (µm)"]), 2.2360680103302)
+                self.assertEqual(float(row["Max (µm)"]), 7.0)
 
     def test_failure_only_cli_leaves_diagnostics_and_no_workbook(self):
         paths = self.inputs()

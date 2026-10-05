@@ -1,5 +1,5 @@
 """
-Render fourteen image views and optional filtered-data statistics.
+Render selected image views and optional filtered-data statistics.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from .report_schema import (
     FN_METRIC,
     LOW_FN_EDGE_COLOR,
     PLOT_NAMES,
-    THICKNESS_METRICS,
     THICKNESS_UNITS,
     EventLogger,
     ReportData,
@@ -56,7 +55,7 @@ def box_definition(values):
 
 
 def _plot_specs(data):
-    """Keep the original full-data metric order and unit labels."""
+    """Plot selected metrics; keep all measurements for tables and tests."""
     specs = [
         ("Fibronectin", FN_METRIC, "Fibronectin coverage", "%"),
         (
@@ -72,14 +71,11 @@ def _plot_specs(data):
             f"{field} ({THICKNESS_UNITS[field]})",
             {
                 "Area": "Thickness analysis: measured area",
-                "StdDev": "Thickness standard deviation",
-                "Min": "Minimum thickness",
-                "Max": "Maximum thickness",
                 "Median": "Median thickness",
             }[field],
             THICKNESS_UNITS[field],
         )
-        for field in THICKNESS_METRICS
+        for field in ("Area", "Median")
     ]
     return specs
 
@@ -910,7 +906,7 @@ def create_plots(
     log: EventLogger,
     plot_format="pdf",
 ) -> list[dict[str, Any]]:
-    """Build all fourteen views, independently of export format."""
+    """Build full and filtered views, independently of export format."""
     if plot_format not in ("pdf", "png", "both"):
         raise ValueError("plot_format must be pdf, png, or both")
     directory.mkdir()
@@ -945,5 +941,5 @@ def create_plots(
             )
         )
     if [plot["plot_id"] for plot in plots] != PLOT_NAMES:
-        raise RuntimeError("The required 14-plot order was not preserved.")
+        raise RuntimeError("The required plot order was not preserved.")
     return plots

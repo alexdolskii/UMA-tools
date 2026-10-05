@@ -6,7 +6,7 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.19**; this is separate from the V2
+The current Python package version is **0.2.20**; this is separate from the V2
 workflow name and the future protocol version.
 
 ## What changed
@@ -361,7 +361,7 @@ source folder; it does not enter `uma_assay`. Hidden files, including macOS
 | Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
 | Area | `uma_assay/Area_assay_results_.../`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
 | Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: separate CSVs prefixed with the original image folder's name; place one plate-template `.xlsx` here |
-| Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 14 plots, raw/filtered/excluded tables, input copies, and optional statistics |
+| Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 8 plots, raw/filtered/excluded tables, input copies, and optional statistics |
 
 Reports are siblings of collections. The report's `run_status.json` and input
 provenance identify the selected `Combined_Results`; its template is still
@@ -379,8 +379,14 @@ For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 
 ## Figures and workbook
 
-All **14 figures** (seven full-data, then seven FN-filtered views) are embedded
-on one final **Plots** worksheet. The workbook opens with **Overview**, followed
+All **8 figures** (four full-data, then four FN-filtered views) are embedded
+on one final **Plots** worksheet: FN coverage, alignment, thickness measured
+area, and median thickness. Thickness `StdDev`, `Min`, and `Max` are not plotted
+in PNG, PDF, or Excel; their measurements and optional statistical results
+remain in the tables. Holm correction still covers all seven metrics within
+each comparison block.
+
+The workbook opens with **Overview**, followed
 by measurements, filter summaries, optional statistics, plate map and run logs.
 `Plot_Data` preserves the values behind every plotted image; `Plot_Labels`
 maps complete condition names to display labels. `Plot_Info`, `Run_Info`, and
@@ -438,8 +444,7 @@ codes and colors are recorded in `Plot_Data` and `plot_data.csv`.
 Red outlines still identify low FN in full-data plots. Median lines use white
 or dark ink according to the box fill, and points remain above the median so
 well shapes stay visible. Boxes still summarize individual images. Choosing
-an export format does not select metrics or change tests; all seven metrics
-are shown.
+an export format does not change the four displayed metrics or the tests.
 PDF-only exports create Excel previews in memory, without standalone PNGs.
 
 Boxplot colors are assigned separately within each Excel color block,
@@ -491,7 +496,7 @@ and calibration. The report's `--plot-format` option does not affect alignment.
 ## Optional report statistics
 
 Without `--stats-unit`, reporting requires only the condition names in the
-plate template. It produces seven full-data and seven FN-filtered plots,
+plate template. It produces four full-data and four FN-filtered plots,
 without statistical tests, stars, or `ns`.
 
 To enable comparisons, format the occupied well cells in the same template:
@@ -560,7 +565,10 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.19`.
+versions change. Both version commands should report `0.2.20`.
+Version 0.2.20 omits thickness StdDev, Min, and Max plots in both full-data
+and filtered views. The eight remaining figures retain their styling;
+measurements, statistical tests, and Holm correction are unchanged.
 Version 0.2.19 applies the condition palette to boxplot fills and uses neutral
 gray image points. Well shapes and red low-FN outlines are preserved; median
 lines contrast with each box fill. The exported mapping distinguishes box
