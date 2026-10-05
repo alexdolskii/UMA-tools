@@ -11,6 +11,13 @@ from uma_tools.report_plots import _draw_comparisons, box_definition
 from uma_tools.report_statistics import _color_fields
 from uma_tools.report_workbook import put_cell, title_sheet, write_table
 
+from .plot_palette import (
+    draw_marker_legend,
+    draw_well_points,
+    marker_legend_height,
+    palette_tables,
+    prepare_palette,
+)
 from .report_data import METRICS
 from .survival_data import (
     CHANGE_COLUMNS,
@@ -96,6 +103,10 @@ def tables(data):
                 data["comparisons"],
             )
         )
+    result.extend(
+        (name, name.replace(" ", "_") + ".csv", columns, rows)
+        for name, columns, rows in palette_tables(data)
+    )
     return result
 
 
@@ -134,10 +145,10 @@ def render_plots(data, output: Path, label: str):
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
-    import numpy as np
     from matplotlib.patches import Patch
     from matplotlib.ticker import MaxNLocator, ScalarFormatter
 
+    palette = data.get("plot_palette") or prepare_palette(data, survival=True)
     plots = []
     for view, suffix, sheet_suffix in VIEWS:
         days = (
@@ -162,6 +173,7 @@ def render_plots(data, output: Path, label: str):
                     else 0.08
                 )
                 ratios.extend([header, bracket, 3.0])
+            ratios.append(marker_legend_height(palette))
             with plt.rc_context(
                 {"font.family": "DejaVu Sans", "font.size": 10}
             ):
@@ -206,17 +218,15 @@ def render_plots(data, output: Path, label: str):
                             transform=header.transAxes,
                         )
                         groups = block["groups"]
-                        hatches = ["", "//", "xx", "..", "\\\\", "++", "oo"]
-                        markers = ["o", "s", "^", "D", "v", "P", "X"]
+                        styles = palette["conditions"][block["id"]]
                         handles = [
                             Patch(
-                                facecolor=block["rgb"],
-                                edgecolor="#334155",
-                                hatch=hatches[index % len(hatches)],
+                                facecolor=styles[group]["color"],
+                                edgecolor=styles[group]["edge_color"],
+                                hatch=styles[group]["hatch"],
                                 label=textwrap.fill(group, 29),
-                                alpha=0.6,
                             )
-                            for index, group in enumerate(groups)
+                            for group in groups
                         ]
                         legend = header.legend(
                             handles=handles,
@@ -239,6 +249,7 @@ def render_plots(data, output: Path, label: str):
                         positions, tick_positions, tick_labels = {}, [], []
                         for day_index, day in enumerate(days):
                             for group_index, group in enumerate(groups):
+                                style = styles[group]
                                 x = (
                                     day_index * (len(groups) + 1)
                                     + group_index
@@ -261,36 +272,23 @@ def render_plots(data, output: Path, label: str):
                                         showfliers=False,
                                         patch_artist=True,
                                         boxprops={
-                                            "facecolor": block["rgb"],
-                                            "alpha": 0.55,
-                                            "edgecolor": "#334155",
-                                            "hatch": hatches[
-                                                group_index % len(hatches)
-                                            ],
+                                            "facecolor": style["color"],
+                                            "edgecolor": style["edge_color"],
+                                            "hatch": style["hatch"],
                                         },
                                         medianprops={
-                                            "color": "#111827",
+                                            "color": style["median_color"],
                                             "linewidth": 1.5,
                                         },
                                     )
                                 if values:
-                                    offset = (
-                                        np.linspace(-0.14, 0.14, len(values))
-                                        if len(values) > 1
-                                        else [0]
-                                    )
-                                    axis.scatter(
-                                        x + np.asarray(offset),
-                                        values,
-                                        s=30,
-                                        marker=markers[
-                                            group_index % len(markers)
-                                        ],
-                                        color=block["rgb"],
-                                        edgecolors="#1F2937",
-                                        linewidths=0.8,
-                                        zorder=4,
-                                        clip_on=False,
+                                    draw_well_points(
+                                        axis,
+                                        records,
+                                        "Value",
+                                        x,
+                                        palette,
+                                        size=36,
                                     )
                                     points.extend(
                                         {
@@ -376,6 +374,9 @@ def render_plots(data, output: Path, label: str):
                             raise RuntimeError(
                                 "Plot points differ from source wells"
                             )
+                    draw_marker_legend(
+                        figure.add_subplot(grid[-1, 0]), palette
+                    )
                     expected = sorted(
                         (r["Day"], r["Well"], r["Value"]) for r in observed
                     )

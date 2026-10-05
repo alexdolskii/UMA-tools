@@ -16,6 +16,13 @@ from uma_tools.report_statistics import _color_fields
 from uma_tools.report_workbook import put_cell, title_sheet, write_table
 
 from .cell_analysis import SUMMARY_COLUMNS
+from .plot_palette import (
+    draw_marker_legend,
+    draw_well_points,
+    marker_legend_height,
+    palette_tables,
+    prepare_palette,
+)
 from .report_data import (
     ANNOTATION_COLUMNS,
     COMPARISON_COLUMNS,
@@ -52,9 +59,9 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
 
     matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
-    import numpy as np
     from matplotlib.ticker import MaxNLocator, ScalarFormatter
 
+    palette = data.get("plot_palette") or prepare_palette(data)
     plots = []
     for metric, title, unit in METRICS:
         plot_progress(len(plots), len(METRICS), title)
@@ -73,6 +80,7 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
         ratios = []
         for _, _, levels in panels:
             ratios += [max(0.65, 0.38 * levels + 0.4), 3.3]
+        ratios.append(marker_legend_height(palette))
         height = sum(ratios) + 1.6 + 0.9 * len(panels)
         with plt.rc_context({"font.family": "DejaVu Sans", "font.size": 10}):
             figure = plt.figure(figsize=(width, height), layout="constrained")
@@ -111,6 +119,7 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
                         brackets.set_axis_off()
                     axes_wells, labels = [], []
                     for position, group in enumerate(groups, 1):
+                        style = palette["conditions"][block["id"]][group]
                         records = [
                             row
                             for row in data["rows"]
@@ -126,29 +135,17 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
                                 showfliers=False,
                                 patch_artist=True,
                                 boxprops={
-                                    "facecolor": block["rgb"],
-                                    "alpha": 0.45,
+                                    "facecolor": style["color"],
                                     "edgecolor": "#334155",
                                 },
                                 medianprops={
-                                    "color": "#111827",
+                                    "color": style["median_color"],
                                     "linewidth": 1.8,
                                 },
                             )
                         if values:
-                            offsets = (
-                                np.linspace(-0.13, 0.13, len(values))
-                                if len(values) > 1
-                                else [0]
-                            )
-                            axis.scatter(
-                                position + np.asarray(offsets),
-                                values,
-                                s=48,
-                                color=block["rgb"],
-                                edgecolors="#1F2937",
-                                linewidths=0.9,
-                                zorder=4,
+                            draw_well_points(
+                                axis, records, metric, position, palette
                             )
                             axes_wells.extend(row["Well"] for row in records)
                         labels.append(
@@ -186,6 +183,7 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
                         axis.yaxis.set_major_formatter(formatter)
                     axis.spines[["top", "right"]].set_visible(False)
                     axis.grid(axis="y", alpha=0.18)
+                draw_marker_legend(figure.add_subplot(grids[-1, 0]), palette)
                 expected = sorted(row["Well"] for row in data["rows"])
                 if sorted(point_wells) != expected or len(
                     set(point_wells)
@@ -249,6 +247,7 @@ def _tables(data):
     ]
     if data["statistics_enabled"]:
         tables.append(("Statistics", COMPARISON_COLUMNS, data["comparisons"]))
+    tables.extend(palette_tables(data))
     return tables
 
 

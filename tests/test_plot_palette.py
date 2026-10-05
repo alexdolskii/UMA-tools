@@ -11,7 +11,6 @@ from matplotlib.colors import to_rgba
 from matplotlib.markers import MarkerStyle
 from test_report import ReportFixture
 from test_report_statistics_plots import report_data
-
 from uma_tools import plot_palette as palette
 from uma_tools import report_plots as plots
 from uma_tools.report_schema import FN_LOW_FLAG, FN_METRIC
@@ -93,8 +92,31 @@ class PaletteTests(unittest.TestCase):
             groups = ["Control"] + [f"T{i}" for i in range(count - 1)]
             styles = palette.condition_palette(groups)
             self.assertFalse(any(s["is_control"] for s in styles.values()))
-            self.assertNotIn("#B5B1D8", [s["color"] for s in styles.values()])
             self.assertEqual(styles["Control"]["color"], "#004F46")
+            if count <= 8:
+                self.assertEqual(styles["T0"]["color"], "#B5B1D8")
+                self.assertEqual(styles["T0"]["palette_mode"], "historical")
+            else:
+                self.assertNotIn(
+                    "#B5B1D8", [s["color"] for s in styles.values()]
+                )
+                self.assertEqual(styles["T0"]["palette_mode"], "green_tints")
+
+    def test_unmarked_eight_conditions_use_the_full_ordinary_palette(self):
+        styles = palette.condition_palette([f"T{i}" for i in range(8)])
+        self.assertEqual(
+            [row["color"] for row in styles.values()],
+            [
+                "#004F46",
+                "#B5B1D8",
+                "#F37420",
+                "#051230",
+                "#80719E",
+                "#EBD3A2",
+                "#4F4086",
+                "#6FB5A8",
+            ],
+        )
 
     def test_ambiguous_or_missing_control_markup_warns_without_failing(self):
         for problem in ("missing", "mixed bold", "two controls", "mixed fill"):
@@ -328,7 +350,6 @@ class TemplatePaletteTests(ReportFixture):
     def test_bold_role_is_read_with_and_without_tests_or_fills(self):
         import openpyxl
         from openpyxl.styles import Font, PatternFill
-
         from uma_tools.report import prepare_statistics
 
         paths = self.inputs(

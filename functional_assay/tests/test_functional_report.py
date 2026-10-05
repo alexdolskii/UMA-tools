@@ -485,6 +485,8 @@ class FunctionalReportTests(unittest.TestCase):
         workbook = openpyxl.load_workbook(output / result["workbook"])
         try:
             self.assertIn("Statistics", workbook.sheetnames)
+            self.assertEqual(workbook["Plot Palette"].max_row, 5)
+            self.assertEqual(workbook["Well Markers"].max_row, 13)
             self.assertEqual(len(workbook["Object Count"]._images), 1)
             self.assertTrue(workbook["Plate Map"]["C3"].font.bold)
             self.assertEqual(
@@ -498,6 +500,17 @@ class FunctionalReportTests(unittest.TestCase):
             )
         )
         self.assertTrue((output / "inputs" / self.template.name).is_file())
+        palette = json.loads((output / "plot_palette.json").read_text())
+        self.assertEqual(len(palette["wells"]), 12)
+        self.assertTrue((output / "Plot_Palette.csv").is_file())
+        self.assertTrue((output / "Well_Markers.csv").is_file())
+        self.assertTrue(
+            all(
+                row["Box_Color"] == "#B5B1D8"
+                for row in palette["palette_rows"]
+                if row["Is_Control"]
+            )
+        )
 
     def test_disabled_statistics_and_repeat_runs_preserve_previous_outputs(
         self,

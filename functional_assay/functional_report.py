@@ -15,6 +15,7 @@ from uma_tools.report_schema import ValidationError
 from uma_tools.run import unique_output, utc_now
 
 from . import report_data
+from .plot_palette import palette_tables, save_palette
 from .workflow import (
     NoInputError,
     RunLog,
@@ -114,6 +115,10 @@ def _save_tables(data: dict, output: Path):
                 data["comparisons"],
             )
         )
+    tables.extend(
+        (name.replace(" ", "_") + ".csv", columns, rows)
+        for name, columns, rows in palette_tables(data)
+    )
     for name, columns, rows in tables:
         save_csv(
             output / name,
@@ -245,6 +250,7 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             if args.stats_unit
             else "Disabled; --stats-unit not supplied",
         )
+        save_palette(data, output)
         _save_tables(data, output)
         from .report_output import (
             build_workbook,
@@ -269,6 +275,7 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
                 "File": plot["path"].name,
                 "Wells": plot["point_wells"],
                 "Annotations": plot["annotations"],
+                "Palette": "plot_palette.json",
             }
             for plot in plots
         ]

@@ -487,9 +487,11 @@ The exact box-fill and median-color mapping is also saved in `Plot_Labels`,
 `plot_manifest.json` and `run_parameters.json`.
 
 Descriptive reports still accept unmarked templates. If a panel has no
-unambiguous bold control, the log warns and lavender remains unused; the
-other seven colors are used, or green tints for eight or more unmarked
-conditions. No control is inferred from a condition's name or position.
+unambiguous bold control, the log warns and colors identify ordinary
+conditions: Dusky Green, Grayish Lavender A, then Orange through Verditter
+Blue in the order above. Up to eight unmarked conditions use these eight
+colors; nine or more use green tints for all conditions. Lavender alone
+does not mark a control. No control is inferred from a name or position.
 The existing stricter control validation applies when statistics are enabled.
 
 This palette is a new selection of historical digital colors, using the
@@ -579,7 +581,11 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.21`.
+versions change. Both version commands should report `0.2.22`.
+Version 0.2.22 allows lavender as an ordinary condition color when no
+unambiguous bold control is marked. Statistical control validation and
+red low-FN point outlines are unchanged. The functional reporting add-on
+uses the same palette from version 0.5.1; update both packages for it.
 Version 0.2.21 adds requested thresholds to Area result-folder names. The
 collector accepts both tagged and untagged Area names inside `uma_assay`;
 threshold calculations and measurements are unchanged.

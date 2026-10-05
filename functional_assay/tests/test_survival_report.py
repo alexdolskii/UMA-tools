@@ -511,10 +511,26 @@ class SurvivalReportTests(unittest.TestCase):
             self.assertEqual(book["Raw Measurements"].max_row, 50)
             self.assertEqual(book["Changes by Well"].max_row, 73)
             self.assertEqual(book["Statistics"].max_row, 13)
+            self.assertEqual(book["Plot Palette"].max_row, 5)
+            self.assertEqual(book["Well Markers"].max_row, 13)
             self.assertEqual(sum(len(sheet._images) for sheet in book), 6)
             self.assertTrue(book["Plate Map"]["C3"].font.bold)
         finally:
             book.close()
+        palette = json.loads((output / "plot_palette.json").read_text())
+        self.assertEqual(len(palette["wells"]), 12)
+        self.assertNotIn("E02", palette["wells"])
+        self.assertEqual(palette["survival_hatching_min_conditions"], 6)
+        for filename, records in (
+            ("Plot_Palette.csv", palette["palette_rows"]),
+            ("Well_Markers.csv", palette["marker_rows"]),
+        ):
+            with (output / filename).open(encoding="utf-8-sig") as stream:
+                exported = list(csv.DictReader(stream))
+            self.assertEqual(len(exported), len(records))
+            for row, expected in zip(exported, records):
+                for key, value in expected.items():
+                    self.assertEqual(row[key], str(value))
         before = {p: sha256_file(p) for p in output.rglob("*") if p.is_file()}
         repeated = self.report(statistics=False)
         self.assertEqual(repeated["status"], "SUCCESS", repeated)

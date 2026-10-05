@@ -17,6 +17,7 @@ from uma_tools.run import unique_output, utc_now
 
 from . import report_data, survival_data
 from .functional_report import verify_inputs
+from .plot_palette import save_palette
 from .workflow import (
     EXCLUSION_COLUMNS,
     NoInputError,
@@ -342,6 +343,7 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
             verify_workbook,
         )
 
+        save_palette(data, output, survival=True)
         for _, name, columns, records in tables(data):
             save_csv(
                 output / name,
@@ -367,6 +369,7 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
                     "File": plot["path"].name,
                     "Points": plot["points"],
                     "Annotations": plot["annotations"],
+                    "Palette": "plot_palette.json",
                 }
                 for plot in plots
             ],

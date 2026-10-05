@@ -66,12 +66,15 @@ def _green_tints(count):
 
 
 def condition_palette(groups, control=None):
-    """Reserve lavender for a known control; keep condition order."""
+    """Use lavender for a known control or the second unmarked condition."""
     treatments = [group for group in groups if group != control]
-    # Without a valid control, lavender remains unused. Eight unmarked
-    # conditions therefore need tints rather than a false control color.
-    tinted = len(groups) > 8 or len(treatments) > len(TREATMENT_COLORS)
-    colors = _green_tints(len(treatments)) if tinted else TREATMENT_COLORS
+    ordinary = (
+        TREATMENT_COLORS
+        if control is not None
+        else (TREATMENT_COLORS[0], CONTROL_COLOR, *TREATMENT_COLORS[1:])
+    )
+    tinted = len(groups) > 8
+    colors = _green_tints(len(treatments)) if tinted else ordinary
     assigned = dict(zip(treatments, colors))
     if control is not None:
         assigned[control] = CONTROL_COLOR
@@ -148,7 +151,8 @@ def report_palette(data, panels, log):
                 "WARNING",
                 "Plot palette",
                 f"Panel {panel['id']}: no unambiguous bold control. "
-                "Lavender is reserved; colors describe conditions only.",
+                "Colors, including lavender, describe conditions only; "
+                "no statistical control is assigned by color.",
             )
     markers = well_markers(max(map(len, data["group_wells"].values())))
     return {

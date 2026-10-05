@@ -22,12 +22,16 @@ uma_functional_report -i input_paths.json --stats-unit well
 ```
 
 Use your actual environment name. UMA-tools must already be installed in
-that environment (UMA-tools 0.2.21 or later in the 0.2 series).
+that environment (UMA-tools 0.2.22 or later in the 0.2 series).
 No additional scientific dependencies or environment recreation are needed; follow
 the main README's [Java/Fiji check](../README.md#verify-java-and-fiji-after-installation)
 on a new computer. All commands support `--help` and `--version` without
 starting Fiji. To update, pull `UMA-tools-V2` and repeat the installation
 commands above.
+
+The reporting palette update is in `uma-functional-assay 0.5.1` and
+`uma-tools 0.2.22`. Update **both** packages. Existing cell measurements
+remain valid: rerun the reporting commands to regenerate the figures.
 
 ## Output locations, progress, and recovery
 
@@ -244,6 +248,56 @@ available. The box shows median and interquartile range; whiskers extend
 to the most extreme observed values within 1.5 times that range. The
 control label is bold. A condition without measured wells shows `n=0`.
 
+### Colors and well shapes in both reports
+
+Boxplots use the same palette as `uma_report`, assigned separately within
+each Excel color block. The Excel fill defines membership, not plot fill.
+For up to **eight conditions, including the control**, the order is:
+
+| Role | Color | HEX |
+|---|---|---|
+| Bold control | Grayish Lavender A | `#B5B1D8` |
+| Treatment 1 | Dusky Green | `#004F46` |
+| Treatment 2 | Orange | `#F37420` |
+| Treatment 3 | Deep Indigo | `#051230` |
+| Treatment 4 | Dull Blue Violet | `#80719E` |
+| Treatment 5 | Ivory Buff | `#EBD3A2` |
+| Treatment 6 | Violet | `#4F4086` |
+| Treatment 7 | Verditter Blue | `#6FB5A8` |
+
+Without an unambiguous bold control, descriptive plots use Dusky Green,
+Grayish Lavender A, then the remaining colors in the table. Lavender then
+represents an ordinary condition; it never creates a statistical control.
+Statistics still require a valid marked control. For **nine or more
+conditions**, treatments use Dusky Green tints; a marked control stays
+lavender. Without a marked control, every condition uses a green tint.
+
+Points are **neutral gray with dark outlines**. Shape identifies a technical
+well within its condition: circle, square, triangle, then additional shapes
+or numbers. Well order follows the full plate map (A01 through H12), so a
+physical well keeps its shape and horizontal offset across endpoints,
+days, baseline plots, and paired-change plots. Shapes restart in each
+condition; the legend's Well 1, Well 2, etc. are positions within that
+condition, not plate column numbers. Exact IDs are saved in `Well_Markers.csv`.
+
+All annotated conditions and wells are assigned styles **before exclusions**.
+Missing controls, wells, or complete days cannot change those assignments.
+Repeated condition names in different Excel color blocks stay independent.
+Survival panels add distinct hatches only with **six or more conditions**,
+counting the full block, including control and conditions without data.
+The first condition stays unhatched; the others use different patterns.
+Single-time-point plots remain unhatched. Labels and shapes complement
+colors; color alone is not a reliable identifier in grayscale.
+
+Each report saves `Plot_Palette.csv`, `Well_Markers.csv`, and
+`plot_palette.json`, plus **Plot Palette** and **Well Markers** Excel sheets.
+The palette is a shared selection of historical digital colors, not a
+numbered Wada combination; see the [main README](../README.md) for sources.
+Measurements, masks, object contours, and statistical calculations are
+unchanged by these display rules.
+
+### Statistical comparisons
+
 Statistics run **only with `--stats-unit well`**. One well is one technical
 replicate; the nine tiles, individual cells, and repeated processing are
 not additional replicates. Each treatment is compared pairwise with its
@@ -362,9 +416,11 @@ The single-day `uma_functional_report` keeps its strict annotation check.
 Six PNGs are produced: Object Count and Mask Area, each shown **by day**,
 for the **baseline alone**, and as **changes from baseline**. Each color
 block has a panel, with condition distributions side by side within each
-day, boxplots and all well points. Hatch patterns and marker shapes identify
-conditions; the legend preserves their full names and bold control. There
-are no line plots. Raw and baseline plots are descriptive only.
+day, boxplots and all well points. Box colors identify conditions; hatches
+add a second cue in blocks with six or more conditions. Point shapes identify
+wells within each condition, consistently across all days and views. The
+legend preserves full condition names and bold control. There are no line
+plots. Raw and baseline plots are descriptive only.
 
 With `--stats-unit well`, each treatment's **per-well changes** are compared
 with the control's per-well changes using a two-sided Welch t-test.
