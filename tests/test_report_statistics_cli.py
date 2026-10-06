@@ -44,6 +44,13 @@ class StatisticsCommandTests(ReportFixture):
 
     def test_installed_modes_export_distinct_statistics_and_exit(self):
         paths = self.styled_inputs()
+        book = openpyxl.load_workbook(paths["template"])
+        sheet = book.active
+        sheet["O1"], sheet["P1"] = "Order", "Group"
+        sheet["O2"], sheet["P2"] = 30, "Control"
+        sheet["O3"], sheet["P3"] = "10", "Treatment"
+        book.save(paths["template"])
+        book.close()
         originals = {path: path.read_bytes() for path in paths.values()}
         config = self.config([self.source])
         command = Path(sys.executable).with_name("uma_report")
@@ -84,6 +91,29 @@ class StatisticsCommandTests(ReportFixture):
                     (output / "run_parameters.json").read_text()
                 )
                 self.assertEqual(parameters["stats_unit"], unit)
+                self.assertEqual(
+                    parameters["group_order"], ["Treatment", "Control"]
+                )
+                self.assertEqual(
+                    parameters["group_order_source"], "order_table"
+                )
+                self.assertEqual(
+                    status["group_order"], parameters["group_order"]
+                )
+                self.assertEqual(
+                    json.loads((output / "group_order.json").read_text())[
+                        "group_order_records"
+                    ],
+                    parameters["group_order_records"],
+                )
+                self.assertEqual(
+                    [
+                        r["Group"]
+                        for r in self.read_csv(output / "group_order.csv")
+                    ],
+                    ["Treatment", "Control"],
+                )
+                self.assertIn("Group order", (output / "run.log").read_text())
                 self.assertIn("scipy", parameters["dependency_versions"])
                 rows = self.read_csv(output / "statistics.csv")
                 self.assertEqual(len(rows), 7)
@@ -142,6 +172,9 @@ class StatisticsCommandTests(ReportFixture):
                 self.assertEqual(styles["point_color"], "#D0D0D0")
                 for plot in plots:
                     self.assertEqual(
+                        plot["group_order"], ["Treatment", "Control"]
+                    )
+                    self.assertEqual(
                         len(plot["statistical_comparisons"]),
                         int(plot["view"] == "Filtered"),
                     )
@@ -172,7 +205,10 @@ class StatisticsCommandTests(ReportFixture):
                     status["workbook"], read_only=True, data_only=False
                 )
                 try:
-                    self.assertEqual(len(workbook.sheetnames), 17)
+                    self.assertEqual(len(workbook.sheetnames), 18)
+                    self.assertEqual(
+                        workbook["Group_Order"].cell(2, 1).value, "Treatment"
+                    )
                     self.assertTrue(
                         {
                             "Statistics",

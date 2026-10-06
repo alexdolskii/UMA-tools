@@ -226,6 +226,14 @@ def _read_design(template, data):
         _reject_conditional_styles(sheet)
         design = _annotated_styles(sheet, data["well_map"])
         blocks = _comparison_blocks(design)
+        from .plate_order import order_blocks, read_group_order
+
+        order = read_group_order(
+            sheet,
+            {row["Well"]: row["Group"] for row in design},
+            {row["Well"]: row["Excel_Cell"] for row in design},
+        )
+        blocks = order_blocks(blocks, order)
         theme = workbook.loaded_theme
         palette = list(workbook._colors)
     finally:

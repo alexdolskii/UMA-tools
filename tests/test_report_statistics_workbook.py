@@ -257,7 +257,7 @@ class StatisticsWorkbookTests(unittest.TestCase):
                 export.verify_workbook(path, data)
                 workbook = openpyxl.load_workbook(path)
                 self.addCleanup(workbook.close)
-                self.assertEqual(len(workbook.sheetnames), 17)
+                self.assertEqual(len(workbook.sheetnames), 18)
                 self.assertEqual(
                     workbook.sheetnames[5:8],
                     ["Well Means", "Statistics", "Comparison Design"],
@@ -300,7 +300,7 @@ class StatisticsWorkbookTests(unittest.TestCase):
         export.verify_workbook(path, data)
         workbook = openpyxl.load_workbook(path)
         self.addCleanup(workbook.close)
-        self.assertEqual(len(workbook.sheetnames), 14)
+        self.assertEqual(len(workbook.sheetnames), 15)
         self.assertNotIn("Statistics", workbook.sheetnames)
         self.assertEqual(sum(len(sheet._images) for sheet in workbook), 8)
         self.assertIn("Statistics disabled", workbook["Plots"]["A6"].value)

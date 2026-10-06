@@ -483,12 +483,14 @@ def summarize_fn_mask_settings(records, log):
 
 def read_template(
     path: Path, sheet_name: str | None
-) -> tuple[str, list[list[Any]], dict[str, str], dict[str, str]]:
+) -> tuple[str, list[list[Any]], dict[str, str], dict[str, str], list[dict]]:
     """
     Read literal group labels at their real Excel coordinates, without
     shifting.
     """
     import openpyxl
+
+    from .plate_order import read_group_order
 
     workbook = openpyxl.load_workbook(path, read_only=False, data_only=False)
     try:
@@ -544,7 +546,8 @@ def read_template(
                     well_map[well] = str(value)
         if not well_map:
             raise ValidationError("The template contains no annotated wells.")
-        return selected, grid, well_map, cells
+        order = read_group_order(sheet, well_map, cells)
+        return selected, grid, well_map, cells, order
     finally:
         workbook.close()
 
@@ -553,11 +556,18 @@ def prepare_display_tables(data, plots, parameters, manifests):
     """Expose plot observations and provenance without recalculation."""
     import json
 
+    from .plate_order import GROUP_ORDER_COLUMNS
+
     tables = {}
 
     def add(name, columns, rows):
         tables[name] = {"columns": columns, "rows": rows}
 
+    add(
+        "Group_Order",
+        list(GROUP_ORDER_COLUMNS),
+        data.get("group_order_records", []),
+    )
     overview = [
         ("Report", "UMA fibronectin analysis"),
         ("Source folder", parameters.get("source_folder", "")),
@@ -574,8 +584,13 @@ def prepare_display_tables(data, plots, parameters, manifests):
         ("FN cutoff (%)", data["fn_threshold"]),
         ("FN mask intensity thresholds", data["fn_mask_settings"]["caption"]),
         ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
-        ("Figures", "Seven full-data and seven filtered views on Plots"),
-        ("Box color", "Condition; lavender reserved for a bold control"),
+        ("Condition order", data.get("group_order_source", "plate_grid")),
+        ("Figures", "Four full-data and four filtered views on Plots"),
+        (
+            "Box color",
+            "Condition; lavender identifies a marked control "
+            "or an ordinary condition when no control is marked",
+        ),
         ("Point color", "Neutral gray with dark or low-FN red outlines"),
         ("Point shape", "Technical well within each condition; see Plot_Data"),
         ("Plot format", parameters.get("plot_format", "pdf")),

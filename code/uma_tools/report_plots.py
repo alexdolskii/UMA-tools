@@ -413,10 +413,12 @@ def plot_panels(data):
     by_well = {row["Well"]: row for row in design}
     group_colors = {}
     for group in groups:
-        colors = {
-            by_well.get(well, {}).get("Color_Code")
-            for well in data["group_wells"][group]
-        }
+        wells = (
+            [well for well, name in data["well_map"].items() if name == group]
+            if data.get("well_map")
+            else data["group_wells"][group]
+        )
+        colors = {by_well.get(well, {}).get("Color_Code") for well in wells}
         # Ambiguous or incomplete descriptive markup must not split a
         # condition, discard observations, or require controls.
         if len(colors) != 1 or None in colors:

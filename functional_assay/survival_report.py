@@ -314,6 +314,27 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
             "partial": any(row["Status"] != "SUCCESS" for row in selections)
             or any(row["Status"] != "PAIRED" for row in changes),
         }
+        status.update(
+            group_order=plate["group_order"],
+            group_order_source=plate["group_order_source"],
+            group_order_records=plate["group_order_records"],
+        )
+        save_json(
+            output / "group_order.json",
+            {
+                key: status[key]
+                for key in (
+                    "group_order",
+                    "group_order_source",
+                    "group_order_records",
+                )
+            },
+        )
+        log.event(
+            "INFO",
+            "Group order",
+            json.dumps(plate["group_order_records"], ensure_ascii=False),
+        )
         data["summary"] = survival_data.summarize(data)
         data["comparisons"] = (
             survival_data.compare_changes(data) if statistics else []

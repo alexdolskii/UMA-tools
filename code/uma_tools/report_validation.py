@@ -5,6 +5,7 @@ views.
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -110,6 +111,7 @@ class _AnnotatedPlate:
     image_counts: Counter
     matched_count: int
     unused_wells: list[str]
+    group_order_records: list[dict]
 
 
 @dataclass
@@ -213,13 +215,14 @@ def _read_annotated_plate(paths, sheet_name, alignment, output, log):
     """
     Write coverage diagnostics before rejecting unannotated images.
     """
-    selected, grid, well_map, cells = read_template(
+    selected, grid, well_map, cells, order = read_template(
         paths["template"], sheet_name
     )
     log.event(
         "INFO", "Template", f"{paths['template']} | Worksheet: {selected}"
     )
     log.event("INFO", "Annotated wells", ", ".join(well_map))
+    log.event("INFO", "Group order", json.dumps(order, ensure_ascii=False))
     image_counts = Counter(row["well"] for row in alignment)
     diagnostic = [
         {
@@ -278,6 +281,7 @@ def _read_annotated_plate(paths, sheet_name, alignment, output, log):
         image_counts,
         matched_count,
         unused_wells,
+        order,
     )
 
 
@@ -408,12 +412,7 @@ def _merge_observations(tables, plate, paths, plate_label, fn_threshold):
     alignment, thickness = tables.alignment, tables.thickness
     fibronectin, angle_label = tables.fibronectin, tables.angle_label
     well_map, image_counts = plate.well_map, plate.image_counts
-    used_groups = {well_map[well] for well in image_counts}
-    group_order = [
-        group
-        for group in dict.fromkeys(well_map.values())
-        if group in used_groups
-    ]
+    group_order = [row["Group"] for row in plate.group_order_records]
     group_wells = {
         group: [
             well
@@ -623,7 +622,7 @@ def _quality_checks(
             f"{matched_count}/{len(alignment)} images",
         ),
         ("Wells without groups", 0, "None"),
-        ("Groups", len(group_order), "Template row-major order"),
+        ("Groups", len(group_order), plate.group_order_records[0]["Source"]),
         (
             "Result wells",
             len(image_counts),
@@ -787,6 +786,8 @@ def validate_and_merge(
         "group_filter_counts": group_counts,
         "well_filter_counts": well_counts,
         "group_order": observations.group_order,
+        "group_order_records": plate.group_order_records,
+        "group_order_source": plate.group_order_records[0]["Source"],
         "group_wells": observations.group_wells,
         "well_counts": dict(plate.image_counts),
         "well_map": plate.well_map,

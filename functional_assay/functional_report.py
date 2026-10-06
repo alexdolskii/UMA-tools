@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import traceback
 from collections.abc import Sequence
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from uma_tools.config import read_config
 from uma_tools.files import safe_label, save_csv, save_json, sha256_file
+from uma_tools.plate_order import GROUP_ORDER_COLUMNS
 from uma_tools.report_schema import ValidationError
 from uma_tools.run import unique_output, utc_now
 
@@ -99,6 +101,11 @@ def _save_tables(data: dict, output: Path):
     from .report_output import WELL_COLUMNS
 
     tables = [
+        (
+            "Group_Order.csv",
+            GROUP_ORDER_COLUMNS,
+            data.get("group_order_records", []),
+        ),
         ("Well_Data.csv", WELL_COLUMNS, data["rows"]),
         ("Condition_Summary.csv", report_data.GROUP_COLUMNS, data["summary"]),
         (
@@ -233,6 +240,27 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             "exclusions": excluded,
             "partial": original_status["status"] == "PARTIAL",
         }
+        status.update(
+            group_order=plate["group_order"],
+            group_order_source=plate["group_order_source"],
+            group_order_records=plate["group_order_records"],
+        )
+        save_json(
+            output / "group_order.json",
+            {
+                key: status[key]
+                for key in (
+                    "group_order",
+                    "group_order_source",
+                    "group_order_records",
+                )
+            },
+        )
+        log.event(
+            "INFO",
+            "Group order",
+            json.dumps(plate["group_order_records"], ensure_ascii=False),
+        )
         for comparison in data["comparisons"]:
             if comparison["Status"] == "Not tested":
                 log.event(

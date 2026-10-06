@@ -51,6 +51,7 @@ SHEET_NAMES = [
     "Excluded Data",
     "Filter Summary",
     "Plate Map",
+    "Group_Order",
     "QC",
     "Run Log",
     "Plot_Data",
@@ -118,6 +119,8 @@ class ReportData(TypedDict):
     group_filter_counts: list[dict[str, Any]]
     well_filter_counts: list[dict[str, Any]]
     group_order: list[str]
+    group_order_records: list[dict[str, Any]]
+    group_order_source: str
     group_wells: dict[str, list[str]]
     well_counts: dict[str, int]
     well_map: dict[str, str]

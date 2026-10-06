@@ -22,7 +22,7 @@ uma_functional_report -i input_paths.json --stats-unit well
 ```
 
 Use your actual environment name. UMA-tools must already be installed in
-that environment (UMA-tools 0.2.22 or later in the 0.2 series).
+that environment (UMA-tools 0.2.23 or later in the 0.2 series).
 No additional scientific dependencies or environment recreation are needed; follow
 the main README's [Java/Fiji check](../README.md#verify-java-and-fiji-after-installation)
 on a new computer. All commands support `--help` and `--version` without
@@ -32,6 +32,9 @@ commands above.
 The reporting palette update is in `uma-functional-assay 0.5.1` and
 `uma-tools 0.2.22`. Update **both** packages. Existing cell measurements
 remain valid: rerun the reporting commands to regenerate the figures.
+
+Optional plate-map ordering requires `uma-functional-assay 0.6.0` and
+`uma-tools 0.2.23`. The installation commands above update both packages.
 
 ## Output locations, progress, and recovery
 
@@ -234,6 +237,36 @@ identified by well and Excel coordinate in the console, log, and
 as missing; they never become zero values. Actual measured zeros are kept.
 Without statistics, missing/ambiguous controls are reported as warnings;
 the measurements can still be plotted.
+
+### Optional Order / Group table
+
+The shared [blank UMA template](../UMA_96_well_plate_template.xlsx) has an
+`Instructions` sheet and empty `Order` / `Group` columns at O:P. Keep one
+entry per unique condition name, including conditions without measurements.
+If a name such as `Control` recurs in several color blocks, list it once;
+the blocks and their controls remain independent.
+
+Ranks must be unique positive integers; numeric text (`"1"`) and gaps
+(10, 20, 30) are allowed. Conditions follow ranks within each block and
+blocks follow their lowest rank. The control may be last, or anywhere
+else. Without a populated table, conditions follow first appearance in
+the plate grid, including a control appearing later in the grid.
+
+The parser finds `Order` and `Group` / `Groups` in row 1 anywhere to the
+right of column M, ignoring header case and outer spaces. Names must match
+the grid exactly. Unknown/missing/repeated names, repeated/invalid ranks,
+incomplete pairs, formulas, and ambiguous headers produce cell-specific
+errors before statistical calculations. Table formatting has no role in
+comparisons: only grid fills and whole-cell bold define blocks and controls.
+
+Both functional reports use the same parser as `uma_report`. Order is
+resolved from the full template before styles and exclusions; conditions
+without data keep `n=0`, colors stay fixed across days and metrics, and
+technical-well shapes remain attached to the same wells. Changing only
+ranks preserves values, paired changes, quartiles and statistical results.
+Each report saves `Group_Order.csv`, `group_order.json`, a `Group_Order`
+Excel sheet, and order metadata in `run_status.json` and the log, including
+source cell addresses. Original plate maps are archived unchanged.
 
 ### Measurements, plots, and statistics
 

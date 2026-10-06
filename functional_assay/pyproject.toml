@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uma-functional-assay"
-version = "0.5.1"
+version = "0.6.0"
 description = "Stitching, cell measurements, and plate reports in UMA"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
-dependencies = ["uma-tools>=0.2.22,<0.3"]
+dependencies = ["uma-tools>=0.2.23,<0.3"]
 
 [project.scripts]
 uma_stitching = "functional_assay.stitching:main"

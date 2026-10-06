@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from statistics import mean, median, stdev
 
+from uma_tools.plate_order import order_blocks, read_group_order
 from uma_tools.report_schema import ValidationError
 from uma_tools.report_statistics import (
     _annotated_styles,
@@ -451,6 +452,7 @@ def read_design(
             )
         if not well_map:
             raise ValidationError("The template contains no annotated wells")
+        order = read_group_order(sheet, well_map, cells)
         _reject_conditional_styles(sheet)
         design = _annotated_styles(sheet, well_map)
         blocks, lookup, roles = [], {}, {}
@@ -490,8 +492,6 @@ def read_design(
             ]
             if len(controls) == 1:
                 block["control"] = controls[0]
-                block["groups"].remove(controls[0])
-                block["groups"].insert(0, controls[0])
             if len(controls) != 1 or len(block["groups"]) < 2:
                 message = (
                     f"{block['id']}: expected one bold control condition "
@@ -506,7 +506,10 @@ def read_design(
             "well_map": well_map,
             "cells": cells,
             "design": design,
-            "blocks": blocks,
+            "blocks": order_blocks(blocks, order),
+            "group_order": [row["Group"] for row in order],
+            "group_order_records": order,
+            "group_order_source": order[0]["Source"],
             "warnings": warnings,
         }
     finally:

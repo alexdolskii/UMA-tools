@@ -629,6 +629,8 @@ def process_folder(source, input_json, args):
             template_sheet=data["template_sheet"],
             plate_id=data["plate_id"],
             group_order=data["group_order"],
+            group_order_records=data["group_order_records"],
+            group_order_source=data["group_order_source"],
             source_field_map=data["field_map"],
             full_data_images=len(data["rows"]),
             filtered_images=len(data["retained_rows"]),
@@ -637,6 +639,21 @@ def process_folder(source, input_json, args):
         )
         save_json(directory / "run_parameters.json", parameters)
         save_report_tables(data, directory)
+        status.update(
+            group_order=data["group_order"],
+            group_order_source=data["group_order_source"],
+        )
+        save_json(
+            directory / "group_order.json",
+            {
+                key: data[key]
+                for key in (
+                    "group_order",
+                    "group_order_source",
+                    "group_order_records",
+                )
+            },
+        )
         status.update(
             total_images=len(data["rows"]),
             full_data_images=len(data["rows"]),

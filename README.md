@@ -172,7 +172,8 @@ plate-template `.xlsx`**. Then run:
 uma_report -i input_paths.json --fn-threshold 20
 ```
 
-The supplied template has one worksheet, `Plate Map`, and 96 empty well cells.
+The supplied template has `Plate Map` and `Instructions` worksheets, with
+96 empty well cells and an empty optional `Order` / `Group` table in O:P.
 Keep columns 1–12 in `B1:M1` and rows A–H in `A2:A9`. Enter literal group names
 in `B2:M9` (for example, well A01 is cell B2). Use identical spelling, case,
 and spacing for wells in the same group. Do not use formulas or merge cells
@@ -180,6 +181,43 @@ in `A1:M9`. Every well represented in the images needs a group; unused wells
 may stay blank. The empty template must be filled before reporting.
 Image names must contain a supported well identifier such as `WellA02`;
 `_Seq####` is not required.
+
+**Optional condition order (all three reporting commands):**
+
+- Enter each unique condition from the plate grid once in `P2:P97` (`Group`)
+  and a unique positive integer in `O2:O97` (`Order`). Numeric text such as
+  `"1"` and gaps such as 10, 20, 30 are accepted. Include conditions with no
+  images. Names must match the grid exactly. Repeated names in different
+  functional comparison blocks share one entry in this table.
+- Conditions follow the numbers, not table row positions. Within each
+  comparison block, conditions follow `Order`; blocks are displayed by
+  their lowest condition rank. A bold control can appear anywhere.
+  `Order=1` and formatting in the order table have no statistical meaning.
+- Without these headers, or with the entire table blank, use first
+  appearance in the grid, row by row and left to right. Previously saved
+  templates remain supported. Conditions with no images or no retained
+  images keep their position and `n=0`.
+- Headers are recognized in row 1 anywhere to the right of column M:
+  `Order` with `Group` or `Groups`, ignoring header case and outer spaces.
+  Duplicated/ambiguous headers, incomplete pairs, duplicate ranks or names,
+  unknown/missing conditions, formulas, errors, and invalid ranks stop the
+  report before analytical calculations, with condition/cell diagnostics.
+
+The blank template provides an optional condition dropdown, wrapped cells,
+and a frozen `B2` pane. Manual condition entry remains possible: accept the
+Excel warning when entering a name outside the dropdown. Duplicate entries
+are highlighted red in the order table and incomplete pairs amber; these
+rules do not format the plate grid. The workbook contains no macros.
+
+Order is resolved before palette assignment and FN filtering. It is shared
+by all metrics, full/filtered plots, PNG/PDF/Excel, and summary tables.
+`Group_Order` in Excel, `group_order.csv`, `group_order.json`, run metadata,
+and the log record ranks, the source (`plate_grid` / `order_table`), and
+source cell addresses. Original workbooks remain archived in report inputs.
+Only presentation changes: measurements, image inclusion, well aggregation,
+quartiles, control comparisons, and statistical results are preserved.
+Functional reporting uses the same parser; see its
+[README](functional_assay/README.md) for template locations and outputs.
 
 **How the template is found:**
 
@@ -581,7 +619,12 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.22`.
+versions change. Both version commands should report `0.2.23`.
+Version 0.2.23 adds optional `Order` / `Group` plate-map columns and retains
+conditions without images at `n=0`. Functional assay 0.6.0 applies the same
+rules to single-time-point and survival reports. Update both packages with
+`python -m pip install --no-deps . ./functional_assay` from the UMA-tools root
+in the UMA environment, then rerun reports using your edited plate maps.
 Version 0.2.22 allows lavender as an ordinary condition color when no
 unambiguous bold control is marked. Statistical control validation and
 red low-FN point outlines are unchanged. The functional reporting add-on

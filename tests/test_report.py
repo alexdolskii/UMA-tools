@@ -514,8 +514,11 @@ class MergeValidationTests(ReportFixture):
         self.assertEqual(len(data["rows"]), 2)
         self.assertEqual(data["retained_rows"], [])
         self.assertEqual(len(data["excluded_rows"]), 2)
-        self.assertEqual(data["group_order"], ["Group one"])
-        self.assertEqual(data["group_wells"], {"Group one": ["B02", "B03"]})
+        self.assertEqual(data["group_order"], ["Group one", "Group two"])
+        self.assertEqual(
+            data["group_wells"],
+            {"Group one": ["B02", "B03"], "Group two": []},
+        )
         self.assertEqual(data["group_filter_counts"][0]["Retained_Images"], 0)
 
     def test_same_stem_with_two_extensions_is_ambiguous_for_legacy_alignment(
@@ -875,6 +878,7 @@ class ReportCommandTests(ReportFixture):
                 + [
                     "Filter Summary",
                     "Plate Map",
+                    "Group_Order",
                     "QC",
                     "Run Log",
                     "Plot_Data",

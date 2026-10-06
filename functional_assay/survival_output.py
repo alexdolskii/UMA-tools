@@ -7,7 +7,12 @@ import textwrap
 from copy import copy
 from pathlib import Path
 
-from uma_tools.report_plots import _draw_comparisons, box_definition
+from uma_tools.plate_order import GROUP_ORDER_COLUMNS
+from uma_tools.report_plots import (
+    _comparison_layout,
+    _draw_comparisons,
+    box_definition,
+)
 from uma_tools.report_statistics import _color_fields
 from uma_tools.report_workbook import put_cell, title_sheet, write_table
 
@@ -57,6 +62,12 @@ VIEWS = (
 
 def tables(data):
     result = [
+        (
+            "Group_Order",
+            "Group_Order.csv",
+            GROUP_ORDER_COLUMNS,
+            data.get("group_order_records", []),
+        ),
         (
             "Processing Exclusions",
             "Processing_Exclusions.csv",
@@ -112,30 +123,23 @@ def tables(data):
 
 def _annotations(data, block, metric, days, positions):
     selected = []
-    for comparison in data["comparisons"]:
-        if (
-            comparison["Comparison_Block"] != block["id"]
-            or comparison["Metric"] != metric
-        ):
-            continue
-        day = comparison["Day"]
-        if day not in days:
-            continue
-        label = (
-            comparison["Significance"]
-            if comparison["Status"] == "Tested"
-            else "Not tested"
-        )
-        selected.append(
-            {
-                **comparison,
-                "Annotation": label,
-                "Bracket_Left": positions[(day, comparison["Control"])],
-                "Bracket_Right": positions[(day, comparison["Treatment"])],
-                "Bracket_Level": block["groups"].index(comparison["Treatment"])
-                - 1,
-            }
-        )
+    for day in days:
+        tests = [
+            row
+            for row in data["comparisons"]
+            if row["Comparison_Block"] == block["id"]
+            and row["Metric"] == metric
+            and row["Day"] == day
+        ]
+        layout, _ = _comparison_layout(tests, block["groups"])
+        for comparison in layout:
+            left, right = sorted(
+                positions[(day, comparison[role])]
+                for role in ("Control", "Treatment")
+            )
+            selected.append(
+                {**comparison, "Bracket_Left": left, "Bracket_Right": right}
+            )
     return selected
 
 

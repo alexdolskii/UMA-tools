@@ -7,6 +7,7 @@ import textwrap
 from copy import copy
 from pathlib import Path
 
+from uma_tools.plate_order import GROUP_ORDER_COLUMNS
 from uma_tools.report_plots import (
     _comparison_layout,
     _draw_comparisons,
@@ -236,6 +237,11 @@ def render_plots(data: dict, output: Path, label: str) -> list[dict]:
 
 def _tables(data):
     tables = [
+        (
+            "Group_Order",
+            GROUP_ORDER_COLUMNS,
+            data.get("group_order_records", []),
+        ),
         ("Condition Summary", GROUP_COLUMNS, data["summary"]),
         ("Well Data", WELL_COLUMNS, data["rows"]),
         ("Plate Coverage", ANNOTATION_COLUMNS, data["diagnostics"]),
