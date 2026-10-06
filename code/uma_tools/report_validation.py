@@ -689,7 +689,7 @@ def _quality_checks(
         (
             "Generated plots",
             len(PLOT_NAMES),
-            "Four full-data plots and four FN-filtered plots",
+            "Three full-data plots and three FN-filtered plots",
         ),
         (
             "Template wells without images",

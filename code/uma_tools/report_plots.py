@@ -25,7 +25,6 @@ from .report_schema import (
     FN_METRIC,
     LOW_FN_EDGE_COLOR,
     PLOT_NAMES,
-    THICKNESS_UNITS,
     EventLogger,
     ReportData,
     ValidationError,
@@ -56,7 +55,7 @@ def box_definition(values):
 
 def _plot_specs(data):
     """Plot selected metrics; keep all measurements for tables and tests."""
-    specs = [
+    return [
         ("Fibronectin", FN_METRIC, "Fibronectin coverage", "%"),
         (
             "Alignment",
@@ -64,20 +63,13 @@ def _plot_specs(data):
             f"Fibers aligned within ±{data['angle_label']}°",
             "%",
         ),
-    ]
-    specs += [
         (
-            field,
-            f"{field} ({THICKNESS_UNITS[field]})",
-            {
-                "Area": "Thickness analysis: measured area",
-                "Median": "Median thickness",
-            }[field],
-            THICKNESS_UNITS[field],
-        )
-        for field in ("Area", "Median")
+            "Area",
+            "Area (µm²)",
+            "Thickness analysis: measured area",
+            "µm²",
+        ),
     ]
-    return specs
 
 
 def _point_positions(data, max_replicates):

@@ -585,7 +585,7 @@ def prepare_display_tables(data, plots, parameters, manifests):
         ("FN mask intensity thresholds", data["fn_mask_settings"]["caption"]),
         ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
         ("Condition order", data.get("group_order_source", "plate_grid")),
-        ("Figures", "Four full-data and four filtered views on Plots"),
+        ("Figures", "Three full-data and three filtered views on Plots"),
         (
             "Box color",
             "Condition; lavender identifies a marked control "

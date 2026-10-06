@@ -123,7 +123,7 @@ class ReportOrderTests(ReportFixture):
             plots = report_plots.create_plots(
                 ordered, self.root / "Plots", self.log, "both"
             )
-        self.assertEqual(len(plots), 8)
+        self.assertEqual(len(plots), 6)
         for plot in plots:
             self.assertEqual(plot["panels"], panels)
             self.assertEqual(plot["group_counts"]["No images"], 0)

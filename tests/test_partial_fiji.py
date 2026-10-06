@@ -232,7 +232,7 @@ record_completion(0, True)
             self.assertEqual(report["combined_results_folder"], str(combined))
             self.assertEqual(report["total_images"], 1)
             self.assertEqual(report["processing_excluded_images"], 1)
-            self.assertEqual(report["generated_plots"], 8)
+            self.assertEqual(report["generated_plots"], 6)
             self.assertIn(f"UMA_Report_{source.name}_", output.name)
             self.assertEqual(list(combined.glob("UMA_Report_*")), [])
             self.assertEqual(

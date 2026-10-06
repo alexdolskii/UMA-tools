@@ -110,7 +110,7 @@ class PartialCollectionTests(unittest.TestCase):
         report_status = load_status(output)
         self.assertEqual(report_status["total_images"], 2)
         self.assertEqual(report_status["processing_excluded_images"], 1)
-        self.assertEqual(report_status["generated_plots"], 8)
+        self.assertEqual(report_status["generated_plots"], 6)
         workbook = openpyxl.load_workbook(
             report_status["workbook"], read_only=True
         )

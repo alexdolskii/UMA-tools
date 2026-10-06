@@ -11,6 +11,7 @@ from matplotlib.colors import to_rgba
 from matplotlib.markers import MarkerStyle
 from test_report import ReportFixture
 from test_report_statistics_plots import report_data
+
 from uma_tools import plot_palette as palette
 from uma_tools import report_plots as plots
 from uma_tools.report_schema import FN_LOW_FLAG, FN_METRIC
@@ -192,7 +193,7 @@ class PaletteTests(unittest.TestCase):
                 manifest = plots.create_plots(
                     data, Path(temp) / "Plots", Mock()
                 )
-        self.assertEqual(len(manifest), 8)
+        self.assertEqual(len(manifest), 6)
         for plot in manifest:
             self.assertEqual(
                 plot["condition_styles"], manifest[0]["condition_styles"]
@@ -213,7 +214,7 @@ class PaletteTests(unittest.TestCase):
                 ]
                 self.assertEqual(box, plots.box_definition(values))
             self.assertEqual(plot["statistics_unit"], None)
-        self.assertEqual(manifest[4]["empty_groups"], ["Empty"])
+        self.assertEqual(manifest[3]["empty_groups"], ["Empty"])
         self.assertEqual(data["rows"], before["rows"])
 
     def test_actual_scatter_uses_gray_fill_well_shape_and_fn_outline(
@@ -350,6 +351,7 @@ class TemplatePaletteTests(ReportFixture):
     def test_bold_role_is_read_with_and_without_tests_or_fills(self):
         import openpyxl
         from openpyxl.styles import Font, PatternFill
+
         from uma_tools.report import prepare_statistics
 
         paths = self.inputs(

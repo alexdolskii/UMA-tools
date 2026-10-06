@@ -58,9 +58,9 @@ for template validation, correction families, and interpretation.
 
 Version 0.2.13 follows the FIA figure style: Arial (Liberation Sans or DejaVu
 Sans fallback), readable labels, at most two panel columns, and shared linear
-Y limits. All 8 figures are embedded on one final **Plots** sheet: FN coverage,
-alignment, thickness measured area, and median thickness, each before and after
-FN filtering. Thickness StdDev, Min, and Max remain in measurement and optional
+Y limits. All 6 figures are embedded on one final **Plots** sheet: FN coverage,
+alignment, and thickness measured area, each before and after FN filtering.
+Thickness StdDev, Min, Max, and Median remain in measurement and optional
 statistics tables, but have no PNG/PDF/Excel plots. Holm correction still
 includes all seven metrics. Overview
 opens the workbook; original measurements, filter results, optional statistics,
@@ -201,7 +201,7 @@ metadata, symbolic links, lightweight imports, and log copying/rotation.
 Appearance regressions reconcile every plotted image and box across panel
 layouts and formats, preserve boxplot colors, well shapes and low-FN
 outlines, exercise
-uncolored and tinted templates without statistics, and verify 8 pictures on
+uncolored and tinted templates without statistics, and verify 6 pictures on
 one Plots sheet. Numeric exports, raw/adjusted p-values, and the frozen
 alignment distributions/RGB samples remain covered by regression checks.
 
@@ -209,9 +209,9 @@ Threshold-caption regressions distinguish intensity from coverage, retain the
 coverage boundary, preserve source files, label missing/mixed metadata, and
 reject invalid saved bounds. PNG/PDF captions are checked for clipping and
 unchanged observations, axes, colors and statistics; the installed report
-command verifies captions and provenance in all 8 figures and Excel.
-Report regressions check that StdDev, Min, and Max are absent from every plot
-format while their CSV/Excel measurements and seven-metric statistical
+command verifies captions and provenance in all 6 figures and Excel.
+Report regressions check that StdDev, Min, Max, and Median are absent from
+every plot format while their CSV/Excel measurements and seven-metric statistical
 correction families are preserved.
 
 Palette tests cover 2–8 conditions, 9–96-condition green tints, controls in

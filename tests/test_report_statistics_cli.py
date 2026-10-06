@@ -84,7 +84,7 @@ class StatisticsCommandTests(ReportFixture):
                 output = created.pop()
                 status = json.loads((output / "run_status.json").read_text())
                 self.assertEqual(status["stats_unit"], unit)
-                self.assertEqual(status["generated_plots"], 8)
+                self.assertEqual(status["generated_plots"], 6)
                 self.assertEqual(status["included_images"], 7)
                 self.assertEqual(status["planned_comparisons"], 7)
                 parameters = json.loads(
@@ -150,7 +150,6 @@ class StatisticsCommandTests(ReportFixture):
                         "fibronectin_boxplot",
                         "alignment_boxplot",
                         "thickness_area_boxplot",
-                        "thickness_median_boxplot",
                     )
                     for suffix in ("", "_filtered")
                 }

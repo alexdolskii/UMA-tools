@@ -124,7 +124,6 @@ class StatisticalPlotsTests(unittest.TestCase):
                 "fibronectin_boxplot",
                 "alignment_boxplot",
                 "thickness_area_boxplot",
-                "thickness_median_boxplot",
             )
             for suffix in ("", "_filtered")
         }
@@ -153,15 +152,15 @@ class StatisticalPlotsTests(unittest.TestCase):
                         for extension in extensions
                     },
                 )
-                self.assertEqual(len(manifest), 8)
+                self.assertEqual(len(manifest), 6)
                 self.assertEqual(
-                    manifest[4]["plot_id"], "Fibronectin Filtered"
+                    manifest[3]["plot_id"], "Fibronectin Filtered"
                 )
-                self.assertEqual(manifest[4]["point_count"], 3)
-                self.assertEqual(manifest[4]["red_outline_count"], 0)
+                self.assertEqual(manifest[3]["point_count"], 3)
+                self.assertEqual(manifest[3]["red_outline_count"], 0)
                 self.assertEqual(
                     {plot["metric"] for plot in manifest},
-                    {FN_METRIC, "Alignment", "Area (µm²)", "Median (µm)"},
+                    {FN_METRIC, "Alignment", "Area (µm²)"},
                 )
                 for item in manifest:
                     self.assertIsNone(item["statistics_unit"])

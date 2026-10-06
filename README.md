@@ -399,7 +399,7 @@ source folder; it does not enter `uma_assay`. Hidden files, including macOS
 | Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
 | Area | `uma_assay/Area_assay_results_threshold_<lower>[_to_<upper>]_<timestamp>_<id>/`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
 | Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: separate CSVs prefixed with the original image folder's name; place one plate-template `.xlsx` here |
-| Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 8 plots, raw/filtered/excluded tables, input copies, and optional statistics |
+| Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 6 plots, raw/filtered/excluded tables, input copies, and optional statistics |
 
 Reports are siblings of collections. The report's `run_status.json` and input
 provenance identify the selected `Combined_Results`; its template is still
@@ -431,9 +431,9 @@ For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 
 ## Figures and workbook
 
-All **8 figures** (four full-data, then four FN-filtered views) are embedded
+All **6 figures** (three full-data, then three FN-filtered views) are embedded
 on one final **Plots** worksheet: FN coverage, alignment, thickness measured
-area, and median thickness. Thickness `StdDev`, `Min`, and `Max` are not plotted
+area. Thickness `StdDev`, `Min`, `Max`, and `Median` are not plotted
 in PNG, PDF, or Excel; their measurements and optional statistical results
 remain in the tables. Holm correction still covers all seven metrics within
 each comparison block.
@@ -496,7 +496,7 @@ codes and colors are recorded in `Plot_Data` and `plot_data.csv`.
 Red outlines still identify low FN in full-data plots. Median lines use white
 or dark ink according to the box fill, and points remain above the median so
 well shapes stay visible. Boxes still summarize individual images. Choosing
-an export format does not change the four displayed metrics or the tests.
+an export format does not change the three displayed metrics or the tests.
 PDF-only exports create Excel previews in memory, without standalone PNGs.
 
 Boxplot colors are assigned separately within each Excel color block,
@@ -550,7 +550,7 @@ and calibration. The report's `--plot-format` option does not affect alignment.
 ## Optional report statistics
 
 Without `--stats-unit`, reporting requires only the condition names in the
-plate template. It produces four full-data and four FN-filtered plots,
+plate template. It produces three full-data and three FN-filtered plots,
 without statistical tests, stars, or `ns`.
 
 To enable comparisons, format the occupied well cells in the same template:
@@ -619,7 +619,11 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.23`.
+versions change. Both version commands should report `0.2.24`.
+Version 0.2.24 removes median-thickness plots before and after FN filtering.
+Thickness measured area is the only plotted thickness outcome; all five
+thickness measurements and seven-metric statistical comparisons remain in
+the tables. Rerun `uma_report` to create the six-figure report.
 Version 0.2.23 adds optional `Order` / `Group` plate-map columns and retains
 conditions without images at `n=0`. Functional assay 0.6.0 applies the same
 rules to single-time-point and survival reports. Update both packages with

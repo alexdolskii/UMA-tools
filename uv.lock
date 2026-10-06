@@ -524,7 +524,7 @@ wheels = [
 
 [[package]]
 name = "uma-tools"
-version = "0.2.23"
+version = "0.2.24"
 source = { editable = "." }
 dependencies = [
     { name = "jgo" },

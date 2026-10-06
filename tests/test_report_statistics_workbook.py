@@ -283,7 +283,7 @@ class StatisticsWorkbookTests(unittest.TestCase):
                 self.assertEqual(
                     workbook["Plate Map"]["D9"].fill.fgColor.tint, 0.49998
                 )
-                self.assertEqual(len(workbook["Plots"]._images), 8)
+                self.assertEqual(len(workbook["Plots"]._images), 6)
                 self.assertEqual(workbook.sheetnames[-1], "Plots")
                 self.assertIn(
                     "filtered data only",
@@ -302,7 +302,7 @@ class StatisticsWorkbookTests(unittest.TestCase):
         self.addCleanup(workbook.close)
         self.assertEqual(len(workbook.sheetnames), 15)
         self.assertNotIn("Statistics", workbook.sheetnames)
-        self.assertEqual(sum(len(sheet._images) for sheet in workbook), 8)
+        self.assertEqual(sum(len(sheet._images) for sheet in workbook), 6)
         self.assertIn("Statistics disabled", workbook["Plots"]["A6"].value)
         self.assertFalse(workbook["Plate Map"]["C8"].font.bold)
 
