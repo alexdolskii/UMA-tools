@@ -687,7 +687,18 @@ the same folder. Stage 3 integration is still pending.
 
 ## Protocol and contributors
 
-Developed in the [Edna (Eti) Cukierman lab](https://www.foxchase.org/edna-cukierman).
+UMA-tools V2 is developed in the
+[Edna (Eti) Cukierman laboratory](https://www.foxchase.org/edna-cukierman)
+at Fox Chase Cancer Center for quantitative analysis of extracellular matrix
+organization and fibronectin coverage. It forms part of the laboratory’s
+continuing research in quantitative imaging, which includes
+[SMIA-CUKIE](https://github.com/cukie/SMIA), developed by Gil Cukierman and
+described by [Franco-Barraza et al. (2017), eLife](https://doi.org/10.7554/eLife.20600).
+SMIA-CUKIE established a workflow for measuring marker intensity and positive
+area within combinations of image masks. We acknowledge this earlier work as
+part of the scientific and methodological background of the laboratory’s
+current imaging tools.
+
 The [published protocol](https://www.protocols.io/view/fibroblast-ecm-functional-units-a-medium-throughpu-gzpabx5if)
 describes the earlier workflow; the V2 update is in development for a future
 protocol. Background methods: [reference 1](https://pubmed.ncbi.nlm.nih.gov/32222216/)
