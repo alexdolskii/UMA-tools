@@ -17,12 +17,12 @@ python -m pip install --no-deps .
 python -m pip install --no-deps ./functional_assay
 uma_stitching -i input_paths.json
 uma_cell_count -i input_paths.json
-# Add your Excel plate map to the selected Cell_Analysis_... folder first:
+# Keep a filled UMA*.xlsx directly in each original image folder:
 uma_functional_report -i input_paths.json --stats-unit well
 ```
 
 Use your actual environment name. UMA-tools must already be installed in
-that environment (UMA-tools 0.2.23 or later in the 0.2 series).
+that environment (UMA-tools 0.2.28 or later in the 0.2 series).
 No additional scientific dependencies or environment recreation are needed; follow
 the main README's [Java/Fiji check](../README.md#verify-java-and-fiji-after-installation)
 on a new computer. All commands support `--help` and `--version` without
@@ -34,7 +34,8 @@ The reporting palette update is in `uma-functional-assay 0.5.1` and
 remain valid: rerun the reporting commands to regenerate the figures.
 
 Optional plate-map ordering requires `uma-functional-assay 0.6.0` and
-`uma-tools 0.2.23`. The installation commands above update both packages.
+`uma-tools 0.2.23`. Source-folder template preflight requires functional
+assay 0.6.1 and UMA-tools 0.2.28. The commands above update both packages.
 
 ## Output locations, progress, and recovery
 
@@ -204,20 +205,34 @@ The program selects the **latest finalized `SUCCESS` or `PARTIAL`**
 `Cell_Analysis_...` inside `<source>/uma_functional_assay/`. It uses the
 timestamp in the folder name and verifies the counts and well outcomes in
 `run_status.json`. Failed, unfinished, cancelled, or inconsistent completion
-records are skipped with a message. A missing/invalid CSV or Excel file in the selected run
-is an error: the program does **not** fall back to an older marked run.
+records are skipped with a message. A missing/invalid CSV in the selected
+run is an error: the program does **not** fall back to an older run.
 
-Place exactly **one `.xlsx` directly inside that selected folder**. Its
-filename is arbitrary; renaming it does not change discovery. Hidden,
-`._`, and Excel lock files (`~$...`) are ignored, as are nested folders.
-The first worksheet is used by default; select another with
-`--sheet "Plate Map"`.
+Keep a filled **`UMA*.xlsx` directly beside the original images**, in each
+source folder from the JSON. Filename prefix and extension are case
+insensitive; for example, `UMA_day7.xlsx` or `uma plate.XLSX`. Files without
+that prefix (including FIA maps), hidden/macOS `._` files, `~$` Excel locks,
+symlinks, directories and nested files are ignored. Move an existing map out
+of `Cell_Analysis_...` and add the `UMA` prefix if needed.
+
+Before generating any report, the command checks **all source folders**.
+One candidate is selected automatically. Multiple candidates offer a numbered
+choice per folder in a terminal. A missing, corrupt or invalid map offers
+retry after correction, skip the folder, or cancel the whole command. A
+summary lists each source, selected file and readiness before reports start.
+Without a terminal or with `--non-interactive`, invalid/ambiguous sources get
+diagnostics and are skipped; valid folders continue and the exit code is
+nonzero. Preflight checks the grid, condition order and optional control
+design; measured-well coverage is checked when the selected CSV is read.
+The report archives the chosen workbook, records its original path and SHA256,
+and rejects changes after preflight. Image analysis does not require a map.
 
 Use the repository's [96-well template](../UMA_96_well_plate_template.xlsx):
-keep rows **A-H** in `A2:A9`, columns **1-12** in `B1:M1`, and enter conditions
-in `B2:M9`. For this functional assay, use the `Cell_Analysis_...` location
-and command above, rather than the template's older `Combined_Results` /
-`uma_report` instructions.
+keep rows **A-H** in `A2:A9`, columns **1-12** in `B1:M1`, and conditions in
+`B2:M9`. The first worksheet is used by default; select another with
+`--sheet "Plate Map"`. The same source-folder selection rules apply to
+`uma_report`; if their designs differ, select the appropriate UMA workbook
+for each command during preflight.
 
 - **Cell text** identifies the condition, e.g. `Control` or `Treatment 1`.
 - **Solid fill color** defines a comparison block. Use exactly the same
@@ -350,7 +365,8 @@ These are within-plate technical comparisons, not biological replication.
 
 Each run creates `Functional_Report_<original-folder-name>_<UTC-timestamp>`
 **beside the selected `Cell_Analysis_...`, inside `uma_functional_assay`**;
-previous reports are retained. The Excel input stays inside `Cell_Analysis_...`.
+previous reports are retained. The working Excel map stays beside raw images;
+a verified copy is saved in each report.
 It contains:
 
 - One Excel workbook with the two plots, condition summaries, well data,
@@ -401,8 +417,9 @@ Copy [survival_paths.example.json](survival_paths.example.json), rename it
 - `plate_template` is the exact path to your shared `.xlsx`, under any name.
   The grid, fill colors, and bold control rules are the same as in step 3.
   Use optional `"sheet": "Plate Map"` to select a worksheet; otherwise the
-  first sheet is read. Instructions inside the older template about
-  `Combined_Results` do not apply to this command.
+  first sheet is read. This explicit path is retained: survival does not
+  search the day folders for `UMA*.xlsx`. The shared map is validated before
+  loading day measurements and archived with its original path and SHA256.
 - Each `folder` is an **original image folder**, not `Cell_Analysis_...`.
   Its latest finalized `SUCCESS`/`PARTIAL` analysis inside
   `uma_functional_assay` is selected independently. Missing/invalid data in

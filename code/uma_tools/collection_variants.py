@@ -262,33 +262,6 @@ def build_variant(source, output, tables, origins, settings):
     return state
 
 
-def copy_template(previous, output):
-    if previous is None:
-        return None
-    templates = [
-        path
-        for path in previous.iterdir()
-        if path.suffix.lower() == ".xlsx"
-        and not path.name.startswith((".", "~$"))
-        and path.is_file()
-        and not path.is_symlink()
-    ]
-    if len(templates) > 1:
-        raise ValidationError(
-            "Several plate templates in the previous collection: "
-            + ", ".join(path.name for path in templates)
-        )
-    if not templates:
-        return None
-    path = templates[0]
-    content = path.read_bytes()
-    target = output / path.name
-    target.write_bytes(content)
-    if target.read_bytes() != content or path.read_bytes() != content:
-        raise ValidationError("Plate template changed during collection")
-    return {"file": target.name, "sha256": sha256_file(target)}
-
-
 def plan(source, previous, previous_state, records, logger, args):
     areas, errors = scan_area(source, records, logger)
     modern = previous_state.get("collection_schema") == COLLECTION_SCHEMA
@@ -439,7 +412,6 @@ def collect(source, input_json, args):
             shared[name], state["shared_inputs"][name] = archive_table(
                 table, output, f"Raw/{name}", origins.get(name)
             )
-        state["template"] = copy_template(previous, output)
         for index, (key, (table, settings, origin)) in enumerate(
             sorted(areas.items(), key=lambda item: sort_key(item[1][1])), 1
         ):

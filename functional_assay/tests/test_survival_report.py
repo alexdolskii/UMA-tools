@@ -19,6 +19,7 @@ import openpyxl
 from functional_assay import report_data, survival_data, survival_report
 from functional_assay.cell_analysis import SUMMARY_COLUMNS
 from test_functional_report import create_analysis, create_template
+
 from uma_tools.files import save_csv, save_json, sha256_file
 from uma_tools.report_schema import ValidationError
 
@@ -128,6 +129,23 @@ class SurvivalReportTests(unittest.TestCase):
         config = survival_data.read_config(self.path)
         with contextlib.redirect_stdout(io.StringIO()):
             return survival_report.run_report(config, self.path, statistics)
+
+    def test_explicit_non_uma_map_is_validated_before_loading_days(self):
+        renamed = self.template.with_name("Shared experiment.xlsx")
+        self.template.rename(renamed)
+        self.template = renamed
+        self.config["plate_template"] = renamed.name
+        self.save_config()
+        config = survival_data.read_config(self.path)
+        self.assertEqual(config["plate_template"], renamed)
+        book = openpyxl.load_workbook(renamed)
+        book.active["B1"] = "Invalid column header"
+        book.save(renamed)
+        book.close()
+        with patch.object(survival_report, "load_days") as days:
+            result = self.report()
+        days.assert_not_called()
+        self.assertEqual(result["status"], "FAILED")
 
     def test_days_are_explicit_zero_valid_and_paths_relative_to_json(self):
         with patch("os.getcwd", return_value="/"):
@@ -492,6 +510,13 @@ class SurvivalReportTests(unittest.TestCase):
             )
         )
         status = json.loads((output / "run_status.json").read_text())
+        self.assertEqual(
+            status["plate_template"]["selection_method"],
+            "explicit_survival_json",
+        )
+        self.assertEqual(
+            status["plate_template"]["sha256"], sha256_file(self.template)
+        )
         self.assertEqual(status["raw_measurements"], 49)
         self.assertEqual(status["unmapped_measurements"], 1)
         self.assertEqual(status["paired_well_changes"], 36)

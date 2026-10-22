@@ -32,7 +32,7 @@ jobs:
           environment-file: environment_uma.yaml
 
       - name: Install the package
-        run: python -m pip install . "pytest>=8,<10"
+        run: python -m pip install . ./functional_assay "pytest>=8,<10"
 
       - name: Run the test suite
         env:
@@ -41,9 +41,12 @@ jobs:
         run: python -m unittest discover -s tests -v
 
 
-      - name: Test Area revisions, guided reports and FIA integration
+      - name: Test Area revisions, template preflight and report integration
         env:
           MPLBACKEND: Agg
         run: >-
           python -m pytest tests/test_area_variants.py
-          tests/test_report_options.py tests/test_report_nuclei.py -q
+          tests/test_report_options.py tests/test_report_nuclei.py
+          tests/test_plate_templates.py functional_assay/tests/test_functional_report.py
+          functional_assay/tests/test_survival_report.py
+          functional_assay/tests/test_workflow.py -q

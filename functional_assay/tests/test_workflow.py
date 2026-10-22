@@ -27,6 +27,7 @@ from test_functional_report import (
     create_template,
     example_rows,
 )
+
 from uma_tools.files import save_csv, save_json, sha256_file
 from uma_tools.report_schema import ValidationError
 
@@ -187,7 +188,7 @@ class WorkflowTests(unittest.TestCase):
         self,
     ):
         analysis, _, _ = create_analysis(self.source, state="PARTIAL")
-        create_template(analysis)
+        create_template(self.source)
         args = argparse.Namespace(stats_unit="well", sheet=None)
         result = functional_report.process_folder(
             self.source, self.config, args

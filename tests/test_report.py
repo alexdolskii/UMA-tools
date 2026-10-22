@@ -21,6 +21,7 @@ import openpyxl
 from uma_tools import report
 from uma_tools import report_inputs as collected_inputs
 from uma_tools import report_validation as validation
+from uma_tools.plate_templates import find_template
 from uma_tools.report_schema import ValidationError
 
 ALIGNMENT_METRIC = "Percentage_Fibers_Aligned_Within_15_Degree"
@@ -200,7 +201,9 @@ class ReportFixture(unittest.TestCase):
                 row.extend(mask_thresholds.values())
         self.write_csv(paths["fibronectin"], columns, rows)
         paths["template"] = self.make_template(
-            combined / "synthetic_96_well_plate_template.xlsx", annotations
+            combined.parent.parent
+            / "UMA_synthetic_96_well_plate_template.xlsx",
+            annotations,
         )
         manifest = json.loads(
             (combined / "run_status.json").read_text(encoding="utf-8")
@@ -326,9 +329,9 @@ class CombinedSelectionTests(ReportFixture):
         self,
     ):
         paths = self.inputs()
-        combined = paths["template"].parent
+        combined = paths["alignment"].parent
         discovered = collected_inputs.discover_inputs(
-            combined, self.source.name
+            combined, self.source.name, find_template(self.source)
         )
         self.assertEqual(discovered, paths)
         paths["thickness"].write_bytes(
@@ -338,7 +341,9 @@ class CombinedSelectionTests(ReportFixture):
             ValidationError,
             "(?i)hash|sha256|digest|checksum|changed since collection",
         ):
-            collected_inputs.discover_inputs(combined, self.source.name)
+            collected_inputs.discover_inputs(
+                combined, self.source.name, find_template(self.source)
+            )
 
     def test_selected_latest_missing_csv_does_not_fall_back(self):
         self.inputs(self.make_combined("20260914_100000_000001"))
@@ -350,17 +355,19 @@ class CombinedSelectionTests(ReportFixture):
         )
         paths["fibronectin"].unlink()
         selected = collected_inputs.select_combined(self.source, self.log)
-        self.assertEqual(selected, paths["template"].parent)
+        self.assertEqual(selected, paths["alignment"].parent)
         with self.assertRaises(ValidationError):
-            collected_inputs.discover_inputs(selected, self.source.name)
+            collected_inputs.discover_inputs(
+                selected, self.source.name, find_template(self.source)
+            )
 
     def test_archive_rejects_analysis_removed_from_manifest_after_discovery(
         self,
     ):
         paths = self.inputs()
-        combined = paths["template"].parent
+        combined = paths["alignment"].parent
         discovered = collected_inputs.discover_inputs(
-            combined, self.source.name
+            combined, self.source.name, find_template(self.source)
         )
         self.assertEqual(discovered, paths)
         status_path = combined / "run_status.json"
@@ -381,23 +388,27 @@ class CombinedSelectionTests(ReportFixture):
 
     def test_exactly_one_visible_template_is_required(self):
         paths = self.inputs()
-        combined = paths["template"].parent
+        combined = paths["alignment"].parent
         (combined / "._metadata.xlsx").write_bytes(b"not an Excel file")
         (combined / "~$locked.xlsx").write_bytes(b"not an Excel file")
         self.assertEqual(
-            collected_inputs.discover_inputs(combined, self.source.name)[
-                "template"
-            ],
+            collected_inputs.discover_inputs(
+                combined, self.source.name, find_template(self.source)
+            )["template"],
             paths["template"],
         )
-        duplicate = combined / "second.xlsx"
+        duplicate = self.source / "UMA_second.xlsx"
         shutil.copyfile(paths["template"], duplicate)
         with self.assertRaises(ValidationError):
-            collected_inputs.discover_inputs(combined, self.source.name)
+            collected_inputs.discover_inputs(
+                combined, self.source.name, find_template(self.source)
+            )
         duplicate.unlink()
         paths["template"].unlink()
         with self.assertRaises(ValidationError):
-            collected_inputs.discover_inputs(combined, self.source.name)
+            collected_inputs.discover_inputs(
+                combined, self.source.name, find_template(self.source)
+            )
 
     def test_symlinked_summary_cannot_escape_selected_combined_directory(self):
         paths = self.inputs()
@@ -407,7 +418,9 @@ class CombinedSelectionTests(ReportFixture):
         source.symlink_to(external)
         with self.assertRaises(ValidationError):
             collected_inputs.discover_inputs(
-                paths["template"].parent, self.source.name
+                paths["alignment"].parent,
+                self.source.name,
+                find_template(self.source),
             )
 
 
@@ -589,7 +602,7 @@ class MergeValidationTests(ReportFixture):
 class ReportCommandTests(ReportFixture):
     def test_diagnostics_write_failure_still_removes_unverified_workbook(self):
         paths = self.inputs()
-        combined = paths["template"].parent
+        combined = paths["alignment"].parent
         config = self.config([self.source])
         workbook = openpyxl.Workbook()
         self.addCleanup(workbook.close)
@@ -662,7 +675,7 @@ class ReportCommandTests(ReportFixture):
             ):
                 result = report.main(["-i", str(config)])
         self.assertEqual(result, 1)
-        outputs = list(paths["template"].parent.parent.glob("UMA_Report_*"))
+        outputs = list(paths["alignment"].parent.parent.glob("UMA_Report_*"))
         self.assertEqual(len(outputs), 1)
         status = json.loads(
             (outputs[0] / "run_status.json").read_text(encoding="utf-8")
@@ -694,7 +707,7 @@ class ReportCommandTests(ReportFixture):
             ):
                 result = report.main(["-i", str(config)])
         self.assertEqual(result, 130)
-        outputs = list(paths["template"].parent.parent.glob("UMA_Report_*"))
+        outputs = list(paths["alignment"].parent.parent.glob("UMA_Report_*"))
         self.assertEqual(len(outputs), 1)
         status = json.loads(
             (outputs[0] / "run_status.json").read_text(encoding="utf-8")
@@ -730,7 +743,7 @@ class ReportCommandTests(ReportFixture):
                 "Threshold_Units": "Raw projection intensity",
             },
         )
-        combined = paths["template"].parent
+        combined = paths["alignment"].parent
         original_bytes = {path: path.read_bytes() for path in paths.values()}
 
         bad_source = self.root / "missing latest assay"
@@ -951,9 +964,7 @@ class ReportCommandTests(ReportFixture):
                 self.assertEqual(float(row["StdDev (µm)"]), 0.900738580354334)
                 self.assertEqual(float(row["Min (µm)"]), 2.2360680103302)
                 self.assertEqual(float(row["Max (µm)"]), 7.0)
-                self.assertEqual(
-                    float(row["Median (µm)"]), 5.830951690673828
-                )
+                self.assertEqual(float(row["Median (µm)"]), 5.830951690673828)
 
     def test_failure_only_cli_leaves_diagnostics_and_no_workbook(self):
         paths = self.inputs()

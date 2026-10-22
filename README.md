@@ -162,11 +162,11 @@ repository, provide the JSON's absolute path in quotes.
 
 Before the fifth stage, copy
 [`UMA_96_well_plate_template.xlsx`](UMA_96_well_plate_template.xlsx) from the
-repository root directly into the latest completed
-`<image_folder>/uma_assay/Combined_Results_.../` directory.
-Fill in your experimental groups and save it.
-That collection must include all three analyses for each reportable Area
-variant and **exactly one plate-template `.xlsx` at its root**. Then run:
+repository root into **each original image folder listed in the JSON**,
+as `<image_folder>/UMA_<experiment>.xlsx`. Fill in your experimental groups
+and save it. Keep the `UMA` filename prefix (case insensitive).
+The selected collection must include all three analyses for each reportable
+Area variant. Then run:
 
 ```bash
 uma_report -i input_paths.json --fn-threshold 20
@@ -219,27 +219,43 @@ quartiles, control comparisons, and statistical results are preserved.
 Functional reporting uses the same parser; see its
 [README](functional_assay/README.md) for template locations and outputs.
 
-**How the template is found:**
+**How the template is found (UMA-tools 0.2.28 / functional assay 0.6.1):**
 
-- The report selects the latest completed, usable `Combined_Results`
-  (including `PARTIAL`) by the timestamp in its directory name, then searches
-  directly inside that directory.
-- The filename is unrestricted: `UMA_96_well_plate_template.xlsx`,
-  `BK_far_day7.xlsx`, or a name with spaces all work. Renaming is optional;
-  the name does not need to match the image folder or collected CSVs.
-- Exactly one visible regular `.xlsx` file is required; `.XLSX` also works.
-  Files starting with `.` (including `._`) or `~$`, symbolic links, directories,
-  and Excel files inside subdirectories are ignored. `.xls` is not supported.
-- No matching workbook causes an error. Two or more matching workbooks also
-  cause an error, even if one is unrelated notes. The program does not choose
-  by filename or switch to an older collection to find a template.
-- The first worksheet in tab order is read by default. To choose another,
-  use `--sheet "Worksheet name"` with its exact name; the active tab is not
-  used to make this choice.
+- `uma_report` and `uma_functional_report` check **all original image folders
+  in the JSON before generating the first report**. Each folder may have its
+  own experimental design and filename.
+- Search only directly in the source folder for regular `UMA*.xlsx` files,
+  ignoring case: `UMA_BK_far_day7.xlsx` and `uma plate.XLSX` both work.
+  Other Excel names, hidden/macOS `._` files, Excel lock files (`~$`),
+  symbolic links, directories, and files inside subfolders are ignored.
+  `.xls` is not supported. Maps inside results folders are not searched.
+- One candidate is selected automatically. With several candidates in an
+  interactive terminal, choose a numbered file separately for each folder.
+  A missing, unreadable, or invalid map offers **retry after correction,
+  skip this folder, or cancel the command**. The final preflight summary
+  shows each source folder, selected map, and readiness before reports start.
+- Without a terminal, or with `--non-interactive`, no choices are guessed:
+  ambiguous/invalid folders get explicit diagnostics and are skipped; ready
+  folders continue. Any skipped/failed folder makes the exit code nonzero.
+- Preflight checks the worksheet, grid, optional order table and, when
+  statistics are enabled, comparison controls. Matching measured wells to
+  annotations is also validated when each report reads its selected CSVs.
+- The first worksheet in tab order is used by default; override it with
+  `--sheet "Worksheet name"`. The active Excel tab does not select a sheet.
+- Every Area variant for a source uses the same preflight selection. Reports
+  archive the exact workbook and record its original path, SHA256, worksheet,
+  and selection method in metadata and logs. A map changed after preflight
+  is rejected; rerun the command to use that edit. A later edit invalidates
+  unchanged-report reuse without modifying previous reports.
 
-Later collection revisions automatically copy the previous collection's
-template. Check or edit it in the new collection before reporting. If the
-previous collection had no template, add one manually.
+Keep the working map beside the raw images. Move an existing map out of
+`Combined_Results` or `Cell_Analysis` and add the `UMA` prefix if necessary.
+Image analysis and collection do not require the map, and collection updates
+no longer copy it between revisions. Both reporting workflows can use the
+same map, or you can select separate `UMA` maps in an interactive terminal.
+`uma_survival_report` keeps the **explicit `plate_template` path in its JSON**
+for one map shared by all days; it validates that map before loading days.
+The explicitly named survival workbook does not require a `UMA` prefix.
 
 Key parameters:
 
@@ -266,7 +282,7 @@ area_analysis -i input_paths.json -t 1500
 area_analysis -i input_paths.json -t 2000
 area_analysis -i input_paths.json -t 1500 50000
 uma_collect_results -i input_paths.json
-# Add one filled plate-template .xlsx to the new Combined_Results root.
+# Keep one filled UMA*.xlsx beside the original images in each JSON folder.
 uma_report -i input_paths.json
 ```
 
@@ -292,8 +308,8 @@ On a later collection, the terminal offers:
 | `rebuild` | Select current valid Alignment, Thickness, and every available Area variant again |
 | `keep` | Leave the previous collection in use |
 
-Updates and rebuilds create a **new timestamped `Combined_Results`**, copy
-the previous template, and preserve previous collections. An update with
+Updates and rebuilds create a **new timestamped `Combined_Results`** and
+preserve previous collections. The working template stays beside raw images. An update with
 nothing new keeps the existing folder. Complete original CSVs and audits are
 frozen under `Raw/`; matched copies for each variant are under
 `Variants/AreaThr_<lower>_to_<upper>_<projection>_C<channel>_<id>/`.
@@ -402,9 +418,9 @@ An empty retained set fails collection. `processing_exclusions.csv`,
 `image_check.csv` and `selection_report.csv` record the decisions and counts.
 With no exclusions, collected summary bytes are unchanged.
 
-Reporting still requires all three summaries per variant and one shared plate
-template in the latest completed collection, including a usable `PARTIAL`
-collection. It uses the matched retained images, then
+Reporting still requires all three summaries per variant from the latest
+completed collection, including a usable `PARTIAL` collection, and the
+selected source-folder `UMA*.xlsx` shared by its variants. It uses the matched retained images, then
 applies the requested FN filter. Processing failures are distinct from
 low-FN exclusions: they appear in a separate **Processing Exclusions** Excel
 sheet, a CSV and the report log. A collection missing an assay can be saved,
@@ -479,12 +495,12 @@ source folder; it does not enter `uma_assay`. Hidden files, including macOS
 | Alignment | `uma_assay/Alignment_assay_results_angle_.../`: orientation images and tables; `Analysis/Alignment_Summary.csv` |
 | Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
 | Area | `uma_assay/Area_assay_results_threshold_<lower>[_to_<upper>]_<timestamp>_<id>/`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
-| Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: frozen inputs in `Raw/`, matched CSVs in `Variants/`; place one plate-template `.xlsx` at the root |
+| Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: frozen inputs in `Raw/`, matched CSVs in `Variants/`; the working plate map stays in the source folder |
 | Report | `uma_assay/UMA_Report_<source_folder_name>_AreaThr_<limits>_<projection>_C<channel>_<timestamp>/`: one workbook per Area variant, 6 plots (8 with FIA), tables, input copies, and optional statistics |
 
 Reports are siblings of collections. The report's `run_status.json` and input
-provenance identify the selected `Combined_Results`; its template is still
-read from that collection, regardless of the Excel filename.
+provenance identify the selected `Combined_Results` and the source-folder
+`UMA*.xlsx`. A verified copy of that workbook is archived in each report.
 
 Area folder names show the requested raw-intensity thresholds:
 
@@ -522,16 +538,16 @@ format. Press **Enter** for the displayed default;
 and recorded in `run_parameters.json` and the report's **Run_Info** table.
 The same questions appear for `uma_report -i input_paths.json` in a terminal.
 
-Supplying analysis options keeps the existing unattended command behavior.
+Supplying analysis options skips the settings wizard. Template ambiguity
+can still prompt in a terminal; use `--non-interactive` for unattended jobs.
 Use `--interactive` to ask for unspecified options while preserving supplied
 values, or `--non-interactive` to use defaults without questions. Without a
 terminal, `-i` is required and no questions are asked. Defaults remain FN
 coverage **20%**, no FIA integration, no statistical tests, and PDF figures.
-For each source folder in the JSON, place one plate-template `.xlsx` in its
-selected `uma_assay/Combined_Results_.../` directory. The report discovers
-that folder's own template, reads its first worksheet, and uses the source
-folder name as the plate label. These settings are automatic and are not
-questions in the wizard. Optional `--sheet` and `--plate-id` command-line
+For each source folder in the JSON, keep the working `UMA*.xlsx` beside
+the original images. Preflight resolves all folders' maps before reporting.
+The first worksheet and source-folder name are the automatic sheet and
+plate label; the settings wizard does not ask for them. Optional `--sheet` and `--plate-id` command-line
 overrides remain available.
 
 ```bash
@@ -596,7 +612,7 @@ run partial. **FIA Image Audit** / `fia_image_audit.csv` retain every UMA row,
 counts, cutoffs, match status, ratio, and exclusion reasons. Input copies,
 checksums, `fia_selection.json`, the run log, and
 `uma_assay/UMA_Logs/5_report.log` record the selected run and exclusions.
-The plate map remains in UMA's selected `Combined_Results`; no second map
+The UMA plate map remains beside the original images; no second map
 is required in FIA for this integration.
 
 ## Figures and workbook
@@ -789,10 +805,15 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.27`.
+versions change. Both version commands should report `0.2.28`.
+Version 0.2.28 and functional assay 0.6.1 use source-folder `UMA*.xlsx` maps
+with batch preflight. Update both packages with
+`python -m pip install --no-deps . ./functional_assay`. Move your filled map
+next to the original images and keep its `UMA` prefix; no new collection or
+image analysis is needed solely for this template-location change.
 Version 0.2.27 adds multiple Area variants, immutable collection revisions,
 and changed-only report batches. Rerun collection once to adopt the new
-layout from saved analyses; keep one template at the new collection root.
+layout from saved analyses. Working templates now stay in the source folder.
 No environment recreation is required.
 Version 0.2.24 removes median-thickness plots before and after FN filtering.
 Thickness measured area is the only plotted thickness outcome; all five

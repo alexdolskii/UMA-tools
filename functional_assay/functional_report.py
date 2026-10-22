@@ -51,6 +51,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--sheet", help="Plate-map worksheet name (default: first sheet)"
     )
     parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Do not prompt; fail ambiguous or invalid source plate templates",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {version('uma-functional-assay')}",
@@ -135,8 +140,20 @@ def _save_tables(data: dict, output: Path):
         )
 
 
-def process_folder(source: Path, input_json: Path, args) -> dict:
+def validate_template(path: Path, source: Path, args) -> str:
+    """Check the grid, condition order and requested control design upfront."""
+    plate = report_data.read_design(
+        path, args.sheet, statistics=args.stats_unit is not None
+    )
+    return plate["sheet"]
+
+
+def process_folder(
+    source: Path, input_json: Path, args, template_selection=None
+) -> dict:
     """Keep one run per plate/time point, including diagnostics on failure."""
+    from uma_tools.plate_templates import prepare_template
+
     selected, selection_error = None, None
     messages = []
     try:
@@ -179,14 +196,25 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
             log.event("WARNING", "Analysis selection", message)
         if selection_error is not None:
             raise selection_error
+        template_selection = template_selection or prepare_template(
+            source, lambda path, folder: validate_template(path, folder, args)
+        )
+        template_selection.verify()
+        status["plate_template"] = template_selection.metadata()
+        log.event(
+            "INFO",
+            "Plate-template preflight",
+            json.dumps(template_selection.metadata(), ensure_ascii=False),
+        )
         log.event(
             "INFO",
             "Analysis selection",
             f"Latest finalized run: {selected}",
         )
-        paths = report_data.discover_inputs(selected)
+        paths = report_data.discover_inputs(selected, template_selection.path)
         paths["input_json"] = input_json
         snapshots, manifest = snapshot_inputs(paths, output)
+        template_selection.verify_snapshot(snapshots["template"])
         original_status = report_data.completed_status(
             snapshots["analysis_status"]
         )
@@ -361,6 +389,11 @@ def process_folder(source: Path, input_json: Path, args) -> dict:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from uma_tools.plate_templates import (
+        interactive_selection,
+        preflight_templates,
+    )
+
     args = parse_args(argv)
     path = Path(args.input).expanduser().absolute()
     try:
@@ -368,17 +401,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         command_error("functional_report", error)
         return 1
-    succeeded, failed, seen = 0, 0, set()
-    for folder in folders:
-        canonical = folder.resolve()
-        if canonical in seen:
-            print(f"Skipping duplicate JSON folder: {folder}")
-            continue
-        seen.add(canonical)
+    try:
+        preflight = preflight_templates(
+            folders,
+            lambda template, source: validate_template(template, source, args),
+            interactive=interactive_selection(args),
+        )
+    except (KeyboardInterrupt, EOFError):
+        print("Plate-template setup cancelled; no reports generated.")
+        return 130
+    succeeded, failed = 0, 0
+    for item in preflight:
+        folder = item.source
         try:
-            if not folder.is_dir():
-                raise NoInputError(f"Folder not found: {folder}")
-            result = process_folder(folder, path, args)
+            if item.error is not None:
+                raise item.error
+            result = process_folder(folder, path, args, item.selection)
             succeeded += result["status"] == "SUCCESS"
             failed += result["status"] != "SUCCESS"
         except KeyboardInterrupt as error:

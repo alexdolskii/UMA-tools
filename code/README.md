@@ -10,8 +10,8 @@ plate-template preparation, outputs, and updates.
 ## Five commands
 
 Run the stages individually in order with the same JSON. Before reporting,
-place the plate template in the selected completed
-`<image_folder>/uma_assay/Combined_Results_.../` directory.
+place a filled `UMA*.xlsx` plate template directly in each original
+`<image_folder>` from the JSON. All folders are checked before reports start.
 Keep original-image paths in the JSON. All five commands write results and
 journals inside `uma_assay`; reports are saved beside collections. Collection
 and reporting search only `uma_assay`, so rerun analyses saved in the earlier
@@ -34,14 +34,14 @@ Projection-only runs and startup diagnostics keep the plain name.
 
 Collection includes every distinct recorded Area threshold pair, projection,
 and channel, selecting the latest valid run per variant. Run Area at several
-thresholds, collect once, and place one template at the collection root.
+thresholds, collect once, and keep the template beside the original images.
 Reporting creates one complete report per variant, with the threshold bounds
 in its folder/workbook name. FN coverage, FIA/count cutoff, statistics and
 figure settings are shared across the batch.
 
 On repeat collection, choose `update` (freeze Alignment/Thickness and update
 Area variants), `rebuild` (reselect all saved analyses), or `keep`. New
-revisions automatically copy the previous template and retain old results.
+revisions retain old results; the working template stays in the source folder.
 No changes means no new collection. `Raw/` holds full inputs and audits;
 `Variants/` holds independently matched CSVs and exclusions. Report choices
 are `changed` (all new/changed variants), `all`, or `select`; every actual
@@ -76,16 +76,23 @@ Run `uma_report` with no arguments to answer the settings in the terminal:
 JSON path, FN cutoff, optional FIA nuclei integration and count cutoff,
 statistics, and figure format. Enter accepts the
 displayed default; `q` cancels. `uma_report -i input_paths.json` also starts
-the wizard in a terminal. Explicit analysis options keep unattended behavior;
+the wizard in a terminal. Explicit analysis options skip the settings wizard;
 `--interactive` asks only for missing settings and `--non-interactive` uses
 defaults without questions. Defaults: FN 20%, FIA off, nuclei cutoff 0,
 statistics off, PDF, first worksheet, source-folder label.
 
-Keep one plate-template `.xlsx` in each source folder's selected
-`uma_assay/Combined_Results_.../` directory. Each report uses its own template
-and source-folder name automatically; the wizard does not ask for a
-worksheet or plate label. `--sheet` and `--plate-id` remain optional
-command-line overrides.
+Keep a filled `UMA*.xlsx` directly in each source folder. The shared
+`plate_templates.py` preflight checks all folders before any report starts:
+one candidate is automatic; several candidates offer a per-folder choice
+in a terminal. Missing/invalid maps offer retry, skip or cancel. With
+`--non-interactive` (or no terminal), invalid/ambiguous sources are logged
+and skipped, valid sources continue, and the command returns a nonzero code.
+The summary lists each source and selected map. Every Area variant shares
+that selection. Original paths, checksums and workbook copies are retained
+in the report; changes after preflight are rejected. The worksheet and
+plate label use their usual defaults; `--sheet` and `--plate-id` remain
+optional overrides. Old result-folder maps are not searched or copied by
+collection. See [template discovery](../README.md#run-the-five-stages).
 
 Optional FIA integration uses the latest valid final-nuclei run under the
 same source folder's `fia_assay`, for either nuclei-only or full marker
@@ -193,8 +200,8 @@ and compatibility adapters are no longer supported.
   rebuild. Only registered failed images may be excluded from that variant's
   three CSVs; unexplained differences still fail validation. Keep complete
   inputs before exclusions so one variant cannot remove another's images.
-  Reporting requires three summaries per variant and one shared template in
-  the latest completed collection, without fallback. See the
+  Reporting requires three summaries per variant in the latest completed
+  collection and one preselected source-folder UMA template, without fallback. See the
   [partial-result rules](../README.md#progress-logs-and-partial-results).
 - Preserve filename identities and explicit CSV/JSON writing policies.
   Exclude hidden files, macOS `._` files, and directories named like images.

@@ -35,7 +35,14 @@ from . import (
 from .config import read_config
 from .files import assay_directory, safe_label, save_json
 from .plot_style import FONT_SIZES, PNG_DPI, plot_font
-from .progress import console, folder_logged, phase, register_sources
+from .progress import (
+    console,
+    folder_logged,
+    folder_scope,
+    outcome,
+    phase,
+    register_sources,
+)
 from .report_schema import (
     EVENT_COLUMNS,
     THICKNESS_UNITS,
@@ -533,8 +540,22 @@ def record_run_failure(error, trace, status, directory, log, paths):
     )
 
 
+def validate_template(path, source, args):
+    """Validate grid/order and optional control design before any plots."""
+    sheet, _, well_map, _, _ = report_tables.read_template(path, args.sheet)
+    if getattr(args, "stats_unit", None) is not None:
+        from .report_statistics import _read_design
+
+        _read_design(path, {"template_sheet": sheet, "well_map": well_map})
+    return sheet
+
+
 @folder_logged("source")
-def process_folder(source, input_json, args, selection=None):
+def process_folder(
+    source, input_json, args, selection=None, template_selection=None
+):
+    from .plate_templates import prepare_template
+
     buffered = BufferedLog()
     try:
         combined = (
@@ -542,6 +563,14 @@ def process_folder(source, input_json, args, selection=None):
             if selection
             else report_inputs.select_combined(source, buffered)
         )
+        template_selection = (
+            selection["template_selection"]
+            if selection
+            else template_selection
+        ) or prepare_template(
+            source, lambda path, folder: validate_template(path, folder, args)
+        )
+        template_selection.verify()
         output_label = (
             f"{safe_label(source.name)}_{selection['variant']['label']}"
             if selection
@@ -568,6 +597,7 @@ def process_folder(source, input_json, args, selection=None):
         "run_directory": str(directory),
         "stats_unit": getattr(args, "stats_unit", None),
         "plot_format": getattr(args, "plot_format", "pdf"),
+        "plate_template": template_selection.metadata(),
     }
     candidate, final_path = None, None
     if selection:
@@ -593,6 +623,11 @@ def process_folder(source, input_json, args, selection=None):
         )
         log.event("INFO", "Output", directory)
         buffered.replay(log)
+        log.event(
+            "INFO",
+            "Plate-template preflight",
+            json.dumps(template_selection.metadata(), ensure_ascii=False),
+        )
         parameters = run_parameters(status, args)
         save_json(directory / "run_parameters.json", parameters)
         stage("Parameter validation")
@@ -601,7 +636,7 @@ def process_folder(source, input_json, args, selection=None):
         paths = report_inputs.discover_inputs(
             combined,
             source.name,
-            selection["collection"] if selection else None,
+            template_selection.path,
         )
         if selection:
             from .report_batch import verify_selection
@@ -619,6 +654,7 @@ def process_folder(source, input_json, args, selection=None):
         snapshots, manifests = report_inputs.archive_inputs(
             paths, input_json, combined, directory
         )
+        template_selection.verify_snapshot(snapshots["template"])
         parameters.update(
             input_files=status["input_files"],
             archived_inputs={
@@ -794,6 +830,7 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
+    from .plate_templates import interactive_selection, preflight_templates
     from .report_options import resolve_options
 
     try:
@@ -808,19 +845,31 @@ def main(argv=None):
         diagnostic_failure(None, input_json, error)
         return 1
     register_sources(folders, input_json)
-    seen, succeeded, failed, partial = set(), 0, 0, 0
-    for source in folders:
+    try:
+        preflight = preflight_templates(
+            folders,
+            lambda path, source: validate_template(path, source, args),
+            interactive=interactive_selection(args),
+        )
+    except (KeyboardInterrupt, EOFError):
+        console("Plate-template setup cancelled; no reports generated.")
+        return 130
+    succeeded, failed, partial = 0, 0, 0
+    for item in preflight:
+        source = item.source
         try:
-            canonical = source.resolve()
-            if canonical in seen:
-                console(
-                    f"Skipping duplicate JSON folder: {source}", flush=True
-                )
+            if item.error is not None:
+                with folder_scope(source):
+                    result = diagnostic_failure(source, input_json, item.error)
+                    outcome(
+                        result.value,
+                        f"{source}: plate-template preflight failed",
+                    )
+                failed += 1
                 continue
-            seen.add(canonical)
             from .report_batch import process_source
 
-            result = process_source(source, input_json, args)
+            result = process_source(source, input_json, args, item.selection)
         except KeyboardInterrupt:
             console("Report generation interrupted.", file=sys.stderr)
             return 130

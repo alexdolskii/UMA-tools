@@ -160,25 +160,12 @@ def select_analysis(source: Path, messages: list[str]) -> Path:
     return selected[0]
 
 
-def discover_inputs(analysis: Path) -> dict[str, Path]:
-    """Accept one direct Excel input, ignoring macOS and Excel temp files."""
-    templates = sorted(
-        path
-        for path in analysis.iterdir()
-        if path.suffix.lower() == ".xlsx"
-        and path.is_file()
-        and not path.is_symlink()
-        and not path.name.startswith((".", "~$"))
-    )
-    if len(templates) != 1:
-        raise ValidationError(
-            f"Expected one plate-template .xlsx in {analysis}; found "
-            f"{len(templates)}: {', '.join(path.name for path in templates)}"
-        )
+def discover_inputs(analysis: Path, template: Path) -> dict[str, Path]:
+    """Use the explicitly preselected source-folder plate template."""
     paths = {
         "summary": analysis / "Cell_Analysis_Summary.csv",
         "analysis_status": analysis / "run_status.json",
-        "template": templates[0],
+        "template": template,
     }
     for path in paths.values():
         if path.is_symlink() or not path.is_file():

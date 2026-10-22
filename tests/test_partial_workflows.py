@@ -100,7 +100,9 @@ class PartialCollectionTests(unittest.TestCase):
                 self.assertEqual(len(list(csv.DictReader(stream))), 2)
         for name, path in self.paths.items():
             self.assertEqual(path.read_bytes(), original_bytes[name])
-        report_fixtures.ReportFixture.make_template(combined / "my plate.xlsx")
+        report_fixtures.ReportFixture.make_template(
+            self.fixture.source / "UMA_my plate.xlsx"
+        )
         with contextlib.redirect_stdout(io.StringIO()):
             result = cli.report.__wrapped__(
                 ["-i", str(self.fixture.config), "--fn-threshold", "20"]
@@ -164,7 +166,9 @@ class PartialCollectionTests(unittest.TestCase):
         self.add_partial()
         self.fixture.run_command()
         combined = self.fixture.output()
-        report_fixtures.ReportFixture.make_template(combined / "plate.xlsx")
+        report_fixtures.ReportFixture.make_template(
+            self.fixture.source / "UMA_plate.xlsx"
+        )
         variant = combined / load_status(combined)["variants"][0]["path"]
         (variant / "processing_exclusions.csv").write_text("changed")
         with contextlib.redirect_stdout(io.StringIO()):

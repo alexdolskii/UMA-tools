@@ -192,15 +192,28 @@ def choose(plans, args):
 
 
 @folder_logged("source")
-def process_source(source, input_json, args):
+def process_source(source, input_json, args, template_selection=None):
     from . import report
+    from .plate_templates import prepare_template
 
     buffered = report.BufferedLog()
     try:
         collection = report_inputs.select_combined(source, buffered)
+        template_selection = template_selection or prepare_template(
+            source,
+            lambda path, folder: report.validate_template(path, folder, args),
+        )
+        template_selection.verify()
+        buffered.event(
+            "INFO",
+            "Plate-template preflight",
+            json.dumps(template_selection.metadata(), ensure_ascii=False),
+        )
         state = report_inputs.read_collection_status(collection)
         if state.get("collection_schema") != COLLECTION_SCHEMA:
-            return report.process_folder.__wrapped__(source, input_json, args)
+            return report.process_folder.__wrapped__(
+                source, input_json, args, template_selection=template_selection
+            )
         variants = state.get("variants")
         if not isinstance(variants, list) or not variants:
             raise ValidationError("Collection has no Area variants")
@@ -217,7 +230,12 @@ def process_source(source, input_json, args):
             fia = select_run(source, buffered)
         plans = []
         for index, variant in enumerate(variants, 1):
-            item = {"variant": variant, "collection": collection, "fia": fia}
+            item = {
+                "variant": variant,
+                "collection": collection,
+                "fia": fia,
+                "template_selection": template_selection,
+            }
             plans.append(item)
             try:
                 if variant.get("status") != "SUCCESS":
@@ -227,7 +245,7 @@ def process_source(source, input_json, args):
                     )
                 path = inside(collection, variant["path"])
                 paths = report_inputs.discover_inputs(
-                    path, source.name, collection
+                    path, source.name, template_selection.path
                 )
                 variant_state = report_inputs.read_collection_status(path)
                 if sha256_file(inside(path, "processing_exclusions.csv")) != (
@@ -284,6 +302,7 @@ def process_source(source, input_json, args):
                 console(
                     f"{index}. {variant.get('label')}: UNAVAILABLE: {error}"
                 )
+        template_selection.verify()
         chosen = choose(plans, args)
         # Planning itself is auditable, even if every output can be reused.
         from .run import RunLog, unique_output
@@ -319,6 +338,7 @@ def process_source(source, input_json, args):
                     "status": "RUNNING",
                     "collection": str(collection),
                     "source_folder": str(source),
+                    "plate_template": template_selection.metadata(),
                     "plan": rows,
                 },
             )
@@ -361,6 +381,7 @@ def process_source(source, input_json, args):
                     "status": final.value,
                     "source_folder": str(source),
                     "collection": str(collection),
+                    "plate_template": template_selection.metadata(),
                     "plan": rows,
                     "results": [r.value for r in results],
                     "collection_errors": collection_errors,

@@ -152,11 +152,10 @@ def collection_entries(status):
 
 
 def discover_inputs(
-    combined: Path, source_name: str, template_root: Path | None = None
+    combined: Path, source_name: str, template: Path
 ) -> ReportInputs:
     """
-    Require all three collected summaries and exactly one visible plate
-    map.
+    Require three collected summaries and the preselected source plate map.
     """
     by_analysis = collection_entries(read_collection_status(combined))
     paths, details = {}, []
@@ -188,29 +187,13 @@ def discover_inputs(
             details.append({"Input": role, "Path": str(path), "Issue": issue})
         else:
             paths[role] = path
-    templates = sorted(
-        path
-        for path in (template_root or combined).iterdir()
-        if path.suffix.lower() == ".xlsx"
-        and not path.name.startswith((".", "~$"))
-        and path.is_file()
-        and not path.is_symlink()
-    )
-    if len(templates) != 1:
-        issue = (
-            (
-                "No plate-template .xlsx found in the selected "
-                "Combined_Results directory"
-            )
-            if not templates
-            else "More than one plate-template .xlsx found: "
-            + ", ".join(path.name for path in templates)
-        )
+    if template.is_symlink() or not template.is_file():
+        issue = f"Missing regular plate template: {template}"
         details.append(
-            {"Input": "template", "Path": str(combined), "Issue": issue}
+            {"Input": "template", "Path": str(template), "Issue": issue}
         )
     else:
-        paths["template"] = templates[0]
+        paths["template"] = template
     if details:
         raise ValidationError(
             "Selected collection is not ready for reporting. "

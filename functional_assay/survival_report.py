@@ -243,6 +243,17 @@ def run_report(config, input_path: Path, statistics: bool, input_digest=None):
         plate = report_data.read_design(
             template, config["sheet"], statistics=statistics
         )
+        status["plate_template"] = {
+            "original_path": str(config["plate_template"]),
+            "sha256": sha256_file(template),
+            "worksheet": plate["sheet"],
+            "selection_method": "explicit_survival_json",
+        }
+        log.event(
+            "INFO",
+            "Plate-template preflight",
+            json.dumps(status["plate_template"], ensure_ascii=False),
+        )
         measurements, selections = load_days(config, output, log, manifest)
         status["selections"] = selections
         excluded = [

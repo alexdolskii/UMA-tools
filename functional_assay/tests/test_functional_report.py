@@ -18,7 +18,9 @@ import openpyxl
 from functional_assay import functional_report, report_data
 from functional_assay.cell_analysis import SUMMARY_COLUMNS
 from openpyxl.styles import Font, PatternFill
+
 from uma_tools.files import save_csv, save_json, sha256_file
+from uma_tools.plate_templates import find_template
 from uma_tools.report_schema import ValidationError
 
 
@@ -95,7 +97,7 @@ def create_analysis(source, stamp="20260928_120000_000001", state="SUCCESS"):
     return folder, rows, status
 
 
-def create_template(folder, filename="Any renamed plate.xlsx"):
+def create_template(folder, filename="UMA_Any renamed plate.xlsx"):
     """An explicit two-block design, with Control reused in both blocks."""
     workbook = openpyxl.Workbook()
     sheet = workbook.active
@@ -125,7 +127,7 @@ class FunctionalReportTests(unittest.TestCase):
         self.config = self.root / "input.json"
         save_json(self.config, {"folder_paths": [str(self.root)]})
         self.analysis, self.raw_rows, self.status = create_analysis(self.root)
-        self.template = create_template(self.analysis)
+        self.template = create_template(self.root)
         self.args = functional_report.parse_args(["-i", str(self.config)])
 
     def design(self, statistics=True):
@@ -166,14 +168,17 @@ class FunctionalReportTests(unittest.TestCase):
         self.assertEqual(messages, [])
         self.assertNotEqual(latest, self.analysis)
 
-    def test_latest_without_template_fails_without_using_older_marked_run(
+    def test_latest_analysis_uses_source_map_without_copying_it_into_each_run(
         self,
     ):
         latest, _, _ = create_analysis(self.root, "20260928_130000_000001")
         result = self.run_report()
-        self.assertEqual(result["status"], "FAILED")
+        self.assertEqual(result["status"], "SUCCESS", result.get("error"))
         self.assertEqual(result["analysis"], str(latest))
-        self.assertIn("Expected one plate-template", result["error"])
+        self.assertEqual(
+            result["plate_template"]["original_path"], str(self.template)
+        )
+        self.assertFalse(list(latest.glob("*.xlsx")))
         self.assertFalse(list(self.analysis.glob("Functional_Report_*")))
 
     def test_missing_summary_does_not_fall_back_to_old_data(self):
@@ -195,15 +200,17 @@ class FunctionalReportTests(unittest.TestCase):
 
     def test_template_name_is_flexible_and_temporary_files_are_ignored(self):
         for name in ("._plate.xlsx", "~$plate.xlsx", ".hidden.xlsx"):
-            (self.analysis / name).write_text("not Excel")
-        (self.analysis / "subfolder.xlsx").mkdir()
+            (self.root / name).write_text("not Excel")
+        (self.root / "UMA_subfolder.xlsx").mkdir()
         self.assertEqual(
-            report_data.discover_inputs(self.analysis)["template"],
+            report_data.discover_inputs(
+                self.analysis, find_template(self.root)
+            )["template"],
             self.template,
         )
-        create_template(self.analysis, "Second template.xlsx")
+        create_template(self.root, "UMA_Second template.xlsx")
         with self.assertRaisesRegex(ValidationError, "found 2"):
-            report_data.discover_inputs(self.analysis)
+            find_template(self.root)
 
     def test_same_control_names_are_separate_in_different_colors(self):
         plate = self.design()
@@ -360,7 +367,7 @@ class FunctionalReportTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValidationError, "inconsistent bold"):
             self.design()
-        create_template(self.analysis)
+        create_template(self.root)
 
         def two_controls(sheet):
             for coordinate in ("F3", "G3", "H3"):
@@ -384,7 +391,7 @@ class FunctionalReportTests(unittest.TestCase):
             lambda sheet: sheet.merge_cells("C3:D3"),
         )
         for change in changes:
-            create_template(self.analysis)
+            create_template(self.root)
             self.edit_template(change)
             with self.assertRaises(ValidationError):
                 self.design()
@@ -500,6 +507,12 @@ class FunctionalReportTests(unittest.TestCase):
             )
         )
         self.assertTrue((output / "inputs" / self.template.name).is_file())
+        self.assertEqual(
+            result["plate_template"]["sha256"], sha256_file(self.template)
+        )
+        self.assertEqual(
+            result["plate_template"]["original_path"], str(self.template)
+        )
         palette = json.loads((output / "plot_palette.json").read_text())
         self.assertEqual(len(palette["wells"]), 12)
         self.assertTrue((output / "Plot_Palette.csv").is_file())

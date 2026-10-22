@@ -2,6 +2,7 @@
 
 import contextlib
 import csv
+import hashlib
 import io
 import json
 import shutil
@@ -46,7 +47,8 @@ class Experiment:
             }
         )
         self.seed = {role: path.read_bytes() for role, path in paths.items()}
-        shutil.rmtree(paths["template"].parent)
+        shutil.rmtree(paths["alignment"].parent)
+        paths["template"].unlink()
         self.config = fixture.config([self.source])
         for assay in ("Alignment", "Thickness"):
             self.raw(assay)
@@ -111,8 +113,8 @@ class Experiment:
         )
         return code, folders[-1]
 
-    def add_template(self, folder):
-        path = folder / "My own plate.xlsx"
+    def add_template(self):
+        path = self.source / "UMA_My own plate.xlsx"
         path.write_bytes(self.seed["template"])
         return path
 
@@ -159,13 +161,16 @@ def test_unique_limits_same_timestamp_and_repeat_selection(experiment):
     assert all(v["status"] == "SUCCESS" for v in state["variants"])
 
 
-def test_update_freezes_shared_tables_copies_template_and_keeps_old_revision(
+def test_update_freezes_shared_tables_and_leaves_source_template_in_place(
     experiment,
 ):
     experiment.area(1500)
     code, first = experiment.collect()
     assert code == 0
-    experiment.add_template(first)
+    template = experiment.add_template()
+    # Old archived maps, even ambiguous ones, must not affect collection.
+    (first / "Old plate.xlsx").write_bytes(template.read_bytes())
+    (first / "Another old plate.xlsx").write_bytes(template.read_bytes())
     old_bytes = tree_bytes(first)
     newer = experiment.raw("Alignment", "20261021_120000")
     newer.write_bytes(newer.read_bytes().replace(b"60", b"70"))
@@ -179,9 +184,8 @@ def test_update_freezes_shared_tables_copies_template_and_keeps_old_revision(
         after["shared_inputs"]["Alignment"]
         == before["shared_inputs"]["Alignment"]
     )
-    assert (second / "My own plate.xlsx").read_bytes() == experiment.seed[
-        "template"
-    ]
+    assert template.read_bytes() == experiment.seed["template"]
+    assert not list(second.glob("*.xlsx"))
     assert len(after["variants"]) == 2
     code, unchanged = experiment.collect()
     assert code == 0 and unchanged == second
@@ -214,7 +218,7 @@ def test_partial_area_exclusion_does_not_leak_into_other_threshold(experiment):
 def test_failed_variant_keeps_good_variant_and_previous_collection(experiment):
     experiment.area(1500)
     _, previous = experiment.collect()
-    experiment.add_template(previous)
+    experiment.add_template()
     originals = tree_bytes(previous)
     path = experiment.area(2000)
     rows = experiment.fixture.read_csv(path)
@@ -258,7 +262,7 @@ def test_real_reports_reuse_then_add_one_variant_and_detect_missing_output(
         stricter, list(rows[0]), [list(row.values()) for row in rows]
     )
     _, first = experiment.collect()
-    experiment.add_template(first)
+    experiment.add_template()
     code, initial = experiment.reports()
     assert code == 0, experiment.console
     assert len(initial) == 2
@@ -273,6 +277,12 @@ def test_real_reports_reuse_then_add_one_variant_and_detect_missing_output(
         assert state["area_variant"]["label"] in folder.name
         assert state["area_variant"]["label"] in Path(state["workbook"]).name
         assert state["report_fingerprint"]
+        assert state["plate_template"]["original_path"] == str(
+            experiment.source / "UMA_My own plate.xlsx"
+        )
+        assert state["plate_template"]["sha256"] == hashlib.sha256(
+            experiment.seed["template"]
+        ).hexdigest()
         parameters = read_json(folder / "run_parameters.json")
         assert parameters["full_data_images"] == 2
         assert parameters["filtered_images"] == (
@@ -287,14 +297,14 @@ def test_real_reports_reuse_then_add_one_variant_and_detect_missing_output(
     assert code == 0, experiment.console
     assert len(updated) == 3
     assert all(tree_bytes(path) == data for path, data in originals.items())
-    assert (second / "My own plate.xlsx").is_file()
+    assert not list(second.glob("*.xlsx"))
     missing = next(initial[0].glob("Plots/*.pdf"))
     missing.unlink()
     code, repaired = experiment.reports()
     assert code == 0, experiment.console
     assert len(repaired) == 4
     # A template edit invalidates every variant without altering old reports.
-    template = second / "My own plate.xlsx"
+    template = experiment.source / "UMA_My own plate.xlsx"
     book = openpyxl.load_workbook(template)
     book.worksheets[0]["C3"] = "Renamed group"
     book.save(template)
@@ -354,7 +364,7 @@ def test_dialog_update_and_report_selection_use_defaults_once(
 ):
     experiment.area(1500)
     _, first = experiment.collect()
-    experiment.add_template(first)
+    experiment.add_template()
     experiment.area(2000)
     answers = []
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
@@ -449,7 +459,7 @@ def test_fia_selected_once_partial_reports_reused_without_hiding_exclusions(
     experiment.area(1500)
     experiment.area(2000)
     _, combined = experiment.collect()
-    template = experiment.add_template(combined)
+    template = experiment.add_template()
     book = openpyxl.load_workbook(template)
     for cell in ("C3", "D3", "C4"):
         book.worksheets[0][cell].fill = openpyxl.styles.PatternFill(
