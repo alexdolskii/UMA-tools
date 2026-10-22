@@ -433,8 +433,8 @@ For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 
 Run **`uma_report`** in a terminal for guided setup. It asks for the JSON path
 (default `input_paths.json`), minimum FN coverage, whether to use FIA nuclei,
-minimum nuclei if enabled, statistics (`none`, `well`, or `image`), figure
-format, worksheet, and plate label. Press **Enter** for the displayed default;
+minimum nuclei if enabled, statistics (`none`, `well`, or `image`), and figure
+format. Press **Enter** for the displayed default;
 `q`, Ctrl-C, or EOF cancels setup. Settings are confirmed before processing
 and recorded in `run_parameters.json` and the report's **Run_Info** table.
 The same questions appear for `uma_report -i input_paths.json` in a terminal.
@@ -444,8 +444,12 @@ Use `--interactive` to ask for unspecified options while preserving supplied
 values, or `--non-interactive` to use defaults without questions. Without a
 terminal, `-i` is required and no questions are asked. Defaults remain FN
 coverage **20%**, no FIA integration, no statistical tests, and PDF figures.
-The worksheet defaults to the first sheet; each source folder supplies its
-plate label unless overridden.
+For each source folder in the JSON, place one plate-template `.xlsx` in its
+selected `uma_assay/Combined_Results_.../` directory. The report discovers
+that folder's own template, reads its first worksheet, and uses the source
+folder name as the plate label. These settings are automatic and are not
+questions in the wizard. Optional `--sheet` and `--plate-id` command-line
+overrides remain available.
 
 ```bash
 # Guided setup, including the choice to use FIA data

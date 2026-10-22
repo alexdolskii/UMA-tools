@@ -58,12 +58,18 @@ for template validation, correction families, and interpretation.
 
 Run `uma_report` with no arguments to answer the settings in the terminal:
 JSON path, FN cutoff, optional FIA nuclei integration and count cutoff,
-statistics, figure format, worksheet, and plate label. Enter accepts the
+statistics, and figure format. Enter accepts the
 displayed default; `q` cancels. `uma_report -i input_paths.json` also starts
 the wizard in a terminal. Explicit analysis options keep unattended behavior;
 `--interactive` asks only for missing settings and `--non-interactive` uses
 defaults without questions. Defaults: FN 20%, FIA off, nuclei cutoff 0,
 statistics off, PDF, first worksheet, source-folder label.
+
+Keep one plate-template `.xlsx` in each source folder's selected
+`uma_assay/Combined_Results_.../` directory. Each report uses its own template
+and source-folder name automatically; the wizard does not ask for a
+worksheet or plate label. `--sheet` and `--plate-id` remain optional
+command-line overrides.
 
 Optional FIA integration uses the latest valid final-nuclei run under the
 same source folder's `fia_assay`, for either nuclei-only or full marker

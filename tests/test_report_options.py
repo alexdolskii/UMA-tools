@@ -25,11 +25,11 @@ def terminal(monkeypatch, answers):
 def test_bare_command_defaults_and_no_double_prompt(tmp_path, monkeypatch):
     path = tmp_path / "input_paths.json"
     path.write_text('{"folder_paths": ["' + str(tmp_path) + '"]}')
-    prompts = terminal(monkeypatch, [str(path), "", "", "", "", "", "", ""])
+    prompts = terminal(monkeypatch, [str(path), "", "", "", "", ""])
     args = parse_args([])
     assert not prompts  # Supervisor preflight is deliberately read-only.
     resolved = resolve_options(args)
-    assert len(prompts) == 8
+    assert len(prompts) == 6
     assert resolved.input == str(path)
     assert (
         resolved.fn_threshold,
@@ -38,6 +38,11 @@ def test_bare_command_defaults_and_no_double_prompt(tmp_path, monkeypatch):
     ) == (20, False, 0)
     assert resolved.stats_unit is None
     assert resolved.plot_format == "pdf"
+    assert resolved.sheet is None and resolved.plate_id == ""
+    assert not any(
+        "worksheet" in prompt.lower() or "plate label" in prompt.lower()
+        for prompt in prompts
+    )
 
 
 def test_fia_and_image_statistics_can_be_selected_by_dialog(monkeypatch):
@@ -53,21 +58,19 @@ def test_fia_and_image_statistics_can_be_selected_by_dialog(monkeypatch):
             "20",
             "image",
             "both",
-            "Plate",
-            "Experiment",
             "y",
         ],
     )
     args = resolve_options(parse_args(["-i", "inputs.json"]))
     assert args.with_fia_nuclei and args.min_nuclei == 20
     assert args.fn_threshold == 30 and args.stats_unit == "image"
-    assert args.plot_format == "both" and args.sheet == "Plate"
-    assert args.plate_id == "Experiment"
-    assert len(prompts) == 12
+    assert args.plot_format == "both"
+    assert args.sheet is None and args.plate_id == ""
+    assert len(prompts) == 10
 
 
 def test_explicit_settings_are_never_overwritten(monkeypatch):
-    prompts = terminal(monkeypatch, ["", "", "y"])
+    prompts = terminal(monkeypatch, ["y"])
     args = resolve_options(
         parse_args(
             [
@@ -83,12 +86,17 @@ def test_explicit_settings_are_never_overwritten(monkeypatch):
                 "well",
                 "--plot-format",
                 "png",
+                "--sheet",
+                "Plate",
+                "--plate-id",
+                "Experiment",
             ]
         )
     )
-    assert len(prompts) == 3  # worksheet, plate label, confirmation only
+    assert len(prompts) == 1  # Confirmation only.
     assert args.fn_threshold == 10 and args.min_nuclei == 7
     assert args.stats_unit == "well"
+    assert args.sheet == "Plate" and args.plate_id == "Experiment"
 
 
 @pytest.mark.parametrize(

@@ -182,14 +182,6 @@ def resolve_options(args):
             "pdf",
             _choice({key: key for key in ("pdf", "png", "both")}),
         )
-    if "--sheet" not in args.supplied:
-        args.sheet = (
-            _ask("Plate worksheet name (Enter = first worksheet)", "") or None
-        )
-    if "--plate-id" not in args.supplied:
-        args.plate_id = _ask(
-            "Plate label (Enter = each source folder name)", ""
-        )
     print(
         f"Input: {args.input}\nFN coverage >= {args.fn_threshold:g}%; "
         f"FIA nuclei: {'enabled' if args.with_fia_nuclei else 'disabled'}; "
