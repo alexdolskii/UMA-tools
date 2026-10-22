@@ -165,13 +165,14 @@ class PartialCollectionTests(unittest.TestCase):
         self.fixture.run_command()
         combined = self.fixture.output()
         report_fixtures.ReportFixture.make_template(combined / "plate.xlsx")
-        (combined / "processing_exclusions.csv").write_text("changed")
+        variant = combined / load_status(combined)["variants"][0]["path"]
+        (variant / "processing_exclusions.csv").write_text("changed")
         with contextlib.redirect_stdout(io.StringIO()):
             result = cli.report.__wrapped__(["-i", str(self.fixture.config)])
         self.assertEqual(result, 1)
-        status = load_status(next(combined.parent.glob("UMA_Report_*")))
-        self.assertIn("exclusions", status["error"])
-        self.assertNotIn("workbook", status)
+        status = load_status(next(combined.parent.glob("Report_Batch_*")))
+        self.assertIn("exclusions", status["plan"][0]["Reason"])
+        self.assertFalse(list(combined.parent.glob("UMA_Report_*")))
 
 
 class ImageFailureTests(unittest.TestCase):

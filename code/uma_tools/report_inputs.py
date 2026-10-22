@@ -33,7 +33,7 @@ ROLES = {
 COMBINED_PATTERN = re.compile(
     r"Combined_Results_.+_(\d{8}_\d{6})(?:_(\d{6}))?(?:_\d+)?"
 )
-SUCCESS_STATES = {"SUCCESS", "SUCCESS_WITH_MISSING_ANALYSES"}
+SUCCESS_STATES = {"SUCCESS", "SUCCESS_WITH_MISSING_ANALYSES", "PARTIAL"}
 
 
 def read_collection_status(combined):
@@ -151,7 +151,9 @@ def collection_entries(status):
     return by_analysis
 
 
-def discover_inputs(combined: Path, source_name: str) -> ReportInputs:
+def discover_inputs(
+    combined: Path, source_name: str, template_root: Path | None = None
+) -> ReportInputs:
     """
     Require all three collected summaries and exactly one visible plate
     map.
@@ -188,7 +190,7 @@ def discover_inputs(combined: Path, source_name: str) -> ReportInputs:
             paths[role] = path
     templates = sorted(
         path
-        for path in combined.iterdir()
+        for path in (template_root or combined).iterdir()
         if path.suffix.lower() == ".xlsx"
         and not path.name.startswith((".", "~$"))
         and path.is_file()

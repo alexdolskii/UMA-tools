@@ -78,6 +78,17 @@ def parse_args(argv=None):
     parser.add_argument(
         "--plate-id", default="", help="Label (default: source folder name)"
     )
+    parser.add_argument(
+        "--report-mode",
+        choices=("changed", "all", "select"),
+        help="Area reports: changed only (default), all, or select variants",
+    )
+    parser.add_argument(
+        "--area-variants",
+        nargs="+",
+        metavar="ID",
+        help="Specific Area variant IDs printed by the report planner",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--interactive",
@@ -116,6 +127,14 @@ def parse_args(argv=None):
         parser.error("-i/--input is required outside interactive setup")
     if args.min_nuclei and not args.with_fia_nuclei and not args.wizard:
         parser.error("--min-nuclei requires --with-fia-nuclei")
+    if args.area_variants and args.report_mode not in (None, "select"):
+        parser.error("--area-variants requires --report-mode select")
+    if (
+        args.report_mode == "select"
+        and not args.area_variants
+        and not args.wizard
+    ):
+        parser.error("Use --area-variants or --interactive to select variants")
     return args
 
 

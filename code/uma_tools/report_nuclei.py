@@ -478,9 +478,11 @@ def _area_um2(row):
     return value
 
 
-def attach_nuclei(data, source, directory, manifests, minimum, log):
+def attach_nuclei(
+    data, source, directory, manifests, minimum, log, *, bundle=None
+):
     """Attach counts and audit every image before filtering matched rows."""
-    bundle = select_run(source, log)
+    bundle = select_run(source, log) if bundle is None else bundle
     _archive(bundle, directory, manifests)
     lookup = {}
     for mask, row in bundle["images"].items():

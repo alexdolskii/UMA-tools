@@ -76,6 +76,7 @@ class CollectStatus(enum.Enum):
 
     SUCCESS = "SUCCESS"
     SUCCESS_WITH_MISSING_ANALYSES = "SUCCESS_WITH_MISSING_ANALYSES"
+    PARTIAL = "PARTIAL"
     VALIDATION_FAILED = "VALIDATION_FAILED"
     ERROR = "ERROR"
     CANCELLED = "CANCELLED"
@@ -846,6 +847,16 @@ def parse_args(argv=None):
         action="version",
         version=f"%(prog)s {package_version()}",
     )
+    parser.add_argument(
+        "--collection-mode",
+        choices=("update", "rebuild", "keep"),
+        help="Update Area only, rebuild saved tables, or keep the collection",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Use update mode without questions (first collection: rebuild)",
+    )
     return parser.parse_args(argv)
 
 
@@ -871,7 +882,9 @@ def main(argv=None):
             continue
         seen.add(canonical)
         try:
-            result = collect_folder(source, input_json)
+            from .collection_variants import collect
+
+            result = collect(source, input_json, args)
         except KeyboardInterrupt:
             console("Collection interrupted.", file=sys.stderr)
             return 130

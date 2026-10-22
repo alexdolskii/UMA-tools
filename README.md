@@ -6,8 +6,8 @@ confocal images of 3D fibroblast/ECM units.
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
 [`code`](code/README.md). Development of the other approaches is paused.
-The current Python package version is **0.2.21**; this is separate from the V2
-workflow name and the future protocol version.
+Check the installed Python package with `uma_report --version`; its version
+is separate from the V2 workflow name and the future protocol version.
 
 ## What changed
 
@@ -165,8 +165,8 @@ Before the fifth stage, copy
 repository root directly into the latest completed
 `<image_folder>/uma_assay/Combined_Results_.../` directory.
 Fill in your experimental groups and save it.
-That directory must contain all three collected assay CSVs and **exactly one
-plate-template `.xlsx`**. Then run:
+That collection must include all three analyses for each reportable Area
+variant and **exactly one plate-template `.xlsx` at its root**. Then run:
 
 ```bash
 uma_report -i input_paths.json --fn-threshold 20
@@ -221,8 +221,9 @@ Functional reporting uses the same parser; see its
 
 **How the template is found:**
 
-- The report selects the latest successful `Combined_Results` by the timestamp
-  in its directory name, then searches directly inside that directory.
+- The report selects the latest completed, usable `Combined_Results`
+  (including `PARTIAL`) by the timestamp in its directory name, then searches
+  directly inside that directory.
 - The filename is unrestricted: `UMA_96_well_plate_template.xlsx`,
   `BK_far_day7.xlsx`, or a name with spaces all work. Renaming is optional;
   the name does not need to match the image folder or collected CSVs.
@@ -236,8 +237,9 @@ Functional reporting uses the same parser; see its
   use `--sheet "Worksheet name"` with its exact name; the active tab is not
   used to make this choice.
 
-If a later collection run creates a newer successful `Combined_Results`, copy
-the appropriate filled template into that new directory before reporting.
+Later collection revisions automatically copy the previous collection's
+template. Check or edit it in the new collection before reporting. If the
+previous collection had no template, add one manually.
 
 Key parameters:
 
@@ -254,6 +256,81 @@ Key parameters:
 All five commands support `--help` and `--version`. Run stages individually;
 a command does not run earlier stages automatically. Module responsibilities
 are documented in [`code/README.md`](code/README.md).
+
+## Multiple Area thresholds
+
+Run Area at each intensity threshold, then collect and report once:
+
+```bash
+area_analysis -i input_paths.json -t 1500
+area_analysis -i input_paths.json -t 2000
+area_analysis -i input_paths.json -t 1500 50000
+uma_collect_results -i input_paths.json
+# Add one filled plate-template .xlsx to the new Combined_Results root.
+uma_report -i input_paths.json
+```
+
+Each distinct combination of **lower bound, effective upper bound, projection
+method, and channel** is an Area variant. These values are read from the CSV,
+not inferred from folder names. Repeating the same variant selects its newest
+valid run, including an audited partial run. A newer invalid run is skipped;
+ambiguous timestamps are reported. Each variant produces a **complete report
+for all conditions**, with its own image matching, exclusions, and FN coverage.
+Thresholds are never assigned to individual experimental conditions.
+
+The report wizard asks for FN coverage, optional FIA nuclei/count cutoff,
+statistics, and figure format **once for the whole command**. Each source's
+variants share its plate template and the same selected FIA nuclei run.
+Intensity thresholds create different masks; `--fn-threshold 20` applies the
+same minimum **coverage percentage** independently to each variant's results.
+
+On a later collection, the terminal offers:
+
+| Choice | Behavior |
+|---|---|
+| `update` (default) | Keep the frozen Alignment and Thickness inputs; add new Area variants and replace changed variants with their latest valid runs |
+| `rebuild` | Select current valid Alignment, Thickness, and every available Area variant again |
+| `keep` | Leave the previous collection in use |
+
+Updates and rebuilds create a **new timestamped `Combined_Results`**, copy
+the previous template, and preserve previous collections. An update with
+nothing new keeps the existing folder. Complete original CSVs and audits are
+frozen under `Raw/`; matched copies for each variant are under
+`Variants/AreaThr_<lower>_to_<upper>_<projection>_C<channel>_<id>/`.
+Each variant has its own three CSVs, image check, and exclusion audit.
+A single-variant collection also keeps the familiar CSV copies at its root.
+
+After discovery, the report lists variant IDs and offers `changed` (default),
+`all`, or `select`. **Changed means all new or changed variants**, not just
+the most recently created threshold. Specific selection uses the displayed
+list numbers in the dialogue or IDs on the command line. Unattended examples:
+
+```bash
+uma_collect_results -i input_paths.json --collection-mode update --non-interactive
+uma_collect_results -i input_paths.json --collection-mode rebuild --non-interactive
+uma_report -i input_paths.json --non-interactive --report-mode changed
+uma_report -i input_paths.json --non-interactive --report-mode all
+# Replace VARIANT_ID with an ID printed by the planner.
+uma_report -i input_paths.json --non-interactive --area-variants VARIANT_ID
+```
+
+Every recalculated report gets a new timestamp. Its directory and workbook
+name include, for example, `AreaThr_1500_to_max_SUM_C3` or
+`AreaThr_1500_to_50000_SUM_C3`. Existing reports are reused only when their
+data, template, settings, FIA input, software identity, and scientific output
+checksums match. Final log updates do not invalidate a report.
+Adding a different Area variant does not invalidate existing reports.
+Changing a shared input or report setting recalculates affected reports;
+a missing/corrupt output also triggers recalculation.
+
+`run_status.json` records collection revisions, source runs, variant IDs and
+checksums. `Report_Batch_<timestamp>/report_plan.csv` records processing,
+reuse and selection decisions, with a batch log and completion status.
+An unusable variant does not stop usable variants; the batch is `PARTIAL`.
+Registered image failures are excluded within the affected variant only.
+No old results are overwritten. Existing single-report collections remain
+readable; running collection again builds the new layout from saved assay
+CSVs without repeating image processing. No environment changes are needed.
 
 ## Progress, logs, and partial results
 
@@ -308,22 +385,26 @@ source folder is available, startup diagnostics may use
 `<working_directory>/uma_assay/`. They record the failure and do not create a
 missing source folder.
 
-**Collection selects the newest valid result for each assay, including an
-audited `PARTIAL` run.** Its parameters take precedence over an older complete
+**Collection selects the newest valid result for each Area variant, including
+an audited `PARTIAL` run.** Alignment and Thickness are selected on the first
+collection or `rebuild`, and frozen during `update`. Selected parameters take
+precedence over an older complete
 run. Corrupt, cancelled, unfinished or invalid results are skipped with a
 reason. A partial output without a verifiable image audit cannot justify
 exclusions.
 
-A registered failed image is excluded from **every collected CSV copy** so
-that retained images match across analyses. Original analysis files are
+A registered failed image is excluded from **all three CSV copies within its
+variant**, so retained images match across analyses. Failures in one Area
+variant do not remove successful observations from another. Original files are
 preserved. Missing rows without a registered failure still fail validation;
 the collector does not search for older runs just to obtain matching images.
 An empty retained set fails collection. `processing_exclusions.csv`,
 `image_check.csv` and `selection_report.csv` record the decisions and counts.
 With no exclusions, collected summary bytes are unchanged.
 
-Reporting still requires all three summaries and one plate template in the
-latest successful collection. It uses the matched retained images, then
+Reporting still requires all three summaries per variant and one shared plate
+template in the latest completed collection, including a usable `PARTIAL`
+collection. It uses the matched retained images, then
 applies the requested FN filter. Processing failures are distinct from
 low-FN exclusions: they appear in a separate **Processing Exclusions** Excel
 sheet, a CSV and the report log. A collection missing an assay can be saved,
@@ -398,8 +479,8 @@ source folder; it does not enter `uma_assay`. Hidden files, including macOS
 | Alignment | `uma_assay/Alignment_assay_results_angle_.../`: orientation images and tables; `Analysis/Alignment_Summary.csv` |
 | Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
 | Area | `uma_assay/Area_assay_results_threshold_<lower>[_to_<upper>]_<timestamp>_<id>/`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
-| Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: separate CSVs prefixed with the original image folder's name; place one plate-template `.xlsx` here |
-| Report | `uma_assay/UMA_Report_<source_folder_name>_<timestamp>/`: one Excel workbook, 6 plots, raw/filtered/excluded tables, input copies, and optional statistics |
+| Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: frozen inputs in `Raw/`, matched CSVs in `Variants/`; place one plate-template `.xlsx` at the root |
+| Report | `uma_assay/UMA_Report_<source_folder_name>_AreaThr_<limits>_<projection>_C<channel>_<timestamp>/`: one workbook per Area variant, 6 plots (8 with FIA), tables, input copies, and optional statistics |
 
 Reports are siblings of collections. The report's `run_status.json` and input
 provenance identify the selected `Combined_Results`; its template is still
@@ -419,12 +500,14 @@ Projection-only runs and startup diagnostics keep the plain
 naming formats inside `uma_assay` and selects by the run timestamp, not by the
 threshold or file modification time.
 
-Collection selects the newest valid result independently for each assay,
-skipping newer invalid runs. **Selected tables must describe the same images**;
+Collection selects the newest valid Area run independently for each profile,
+skipping newer invalid runs. Shared assays are frozen on update or selected
+again on rebuild. **Each variant's tables must describe the same images**;
 mismatches produce diagnostics instead of silently dropping rows. Missing
 analyses are reported and may be collected, but reporting requires all three.
-The report selects the newest completed collection and fails if its required
-inputs are missing or inconsistent; it does not fall back to another collection.
+The report selects the newest completed collection and diagnoses missing or
+inconsistent variants while continuing the others; it does not fall back to
+another collection.
 
 For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 `Max`, and `Median` are in µm. Area coverage is a percentage of the full XY image.
@@ -706,7 +789,11 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.24`.
+versions change. Both version commands should report `0.2.27`.
+Version 0.2.27 adds multiple Area variants, immutable collection revisions,
+and changed-only report batches. Rerun collection once to adopt the new
+layout from saved analyses; keep one template at the new collection root.
+No environment recreation is required.
 Version 0.2.24 removes median-thickness plots before and after FN filtering.
 Thickness measured area is the only plotted thickness outcome; all five
 thickness measurements and seven-metric statistical comparisons remain in

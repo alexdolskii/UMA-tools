@@ -629,7 +629,13 @@ class CollectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.make_run("Thickness", ("different.nd2",), stamp="20260914_180000")
         result = subprocess.run(
-            [str(executable), "-i", str(self.config)],
+            [
+                str(executable),
+                "-i",
+                str(self.config),
+                "--collection-mode",
+                "rebuild",
+            ],
             cwd=self.root,
             capture_output=True,
             text=True,

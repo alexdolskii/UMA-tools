@@ -116,8 +116,10 @@ class BufferedLog:
             log.event(level, stage, message, console=show, timestamp=timestamp)
 
 
-def new_run(parent, source_name):
+def new_run(parent, source_name, area_label=None):
     label = safe_label(source_name)
+    if area_label:
+        label += "_" + area_label
     stem = (
         datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         + f"_{os.getpid()}"
@@ -532,12 +534,23 @@ def record_run_failure(error, trace, status, directory, log, paths):
 
 
 @folder_logged("source")
-def process_folder(source, input_json, args):
+def process_folder(source, input_json, args, selection=None):
     buffered = BufferedLog()
     try:
-        combined = report_inputs.select_combined(source, buffered)
+        combined = (
+            selection["path"]
+            if selection
+            else report_inputs.select_combined(source, buffered)
+        )
+        output_label = (
+            f"{safe_label(source.name)}_{selection['variant']['label']}"
+            if selection
+            else safe_label(source.name)
+        )
         run_id, directory = new_run(
-            assay_directory(source, create=True), source.name
+            assay_directory(source, create=True),
+            source.name,
+            selection["variant"]["label"] if selection else None,
         )
     except (OSError, ValueError, ValidationError) as error:
         return diagnostic_failure(source, input_json, error, buffered)
@@ -557,6 +570,14 @@ def process_folder(source, input_json, args):
         "plot_format": getattr(args, "plot_format", "pdf"),
     }
     candidate, final_path = None, None
+    if selection:
+        status.update(
+            combined_results_folder=str(selection["collection"]),
+            variant_collection_folder=str(combined),
+            area_variant=selection["variant"],
+            report_fingerprint=selection["fingerprint"],
+            report_identity=selection["identity"],
+        )
 
     def stage(name):
         phase(name)
@@ -577,7 +598,15 @@ def process_folder(source, input_json, args):
         stage("Parameter validation")
         threshold = report_tables.validate_fn_threshold(args.fn_threshold)
         stage("Input discovery")
-        paths = report_inputs.discover_inputs(combined, source.name)
+        paths = report_inputs.discover_inputs(
+            combined,
+            source.name,
+            selection["collection"] if selection else None,
+        )
+        if selection:
+            from .report_batch import verify_selection
+
+            verify_selection(selection, paths)
         status["input_files"] = {
             role: str(path) for role, path in paths.items()
         }
@@ -620,7 +649,13 @@ def process_folder(source, input_json, args):
 
             stage("FIA nuclei integration")
             attach_nuclei(
-                data, source, directory, manifests, args.min_nuclei, log
+                data,
+                source,
+                directory,
+                manifests,
+                args.min_nuclei,
+                log,
+                bundle=selection["fia"] if selection else None,
             )
             parameters.update(
                 fia_nuclei_run=data["fia_run"],
@@ -710,9 +745,7 @@ def process_folder(source, input_json, args):
                 table["rows"],
             )
         stage("Workbook export")
-        final_path = (
-            directory / f"UMA_Report_{safe_label(source.name)}_{run_id}.xlsx"
-        )
+        final_path = directory / f"UMA_Report_{output_label}_{run_id}.xlsx"
         candidate = temporary_path(
             final_path, directory / "report_pending.xlsx"
         )
@@ -730,6 +763,10 @@ def process_folder(source, input_json, args):
             workbook=str(final_path),
             generated_plots=len(plots),
         )
+        if selection:
+            from .report_batch import save_artifacts
+
+            status["artifacts_sha256"] = save_artifacts(directory)
         save_json(directory / "run_status.json", status)
         console(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
         return ReportStatus(status["status"])
@@ -781,7 +818,9 @@ def main(argv=None):
                 )
                 continue
             seen.add(canonical)
-            result = process_folder(source, input_json, args)
+            from .report_batch import process_source
+
+            result = process_source(source, input_json, args)
         except KeyboardInterrupt:
             console("Report generation interrupted.", file=sys.stderr)
             return 130

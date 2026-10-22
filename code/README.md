@@ -2,7 +2,7 @@
 
 Development for the forthcoming updated protocol is focused on this directory.
 Other approaches in the repository are paused. V2 names the workflow under
-development; the current Python package version is **0.2.21**.
+development; use `uma_report --version` to check the installed package.
 
 See the [main README](../README.md) for installation, input JSON, parameters,
 plate-template preparation, outputs, and updates.
@@ -31,6 +31,22 @@ Area result folders include the requested thresholds: `-t 1500` creates
 An omitted upper bound or `inf` uses the finite float32 maximum. Both Area
 naming formats remain discoverable inside `uma_assay`, ordered by timestamp.
 Projection-only runs and startup diagnostics keep the plain name.
+
+Collection includes every distinct recorded Area threshold pair, projection,
+and channel, selecting the latest valid run per variant. Run Area at several
+thresholds, collect once, and place one template at the collection root.
+Reporting creates one complete report per variant, with the threshold bounds
+in its folder/workbook name. FN coverage, FIA/count cutoff, statistics and
+figure settings are shared across the batch.
+
+On repeat collection, choose `update` (freeze Alignment/Thickness and update
+Area variants), `rebuild` (reselect all saved analyses), or `keep`. New
+revisions automatically copy the previous template and retain old results.
+No changes means no new collection. `Raw/` holds full inputs and audits;
+`Variants/` holds independently matched CSVs and exclusions. Report choices
+are `changed` (all new/changed variants), `all`, or `select`; every actual
+recalculation gets a new timestamp. Verified unchanged reports are reused.
+See [examples and selection rules](../README.md#multiple-area-thresholds).
 
 For example:
 
@@ -123,8 +139,8 @@ plot metadata. No recalculation of measurements is performed.
 
 ## One package directory
 
-The `code` directory contains this README and `uma_tools`, a package with
-25 Python files. Its modules contain implementations rather than compatibility
+The `code` directory contains this README and the `uma_tools` package.
+Its modules contain implementations rather than compatibility
 adapters. `cli.py` routes commands directly to the five analysis/workflow
 modules listed above; shared helpers are beside them in the same directory.
 
@@ -145,6 +161,11 @@ The remaining modules have these responsibilities:
 | `constants.py` | Pinned Fiji endpoint |
 | `imagej.py` | Headless Fiji initialization and worker cleanup |
 | `area_imagej.py` | SUM32 projection, threshold bounds, masks, and area measurements |
+| `area_variants.py` | Recorded Area profiles, stable identifiers, and safe snapshot paths |
+| `collection_variants.py` | Immutable collection revisions with shared inputs and independent Area variants |
+| `report_batch.py` | Variant selection, input/output verification, and report reuse |
+| `report_options.py` | Report arguments and guided settings shared across variants |
+| `report_nuclei.py` | FIA final-nuclei file adapter and image-level matching |
 | `report_inputs.py` | Select, verify, and archive collected report inputs |
 | `report_tables.py` | Read inputs and prepare plot/provenance export tables |
 | `report_validation.py` | Match images, validate annotations, and apply the FN coverage filter |
@@ -167,11 +188,13 @@ and compatibility adapters are no longer supported.
 - Use JSON `folder_paths` with absolute image-folder paths. Existing relative
   paths resolve against the JSON directory for area and against the working
   directory for the other stages.
-- Collection chooses the latest valid complete or audited partial result
-  independently for each assay. Only registered failed images may be excluded
-  from all collected copies; unexplained differences still fail validation.
-  Reporting requires all three summaries and one plate template in the latest
-  completed collection, without fallback. See the
+- Collection chooses the latest valid complete or audited partial Area run
+  per profile. Shared assays are frozen during update and reselected on
+  rebuild. Only registered failed images may be excluded from that variant's
+  three CSVs; unexplained differences still fail validation. Keep complete
+  inputs before exclusions so one variant cannot remove another's images.
+  Reporting requires three summaries per variant and one shared template in
+  the latest completed collection, without fallback. See the
   [partial-result rules](../README.md#progress-logs-and-partial-results).
 - Preserve filename identities and explicit CSV/JSON writing policies.
   Exclude hidden files, macOS `._` files, and directories named like images.
@@ -198,6 +221,7 @@ ruff format --check code tests
 ruff check code tests
 pycodestyle --max-line-length=79 --max-doc-length=72 --ignore=E203,W503 code
 python -m unittest discover -s tests -v
+python -m pytest tests/test_area_variants.py tests/test_report_options.py tests/test_report_nuclei.py -q
 ```
 
 Use four-space indentation, `snake_case`, `UPPER_CASE` constants, 79-character
