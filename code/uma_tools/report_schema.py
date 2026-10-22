@@ -13,6 +13,8 @@ from .contracts import THICKNESS_UNITS as THICKNESS_UNITS
 from .plot_palette import LOW_FN_EDGE_COLOR as LOW_FN_EDGE_COLOR
 
 FN_METRIC = "FN_Area_Percent"
+FN_PER_NUCLEUS = "FN_Area_Per_Nucleus (µm²/nucleus)"
+NUCLEI_LOW_FLAG = "Below_Nuclei_Threshold"
 FN_THRESHOLD_COLUMN = "FN_Area_Threshold_Percent"
 FN_LOW_FLAG = "Below_FN_Threshold"
 FN_INCLUDED_FLAG = "Included_In_Filtered_Plots"
@@ -59,6 +61,18 @@ SHEET_NAMES = [
     "Source_Files",
     "Plots",
 ]
+
+
+def report_plot_names(data):
+    """Keep the legacy six figures unless FIA integration is enabled."""
+    if not data.get("fia_enabled"):
+        return list(PLOT_NAMES)
+    return (
+        PLOT_NAMES[:3]
+        + ["FN per nucleus Plot"]
+        + PLOT_NAMES[3:]
+        + ["FN per nucleus Filtered"]
+    )
 
 
 class ValidationError(Exception):

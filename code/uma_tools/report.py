@@ -12,7 +12,6 @@ runtime is started.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import enum
 import importlib
@@ -52,6 +51,7 @@ class ReportStatus(enum.Enum):
     """
 
     SUCCESS = "SUCCESS"
+    PARTIAL = "PARTIAL"
     VALIDATION_FAILED = "VALIDATION_FAILED"
     ERROR = "ERROR"
     CANCELLED = "CANCELLED"
@@ -234,18 +234,23 @@ def run_parameters(status, args):
             "Image-level points; wells are technical replicates; "
             "biological replicate is blank"
         ),
+        "with_fia_nuclei": getattr(args, "with_fia_nuclei", False),
+        "min_nuclei": getattr(args, "min_nuclei", 0),
+        "interactive_setup": getattr(args, "wizard", False),
         "stats_unit": stats_unit,
         "plot_format": getattr(args, "plot_format", "pdf"),
         "png_dpi": PNG_DPI,
         "plot_font_sizes": FONT_SIZES,
         "statistical_tests": (
             "Two-sided Welch t-tests against the control; Holm correction "
-            "over all seven metrics within each template color"
+            f"over all {8 if getattr(args, 'with_fia_nuclei', False) else 7} "
+            "metrics within each template color"
             if stats_unit is not None
             else "Not performed"
         ),
         "statistics_scope": (
-            "FN-filtered images only; within-plate technical comparisons"
+            "Images passing all enabled filters; "
+            "within-plate technical comparisons"
             if stats_unit is not None
             else "Disabled"
         ),
@@ -433,7 +438,12 @@ def save_verified_workbook(data, plots, log, run_id, candidate, final_path):
         completion = dict(
             zip(
                 EVENT_COLUMNS,
-                [completion_time, "SUCCESS", "Run", message],
+                [
+                    completion_time,
+                    "PARTIAL" if data.get("fia_partial") else "SUCCESS",
+                    "Run",
+                    message,
+                ],
             )
         )
         # Openpyxl closes in-memory image streams on save. Rebuild the
@@ -605,6 +615,24 @@ def process_folder(source, input_json, args):
         status["processing_excluded_images"] = len(
             data.get("processing_exclusions", [])
         )
+        if getattr(args, "with_fia_nuclei", False):
+            from .report_nuclei import attach_nuclei
+
+            stage("FIA nuclei integration")
+            attach_nuclei(
+                data, source, directory, manifests, args.min_nuclei, log
+            )
+            parameters.update(
+                fia_nuclei_run=data["fia_run"],
+                fia_particle_size_px2=data["fia_particle_size"],
+                nuclei_count_field="Non_border_nuclei_count",
+                ratio_definition=(
+                    "FN-positive area (µm²) / non-border nuclei; per image"
+                ),
+                filter_scope=(
+                    "Matched images; both inclusive FN and nuclei thresholds"
+                ),
+            )
         stage("Statistics")
         prepare_statistics(
             data, snapshots["template"], status["stats_unit"], log
@@ -693,9 +721,10 @@ def process_folder(source, input_json, args):
         )
         report_inputs.verify_sources(manifests)
         candidate.rename(final_path)
-        log.event("SUCCESS", "Run", message, timestamp=completion_time)
+        outcome = "PARTIAL" if data.get("fia_partial") else "SUCCESS"
+        log.event(outcome, "Run", message, timestamp=completion_time)
         status.update(
-            status="SUCCESS",
+            status="PARTIAL" if data.get("fia_partial") else "SUCCESS",
             stage="Completed",
             ended_utc=completion_time,
             workbook=str(final_path),
@@ -703,7 +732,7 @@ def process_folder(source, input_json, args):
         )
         save_json(directory / "run_status.json", status)
         console(f"Workbook: {final_path}\nLog: {log.path}", flush=True)
-        return ReportStatus.SUCCESS
+        return ReportStatus(status["status"])
     except (Exception, KeyboardInterrupt) as error:
         record_run_failure(
             error,
@@ -721,62 +750,20 @@ def process_folder(source, input_json, args):
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(
-        description=(
-            "Create UMA plots and Excel reports from collected assay results"
-        )
-    )
-    parser.add_argument(
-        "-i",
-        "--input",
-        required=True,
-        help="JSON file containing folder_paths",
-    )
-    parser.add_argument(
-        "--fn-threshold",
-        type=float,
-        default=20.0,
-        help=(
-            "FN coverage cutoff in percent, 0-100 (default: 20); equality is "
-            "retained"
-        ),
-    )
-    parser.add_argument(
-        "--stats-unit",
-        choices=("well", "image"),
-        default=None,
-        help=(
-            "Optional statistics after FN filtering: well uses one mean per "
-            "well; image treats images as independent (exploratory). "
-            "Omit to disable tests. Requires color blocks and bold controls."
-        ),
-    )
-    parser.add_argument(
-        "--plot-format",
-        choices=("pdf", "png", "both"),
-        default="pdf",
-        help="Figure export: vector PDF (default), PNG at 300 dpi, or both",
-    )
-    parser.add_argument(
-        "--sheet",
-        default=None,
-        help="Exact plate-template worksheet name (default: first sheet)",
-    )
-    parser.add_argument(
-        "--plate-id",
-        default="",
-        help="Plate label (default: each source folder's name)",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {package_version()}",
-    )
-    return parser.parse_args(argv)
+    """Keep the public parser entry point; prompts run only in main."""
+    from .report_options import parse_args as parse
+
+    return parse(argv)
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    from .report_options import resolve_options
+
+    try:
+        args = resolve_options(parse_args(argv))
+    except (KeyboardInterrupt, EOFError):
+        console("Report setup cancelled.")
+        return 130
     input_json = Path(args.input).expanduser().absolute()
     try:
         folders = read_config(input_json)
@@ -784,7 +771,7 @@ def main(argv=None):
         diagnostic_failure(None, input_json, error)
         return 1
     register_sources(folders, input_json)
-    seen, succeeded, failed = set(), 0, 0
+    seen, succeeded, failed, partial = set(), 0, 0, 0
     for source in folders:
         try:
             canonical = source.resolve()
@@ -802,12 +789,16 @@ def main(argv=None):
             diagnostic_failure(source, input_json, error)
             result = ReportStatus.ERROR
         succeeded += int(result is ReportStatus.SUCCESS)
-        failed += int(result is not ReportStatus.SUCCESS)
+        partial += int(result is ReportStatus.PARTIAL)
+        failed += int(
+            result not in (ReportStatus.SUCCESS, ReportStatus.PARTIAL)
+        )
     console(
-        f"Reports finished: {succeeded} folder(s) succeeded; {failed} failed.",
+        f"Reports finished: {succeeded} folder(s) succeeded; "
+        f"{partial} partial; {failed} failed.",
         flush=True,
     )
-    return 1 if failed else 0
+    return 1 if failed or partial else 0
 
 
 if __name__ == "__main__":

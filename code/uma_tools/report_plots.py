@@ -23,11 +23,13 @@ from .progress import phase
 from .report_schema import (
     FN_LOW_FLAG,
     FN_METRIC,
+    FN_PER_NUCLEUS,
     LOW_FN_EDGE_COLOR,
-    PLOT_NAMES,
+    NUCLEI_LOW_FLAG,
     EventLogger,
     ReportData,
     ValidationError,
+    report_plot_names,
 )
 
 
@@ -55,7 +57,7 @@ def box_definition(values):
 
 def _plot_specs(data):
     """Plot selected metrics; keep all measurements for tables and tests."""
-    return [
+    specs = [
         ("Fibronectin", FN_METRIC, "Fibronectin coverage", "%"),
         (
             "Alignment",
@@ -70,6 +72,16 @@ def _plot_specs(data):
             "µm²",
         ),
     ]
+    if data.get("fia_enabled"):
+        specs.append(
+            (
+                "FN per nucleus",
+                FN_PER_NUCLEUS,
+                "FN-positive area per non-border nucleus",
+                "µm²/nucleus",
+            )
+        )
+    return specs
 
 
 def _point_positions(data, max_replicates):
@@ -156,7 +168,12 @@ def _draw_points(
                 [x_positions[row["Image_ID"]] for row in records],
                 [row[field] for row in records],
                 s=52,
-                color=styles["point_color"],
+                facecolors=[
+                    "white"
+                    if r.get(NUCLEI_LOW_FLAG) and not filtered
+                    else styles["point_color"]
+                    for r in records
+                ],
                 marker=styles["wells"][well],
                 edgecolors=[
                     LOW_FN_EDGE_COLOR if low else POINT_EDGE_COLOR
@@ -221,8 +238,8 @@ def _plot_statistics(data, field, filtered):
     if not filtered:
         return (
             stats_unit,
-            "No tests on this full-data view; statistics use FN-filtered "
-            "data only.",
+            "No tests on this full-data view; statistics use images "
+            "passing all enabled filters.",
             [],
         )
     test_unit = (
@@ -232,7 +249,8 @@ def _plot_statistics(data, field, filtered):
     )
     note = (
         f"Two-sided Welch tests: {test_unit}. Holm adjustment across "
-        "all seven metrics and treatment-versus-control comparisons "
+        f"all {8 if data.get('fia_enabled') else 7} metrics "
+        "and treatment-versus-control comparisons "
         "within each color block. Adjusted p: * <0.05; ** <0.01; "
         "*** <0.001; **** <0.0001; ns: ≥0.05. Not tested: insufficient or "
         "undefined test data. Technical comparisons within one plate."
@@ -510,7 +528,8 @@ def _render_plot(
 
     name, field, base_title, unit = spec
     groups, threshold = data["group_order"], data["fn_threshold"]
-    rows = data["retained_rows"] if filtered else data["rows"]
+    population = data["retained_rows"] if filtered else data["rows"]
+    rows = [r for r in population if r.get(field) is not None]
     panels = plot_panels(data)
     stats_unit, stats_note, supplied = _plot_statistics(data, field, filtered)
     # Keep untestable comparisons involving unimaged conditions in the
@@ -530,6 +549,12 @@ def _render_plot(
     panel_width = max(7.2, 1.85 * max(len(p["groups"]) for p in panels))
     width = columns * panel_width
     view = f"FN coverage ≥ {threshold:g}%" if filtered else "All images"
+    if data.get("fia_enabled"):
+        view = (
+            f"FN ≥ {threshold:g}%; nuclei ≥ {data['min_nuclei']}"
+            if filtered
+            else "All matched images"
+        )
     title = f"{base_title} — {view}"
     heading = wrap_label(
         title, (width - 0.6) * 72, FONT_SIZES["title"], "bold"
@@ -538,6 +563,20 @@ def _render_plot(
         panels[0]["context"], (width - 0.6) * 72, FONT_SIZES["panel"]
     )
     handles = _legend_handles(name, threshold, filtered, styles["markers"])
+    if data.get("fia_enabled") and not filtered and data["min_nuclei"]:
+        from matplotlib.lines import Line2D
+
+        handles.append(
+            Line2D(
+                [],
+                [],
+                linestyle="",
+                marker="o",
+                markerfacecolor="white",
+                markeredgecolor=POINT_EDGE_COLOR,
+                label=f"Hollow: nuclei < {data['min_nuclei']}",
+            )
+        )
     legend_columns = min(4, max(2, int(width / 3)))
     legend_rows = math.ceil(len(handles) / legend_columns)
     panel_labels, layouts, local_positions = {}, {}, {}
@@ -591,6 +630,22 @@ def _render_plot(
     )
     if any(style["is_control"] for style in styles["conditions"].values()):
         caption += " Lavender = bold-marked control."
+    if data.get("fia_enabled"):
+        caption += (
+            f"\nNon-border nuclei ≥ {data['min_nuclei']}; "
+            "both FN and nuclei filters apply."
+        )
+        if not filtered and data["min_nuclei"]:
+            caption += (
+                " Hollow points: below nuclei cutoff; "
+                "red outline: below FN cutoff."
+            )
+        if field == FN_PER_NUCLEUS:
+            caption += (
+                " Ratio = FN-positive area / non-border nuclei. "
+                f"{len(population) - len(rows)} images have "
+                "no defined calibrated ratio."
+            )
     display_caption = wrap_label(
         caption, (width - 0.6) * 72, FONT_SIZES["note"]
     )
@@ -615,7 +670,9 @@ def _render_plot(
     )
     height = header_height + body_height + footer_height + 0.4
     stem = (
-        "fibronectin_boxplot"
+        "fibronectin_per_nucleus_boxplot"
+        if name == "FN per nucleus"
+        else "fibronectin_boxplot"
         if name == "Fibronectin"
         else "alignment_boxplot"
         if name == "Alignment"
@@ -782,7 +839,9 @@ def _render_plot(
                     axis.text(
                         0.5,
                         0.5,
-                        "No retained images",
+                        "No defined calibrated ratios"
+                        if field == FN_PER_NUCLEUS
+                        else "No retained images",
                         ha="center",
                         va="center",
                         transform=axis.transAxes,
@@ -872,6 +931,11 @@ def _render_plot(
         "singleton_groups": [g for g in groups if counts[g] == 1],
         "plotted_image_ids": rendered_ids,
         "red_outline_image_ids": red_ids,
+        "low_nuclei_image_ids": [
+            r["Image_ID"]
+            for r in rows
+            if r.get(NUCLEI_LOW_FLAG) and not filtered
+        ],
         "x_positions": {key: x_positions[key] for key in rendered_ids},
         "rendered_x_positions": {
             key: local_positions[key] for key in rendered_ids
@@ -912,7 +976,16 @@ def create_plots(
         field: (
             100.0
             if name in ("Alignment", "Fibronectin")
-            else max(row[field] for row in data["rows"]) * 1.12 or 1.0
+            else max(
+                (
+                    row[field]
+                    for row in data["rows"]
+                    if row.get(field) is not None
+                ),
+                default=0,
+            )
+            * 1.12
+            or 1.0
         )
         for name, field, _, _ in specs
     }
@@ -934,6 +1007,6 @@ def create_plots(
                 plot_format,
             )
         )
-    if [plot["plot_id"] for plot in plots] != PLOT_NAMES:
+    if [plot["plot_id"] for plot in plots] != report_plot_names(data):
         raise RuntimeError("The required plot order was not preserved.")
     return plots

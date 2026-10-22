@@ -48,7 +48,7 @@ def filter_counts(rows, group_order, group_wells):
     order.
     """
     retained = [row for row in rows if row[FN_INCLUDED_FLAG]]
-    excluded = [row for row in rows if row[FN_LOW_FLAG]]
+    excluded = [row for row in rows if not row[FN_INCLUDED_FLAG]]
     if len(retained) + len(excluded) != len(rows):
         raise RuntimeError(
             "Full, retained, and excluded image counts do not reconcile."

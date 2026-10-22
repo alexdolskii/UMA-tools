@@ -32,12 +32,16 @@ jobs:
           environment-file: environment_uma.yaml
 
       - name: Install the package
-        run: python -m pip install .
+        run: python -m pip install . "pytest>=8,<10"
 
       - name: Run the test suite
-        # This suite uses unittest, not pytest; no test runner is
-        # declared in requirements-dev.txt.
         env:
           UMA_RUN_IMAGEJ_TESTS: "1"
           MPLBACKEND: Agg
         run: python -m unittest discover -s tests -v
+
+
+      - name: Test guided reports and FIA nuclei integration
+        env:
+          MPLBACKEND: Agg
+        run: python -m pytest tests/test_report_options.py tests/test_report_nuclei.py -q

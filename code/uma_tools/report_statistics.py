@@ -11,6 +11,7 @@ from statistics import mean
 
 from .report_schema import (
     FN_METRIC,
+    FN_PER_NUCLEUS,
     THICKNESS_METRICS,
     THICKNESS_UNITS,
     EventLogger,
@@ -242,10 +243,18 @@ def _read_design(template, data):
 
 
 def _metric_units(data):
-    return [(data["metric"], "%"), (FN_METRIC, "%")] + [
-        (f"{field} ({THICKNESS_UNITS[field]})", THICKNESS_UNITS[field])
-        for field in THICKNESS_METRICS
-    ]
+    return (
+        [(data["metric"], "%"), (FN_METRIC, "%")]
+        + [
+            (f"{field} ({THICKNESS_UNITS[field]})", THICKNESS_UNITS[field])
+            for field in THICKNESS_METRICS
+        ]
+        + (
+            [(FN_PER_NUCLEUS, "µm²/nucleus")]
+            if data.get("fia_enabled")
+            else []
+        )
+    )
 
 
 def _finite_mean(values):
@@ -270,7 +279,17 @@ def _well_means(design, retained, metrics):
             "N_Images": len(rows),
         }
         for metric, _ in metrics:
-            result[metric] = _finite_mean([row[metric] for row in rows])
+            result[metric] = _finite_mean(
+                [
+                    row[metric]
+                    for row in rows
+                    if metric != FN_PER_NUCLEUS or row[metric] is not None
+                ]
+            )
+            if metric == FN_PER_NUCLEUS:
+                result["N_Images_FN_Per_Nucleus"] = sum(
+                    row[metric] is not None for row in rows
+                )
         results.append(result)
     return results
 
@@ -306,14 +325,35 @@ def _welch(treatment, control):
     return results, ""
 
 
-def _comparison(block, treatment, metric, label, unit, images, wells):
+def _comparison(
+    block, treatment, metric, label, unit, images, wells, metric_count=7
+):
     """Build one planned contrast, retaining unavailable tests."""
     control = block["control"]
-    control_images, treatment_images = images[control], images[treatment]
-    control_wells, treatment_wells = wells[control], wells[treatment]
-    source = wells if unit == "well" else images
-    control_values = [row[metric] for row in source[control]]
-    treatment_values = [row[metric] for row in source[treatment]]
+    control_images = [
+        r
+        for r in images[control]
+        if metric != FN_PER_NUCLEUS or r.get(metric) is not None
+    ]
+    treatment_images = [
+        r
+        for r in images[treatment]
+        if metric != FN_PER_NUCLEUS or r.get(metric) is not None
+    ]
+    control_wells = [
+        r
+        for r in wells[control]
+        if metric != FN_PER_NUCLEUS or r.get(metric) is not None
+    ]
+    treatment_wells = [
+        r
+        for r in wells[treatment]
+        if metric != FN_PER_NUCLEUS or r.get(metric) is not None
+    ]
+    control_source = control_wells if unit == "well" else control_images
+    treatment_source = treatment_wells if unit == "well" else treatment_images
+    control_values = [row[metric] for row in control_source]
+    treatment_values = [row[metric] for row in treatment_source]
     result = dict.fromkeys(COMPARISON_COLUMNS)
     result.update(
         {
@@ -332,7 +372,7 @@ def _comparison(block, treatment, metric, label, unit, images, wells):
             "Treatment_Images": len(treatment_images),
             "Control_Mean": _finite_mean(control_values),
             "Treatment_Mean": _finite_mean(treatment_values),
-            "Family_Size": 7 * (len(block["groups"]) - 1),
+            "Family_Size": metric_count * (len(block["groups"]) - 1),
             "Status": "Not tested",
             "Significance": "",
         }
@@ -400,24 +440,37 @@ def calculate_statistics(
         if row["N_Images"]:
             wells[row["Group"]].append(row)
     comparisons = [
-        _comparison(block, group, metric, label, unit, images, wells)
+        _comparison(
+            block, group, metric, label, unit, images, wells, len(metrics)
+        )
         for block in blocks
         for group in block["groups"]
         if group != block["control"]
         for metric, label in metrics
     ]
     _apply_holm(comparisons)
+    method = (
+        METHOD.replace("seven metrics", f"{len(metrics)} metrics")
+        if data.get("fia_enabled")
+        else METHOD
+    )
     note = NOTES[unit] + (
-        " All seven outcomes use FN-filtered images only. FN% comparisons "
+        f" All {len(metrics)} outcomes use images passing enabled filters. "
+        "FN% comparisons "
         "describe images that passed the FN filter."
     )
+    if not data.get("fia_enabled"):
+        note = NOTES[unit] + (
+            " All seven outcomes use FN-filtered images only. FN% comparisons "
+            "describe images that passed the FN filter."
+        )
     log.event("WARNING" if unit == "image" else "INFO", "Statistics", note)
     tested = sum(row["Status"] == "Tested" for row in comparisons)
     log.event(
         "INFO",
         "Statistics",
         f"Unit={unit}; {len(blocks)} color blocks; "
-        f"{tested}/{len(comparisons)} planned tests performed. {METHOD}",
+        f"{tested}/{len(comparisons)} planned tests performed. {method}",
     )
     for row in comparisons:
         if row["Status"] == "Not tested":
@@ -433,11 +486,12 @@ def calculate_statistics(
         "comparison_columns": list(COMPARISON_COLUMNS),
         "well_means": well_means,
         "well_columns": ["Group", "Well", "N_Images"]
-        + [metric for metric, _ in metrics],
+        + [metric for metric, _ in metrics]
+        + (["N_Images_FN_Per_Nucleus"] if data.get("fia_enabled") else []),
         "design": design,
         "design_columns": list(DESIGN_COLUMNS),
         "blocks": blocks,
-        "method": METHOD,
+        "method": method,
         "note": note,
         "template_theme": theme,
         "template_palette": palette,

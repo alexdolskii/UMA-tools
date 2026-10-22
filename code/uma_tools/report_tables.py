@@ -563,6 +563,11 @@ def prepare_display_tables(data, plots, parameters, manifests):
     def add(name, columns, rows):
         tables[name] = {"columns": columns, "rows": rows}
 
+    if data.get("fia_enabled"):
+        from .report_nuclei import MATCH_COLUMNS
+
+        add("FIA Image Check", MATCH_COLUMNS, data["fia_matches"])
+        add("FIA Image Audit", data["columns"], data["fia_audit"])
     add(
         "Group_Order",
         list(GROUP_ORDER_COLUMNS),
@@ -574,9 +579,19 @@ def prepare_display_tables(data, plots, parameters, manifests):
         ("Collection", parameters.get("combined_results_folder", "")),
         ("Plate", data["plate_id"]),
         ("Run ID", parameters.get("run_id", "")),
-        ("Images before FN filtering", len(data["rows"])),
+        (
+            "Images before combined filtering"
+            if data.get("fia_enabled")
+            else "Images before FN filtering",
+            len(data["rows"]),
+        ),
         ("Images retained", len(data["retained_rows"])),
-        ("Images below FN cutoff", len(data["excluded_rows"])),
+        (
+            "Images below FN and/or nuclei cutoffs"
+            if data.get("fia_enabled")
+            else "Images below FN cutoff",
+            len(data["excluded_rows"]),
+        ),
         (
             "Registered processing exclusions",
             len(data.get("processing_exclusions", [])),
@@ -585,7 +600,11 @@ def prepare_display_tables(data, plots, parameters, manifests):
         ("FN mask intensity thresholds", data["fn_mask_settings"]["caption"]),
         ("Statistics unit", parameters.get("stats_unit") or "Disabled"),
         ("Condition order", data.get("group_order_source", "plate_grid")),
-        ("Figures", "Three full-data and three filtered views on Plots"),
+        (
+            "Figures",
+            f"{len(plots) // 2} full-data and {len(plots) // 2} "
+            "filtered views on Plots",
+        ),
         (
             "Box color",
             "Condition; lavender identifies a marked control "
@@ -605,6 +624,25 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "embedded plots do not recalculate.",
         ),
     ]
+    if data.get("fia_enabled"):
+        overview.extend(
+            [
+                ("FIA nuclei run", data["fia_run"]),
+                ("FIA particle size (px²)", data["fia_particle_size"]),
+                ("Nuclei count", "Non_border_nuclei_count"),
+                ("Minimum nuclei", data["min_nuclei"]),
+                (
+                    "FIA unmatched UMA images",
+                    len(data["fia_audit"]) - len(data["rows"]),
+                ),
+                (
+                    "FN per nucleus",
+                    "FN-positive area in µm² / non-border nuclei; "
+                    "undefined for zero nuclei "
+                    "or missing physical calibration",
+                ),
+            ]
+        )
     overview.extend(
         (
             f"FN mask setting {index}",
@@ -697,6 +735,15 @@ def prepare_display_tables(data, plots, parameters, manifests):
                 "Statistics": plot["statistics_note"],
             }
         )
+    if data.get("fia_enabled"):
+        for observation in observations:
+            row = row_lookup[observation["Image_ID"]]
+            observation["Below_Nuclei_Threshold"] = row[
+                "Below_Nuclei_Threshold"
+            ]
+            observation["Non_border_nuclei_count"] = row[
+                "Non_border_nuclei_count"
+            ]
     add(
         "Plot_Data",
         [
@@ -714,7 +761,12 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "Point_Marker",
             "Red_Outline",
             "Panel_X",
-        ],
+        ]
+        + (
+            ["Below_Nuclei_Threshold", "Non_border_nuclei_count"]
+            if data.get("fia_enabled")
+            else []
+        ),
         observations,
     )
     add(

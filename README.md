@@ -429,9 +429,92 @@ inputs are missing or inconsistent; it does not fall back to another collection.
 For thickness calibrated in micrometers, `Area` is in µm² and `StdDev`, `Min`,
 `Max`, and `Median` are in µm. Area coverage is a percentage of the full XY image.
 
+## Guided report setup and optional FIA nuclei counts
+
+Run **`uma_report`** in a terminal for guided setup. It asks for the JSON path
+(default `input_paths.json`), minimum FN coverage, whether to use FIA nuclei,
+minimum nuclei if enabled, statistics (`none`, `well`, or `image`), figure
+format, worksheet, and plate label. Press **Enter** for the displayed default;
+`q`, Ctrl-C, or EOF cancels setup. Settings are confirmed before processing
+and recorded in `run_parameters.json` and the report's **Run_Info** table.
+The same questions appear for `uma_report -i input_paths.json` in a terminal.
+
+Supplying analysis options keeps the existing unattended command behavior.
+Use `--interactive` to ask for unspecified options while preserving supplied
+values, or `--non-interactive` to use defaults without questions. Without a
+terminal, `-i` is required and no questions are asked. Defaults remain FN
+coverage **20%**, no FIA integration, no statistical tests, and PDF figures.
+The worksheet defaults to the first sheet; each source folder supplies its
+plate label unless overridden.
+
+```bash
+# Guided setup, including the choice to use FIA data
+uma_report
+# Guided setup with the JSON already specified
+uma_report -i input_paths.json
+# Unattended integration with image-level statistics
+uma_report -i input_paths.json --with-fia-nuclei --min-nuclei 20 --stats-unit image
+# Existing UMA report, defaults, no questions
+uma_report -i input_paths.json --non-interactive
+```
+
+FIA integration reads the latest **validated, completed**
+`<source>/fia_assay/Final_Nuclei_Mask_<timestamp>` for each source folder.
+Both nuclei-only and full marker workflows produce this common result;
+FIA collection and graphic reports are not required. The reader checks
+`Nuclei_Images.csv`, `Nuclei_Morphology.csv`, `Nuclei_Run_Info.csv`,
+`Nuclei_Morphology.xlsx`, and `nuclei_run.json`. It respects both saved and
+current `excluded_images.json` processing exclusions. Invalid newer runs are
+logged and skipped; individual images are never backfilled from older runs.
+FIA is not imported and no additional imaging environment is needed for this
+reporting step.
+
+Source images are matched by the complete original filename stem and known
+FIA suffix, within the same source dataset. Ambiguous stems are rejected;
+`Well` or `Seq` alone never determines identity. Available XY dimensions and
+physical pixel sizes must agree. Original-file hashes are compared when both
+inputs provide them. Missing evidence is recorded explicitly: matching names
+cannot prove unchanged source bytes when the original hash is unavailable.
+Current FIA exports generally retain hashes of derived images, not the raw
+source; these different hashes are not compared with each other.
+
+The added metric is **FN-positive area (µm²) / non-border nuclei**, calculated
+per image using `FN_Area` from the Area assay and FIA's
+`Non_border_nuclei_count`. It does not use thickness Area or FN percentage as
+the numerator. Zero nuclei or unavailable physical calibration gives an
+undefined ratio, preserved as a blank with its reason; it never becomes zero
+or infinity. Other valid UMA measurements remain available. The metric is
+matrix area normalized by observed nuclei, not a direct measurement of
+single-cell FN production.
+
+With FIA enabled, filtered plots and tests require **both** FN coverage at
+or above its cutoff and non-border nuclei at or above `--min-nuclei`
+(default **0**, count filtering off). All matched images remain in the
+before-filter views. Hollow points identify low nuclei counts; red outlines
+still identify low FN, and well shapes and condition colors are retained.
+The new metric adds two figures, giving **eight figures on `Plots`**.
+
+`--stats-unit image` tests per-image ratios; `--stats-unit well` tests the
+mean of available per-image ratios within each well. Undefined ratios do
+not invalidate other metrics. Both modes include the new metric in the
+planned **eight-metric Holm family** within each color block. Omitting the
+option, or choosing `none` in the wizard, disables tests. Without FIA,
+reporting retains the existing six figures and seven-metric family.
+
+Missing or incompatible FIA images are listed in `fia_image_check.csv` and
+**FIA Image Check**. Analysis continues on matched images with status
+`PARTIAL` (exit code 1). A folder with no usable matching FIA results fails;
+other source folders still run. Threshold exclusions alone do not make a
+run partial. **FIA Image Audit** / `fia_image_audit.csv` retain every UMA row,
+counts, cutoffs, match status, ratio, and exclusion reasons. Input copies,
+checksums, `fia_selection.json`, the run log, and
+`uma_assay/UMA_Logs/5_report.log` record the selected run and exclusions.
+The plate map remains in UMA's selected `Combined_Results`; no second map
+is required in FIA for this integration.
+
 ## Figures and workbook
 
-All **6 figures** (three full-data, then three FN-filtered views) are embedded
+Without FIA integration, all **6 figures** (three full-data, then three FN-filtered views) are embedded
 on one final **Plots** worksheet: FN coverage, alignment, thickness measured
 area. Thickness `StdDev`, `Min`, `Max`, and `Median` are not plotted
 in PNG, PDF, or Excel; their measurements and optional statistical results
@@ -708,3 +791,4 @@ Related project: [FIA-tools](https://github.com/alexdolskii/FIA-tools).
 - [Aleksandr Dolskii](mailto:aleksandr.dolskii@fccc.edu)
 - [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com)
 - Michael Miano
+

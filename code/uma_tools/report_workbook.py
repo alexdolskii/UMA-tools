@@ -18,10 +18,11 @@ from .report_schema import (
     FN_LOW_FLAG,
     FN_METRIC,
     FN_REASON_COLUMN,
-    PLOT_NAMES,
+    NUCLEI_LOW_FLAG,
     SHEET_NAMES,
     ReportData,
     ValidationError,
+    report_plot_names,
 )
 
 if TYPE_CHECKING:
@@ -35,6 +36,10 @@ STATISTICS_TABLE_START = 14
 def workbook_sheet_names(data):
     """Include statistical exports only when tests were requested."""
     names = list(SHEET_NAMES)
+    if data.get("fia_enabled"):
+        names[
+            names.index("Filter Summary") : names.index("Filter Summary")
+        ] = ["FIA Image Check", "FIA Image Audit"]
     if data.get("statistics") is not None:
         index = names.index("Plate Map")
         names[index:index] = STATISTICS_SHEETS
@@ -147,7 +152,12 @@ def _write_plot_sheets(workbook, data, plots):
     from openpyxl.worksheet.pagebreak import Break
 
     sheet = workbook["Plots"]
-    title_sheet(sheet, "UMA figures — all images, then FN-filtered images")
+    title_sheet(
+        sheet,
+        "UMA figures — all matched images, then combined filters"
+        if data.get("fia_enabled")
+        else "UMA figures — all images, then FN-filtered images",
+    )
     sheet.sheet_properties.tabColor = HEADER_COLOR
     for column in "ABCDEFGHIJKLMNOP":
         sheet.column_dimensions[column].width = 9
@@ -277,13 +287,24 @@ def _write_measurement_sheets(workbook, data):
 def _write_filter_summary(workbook, data):
     """Record image exclusions by group and original replicate well."""
     filter_sheet = workbook["Filter Summary"]
-    title_sheet(filter_sheet, "Fibronectin coverage filter")
+    title_sheet(
+        filter_sheet,
+        "FN coverage and nuclei filters"
+        if data.get("fia_enabled")
+        else "Fibronectin coverage filter",
+    )
     put_cell(
         filter_sheet,
         4,
         1,
         f"Cutoff: {data['fn_threshold']:g}%. Values below the cutoff "
-        "are excluded only from filtered views.",
+        "are excluded only from filtered views."
+        + (
+            f" Also requires non-border nuclei >= {data['min_nuclei']}; "
+            "only matched images are used."
+            if data.get("fia_enabled")
+            else ""
+        ),
     )
     put_cell(
         filter_sheet,
@@ -501,7 +522,12 @@ def _statistics_notes(data):
         (
             "FN selection",
             f"Only images with FN% >= {data['fn_threshold']:g}. "
-            "FN% results describe this selected population.",
+            "FN% results describe this selected population."
+            + (
+                f" Non-border nuclei must also be >= {data['min_nuclei']}."
+                if data.get("fia_enabled")
+                else ""
+            ),
         ),
         (
             "Comparisons",
@@ -511,7 +537,8 @@ def _statistics_notes(data):
         (
             "Multiplicity",
             "Holm correction over all planned treatment-control comparisons "
-            "and all seven metrics within each color block.",
+            f"and all {8 if data.get('fia_enabled') else 7} metrics "
+            "within each color block.",
         ),
         (
             "Confidence intervals",
@@ -766,8 +793,15 @@ def verify_workbook(
             )
         for row in data["rows"]:
             expected_low = row[FN_METRIC] < data["fn_threshold"]
-            if row[FN_LOW_FLAG] != expected_low or row[FN_INCLUDED_FLAG] != (
-                not expected_low
+            expected_nuclei_low = bool(
+                data.get("fia_enabled")
+                and row["Non_border_nuclei_count"] < data["min_nuclei"]
+            )
+            if (
+                row[FN_LOW_FLAG] != expected_low
+                or bool(row.get(NUCLEI_LOW_FLAG, False)) != expected_nuclei_low
+                or row[FN_INCLUDED_FLAG]
+                != (not expected_low and not expected_nuclei_low)
             ):
                 raise RuntimeError(
                     "Filter flags do not match the threshold: "
@@ -783,7 +817,10 @@ def verify_workbook(
                         )
         if require_success:
             final_row = list(workbook["Run Log"].values)[-1]
-            if final_row[1:3] != ("SUCCESS", "Run"):
+            expected_status = (
+                "PARTIAL" if data.get("fia_partial") else "SUCCESS"
+            )
+            if final_row[1:3] != (expected_status, "Run"):
                 raise RuntimeError(
                     "The embedded run log is missing its final success status."
                 )
@@ -793,7 +830,7 @@ def verify_workbook(
         images = [
             name for name in archive.namelist() if name.startswith("xl/media/")
         ]
-        plot_count = len(PLOT_NAMES)
+        plot_count = len(report_plot_names(data))
         if len(images) != plot_count:
             raise RuntimeError(
                 f"Expected {plot_count} embedded plots; found {len(images)}."

@@ -54,11 +54,40 @@ define comparison blocks, and bold condition names identify each block's
 control. See the [statistics rules](../README.md#optional-report-statistics)
 for template validation, correction families, and interpretation.
 
+## Guided report setup
+
+Run `uma_report` with no arguments to answer the settings in the terminal:
+JSON path, FN cutoff, optional FIA nuclei integration and count cutoff,
+statistics, figure format, worksheet, and plate label. Enter accepts the
+displayed default; `q` cancels. `uma_report -i input_paths.json` also starts
+the wizard in a terminal. Explicit analysis options keep unattended behavior;
+`--interactive` asks only for missing settings and `--non-interactive` uses
+defaults without questions. Defaults: FN 20%, FIA off, nuclei cutoff 0,
+statistics off, PDF, first worksheet, source-folder label.
+
+Optional FIA integration uses the latest valid final-nuclei run under the
+same source folder's `fia_assay`, for either nuclei-only or full marker
+analysis. It adds **FN-positive area (µm²) / non-border nuclei** and applies
+both FN and nuclei cutoffs to filtered views. Two new figures join the six
+existing figures on `Plots`. Both `--stats-unit image` and `well` test the
+new ratio; Holm then covers eight metrics. Missing FIA images yield a partial
+report with an explicit audit; zero nuclei gives an undefined ratio.
+
+```bash
+uma_report
+uma_report -i input_paths.json --with-fia-nuclei --min-nuclei 20 --stats-unit well
+```
+
+The file-format adapter is `report_nuclei.py`; CLI options and guided setup
+are in `report_options.py`. No FIA Python imports, Java startup, or new
+production dependencies are needed. See the [integration rules and
+outputs](../README.md#guided-report-setup-and-optional-fia-nuclei-counts).
+
 ## Figure and workbook style
 
 Version 0.2.13 follows the FIA figure style: Arial (Liberation Sans or DejaVu
 Sans fallback), readable labels, at most two panel columns, and shared linear
-Y limits. All 6 figures are embedded on one final **Plots** sheet: FN coverage,
+Y limits. Without FIA integration, all 6 figures are embedded on one final **Plots** sheet: FN coverage,
 alignment, and thickness measured area, each before and after FN filtering.
 Thickness StdDev, Min, Max, and Median remain in measurement and optional
 statistics tables, but have no PNG/PDF/Excel plots. Holm correction still
@@ -222,3 +251,4 @@ condition, well and FN flag. Light/dark median lines keep the same values.
 All displayed metrics retain their image populations and box values;
 installed CLI tests reconcile
 the color/marker mapping between CSV, JSON and Excel.
+
