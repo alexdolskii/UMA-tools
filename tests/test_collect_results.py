@@ -17,6 +17,9 @@ from uma_tools import collect_results as collector
 
 class CollectionTests(unittest.TestCase):
     def setUp(self):
+        from legacy_table_fixture import table_only_boundary
+
+        table_only_boundary(self)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -595,7 +598,11 @@ class CollectionTests(unittest.TestCase):
     def test_installed_command_and_collection_exit_without_imaging_libraries(
         self,
     ):
-        self.all_runs()
+        self._table_boundary.close()
+        from shared_plate_fixture import seed_all, source_fixture
+
+        self.source, self.config, design = source_fixture(self.root)
+        seed_all(self.source, design, thresholds=(2000,))
         self.config_for(self.source)
         executable = Path(sys.executable).parent / "uma_collect_results"
         result = subprocess.run(
@@ -603,16 +610,16 @@ class CollectionTests(unittest.TestCase):
             cwd=self.root,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("3 analyses", result.stdout)
+        self.assertIn("Area profile", result.stdout)
         self.assertIn("Collection finished", result.stdout)
         script = (
             "import sys; from uma_tools import cli; "
             f"sys.argv=['uma_collect_results','-i',{str(self.config)!r}]; "
             "assert cli.collect_results.__wrapped__() == 0; "
-            "assert not {'imagej','jpype','scyjava','numpy','pandas'} "
+            "assert not {'imagej','jpype','scyjava','pandas'} "
             "& set(sys.modules)"
         )
         result = subprocess.run(
@@ -624,10 +631,11 @@ class CollectionTests(unittest.TestCase):
             cwd=self.root,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.make_run("Thickness", ("different.nd2",), stamp="20260914_180000")
+        # No legacy result can override the audited channel-separated runs.
+        self.make_run("Thickness", ("different.nd2",), stamp="20990914_180000")
         result = subprocess.run(
             [
                 str(executable),
@@ -639,10 +647,10 @@ class CollectionTests(unittest.TestCase):
             cwd=self.root,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=30,
         )
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("1 failed", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("provenance", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

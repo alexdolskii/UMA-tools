@@ -258,13 +258,20 @@ class ImageFailureTests(unittest.TestCase):
         for entry, module, answers, extra in (
             (cli.alignment.__wrapped__, alignment, ["1", "y"], []),
             (cli.thickness.__wrapped__, thickness, ["2", "1", "y"], []),
-            (cli.area.__wrapped__, area, [], ["--channel", "1"]),
+            (cli.area.__wrapped__, area, [], []),
         ):
             with (
                 self.subTest(command=entry.__name__),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 source = Path(temporary)
+                from shared_plate_fixture import scheme
+
+                scheme(
+                    source / "FIA_plate.xlsx",
+                    channels={"B02": ("Control", 2)},
+                    layout=["Control"],
+                )
                 config = source / "input.json"
                 config.write_text(json.dumps({"folder_paths": [str(source)]}))
                 target = (
@@ -288,15 +295,27 @@ class ImageFailureTests(unittest.TestCase):
             folders = [source / "one", source / "two"]
             for folder in folders:
                 folder.mkdir()
-                (folder / "image.tiff").touch()
+                (folder / "image_WellB02.tiff").touch()
+                from openpyxl import load_workbook
+                from shared_plate_fixture import scheme
+
+                design = scheme(
+                    folder / "FIA_plate.xlsx",
+                    channels={"B02": ("Control", 2)},
+                    layout=["Control"],
+                )
+                book = load_workbook(design.path)
+                book["Channels"]["D13"] = None
+                book.save(design.path)
+                book.close()
             config = source / "input.json"
             config.write_text(
                 json.dumps({"folder_paths": list(map(str, folders))})
             )
             gateway = Mock()
             with (
-                patch.object(
-                    alignment, "initialize_imagej", return_value=gateway
+                patch(
+                    "uma_tools.imagej.initialize_imagej", return_value=gateway
                 ),
                 patch.object(
                     alignment,
@@ -367,6 +386,10 @@ class JournalTests(unittest.TestCase):
                 config = source / "input.json"
                 config.write_text(json.dumps({"folder_paths": [str(source)]}))
                 with (
+                    patch(
+                        "uma_tools.plate_templates.interactive_selection",
+                        return_value=True,
+                    ),
                     patch("builtins.input", side_effect=[answer]),
                     patch.object(alignment, "initialize_imagej") as initialize,
                 ):

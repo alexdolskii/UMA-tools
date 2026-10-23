@@ -45,6 +45,11 @@ def unique_output(
     stamp = timestamp or datetime.now(timezone.utc).strftime(
         "%Y%m%d_%H%M%S_%f"
     )
+    from .fiber_routes import active_route
+
+    route = active_route()
+    if route is not None:
+        prefix += route.label + "_"
     base = f"{stamp}_{os.getpid()}" if include_pid else stamp
     for counter in range(max_attempts):
         suffix = f"_{counter:0{counter_width}d}" if counter else ""

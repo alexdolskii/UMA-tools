@@ -3,8 +3,8 @@
 from contextlib import contextmanager
 from typing import Any
 
-from .progress import current_folder, current_session, phase
 from .constants import FIJI_ENDPOINT
+from .progress import current_folder, current_session, phase
 
 
 class ImageJInitializationError(Exception):

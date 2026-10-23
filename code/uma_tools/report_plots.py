@@ -271,6 +271,18 @@ def _comparison_layout(comparisons, groups):
     levels = []
     layout = []
     for comparison in comparisons:
+        if comparison["Status"] == "Not applicable":
+            layout.append(
+                {
+                    **comparison,
+                    "Annotation": "Not applicable",
+                    "Annotation_Reason": comparison["Reason"],
+                    "Bracket_Level": None,
+                    "Bracket_Left": None,
+                    "Bracket_Right": None,
+                }
+            )
+            continue
         missing = [
             comparison[role]
             for role in ("Control", "Treatment")
@@ -418,6 +430,30 @@ def prepare_plot_design(data, template, log):
 def plot_panels(data):
     """Partition conditions once, retaining empty filtered groups."""
     groups = data["group_order"]
+    if data.get("layout_panels"):
+        context, _ = short_labels(groups)
+        result = []
+        for index, item in enumerate(data["layout_panels"], 1):
+            prefix, labels = short_labels(item["groups"])
+            title = (
+                prefix[len(context) :].strip()
+                if context and prefix.startswith(context)
+                else prefix
+            )
+            result.append(
+                {
+                    "id": panel_letter(index),
+                    "color_code": item["block"],
+                    "groups": item["groups"],
+                    "labels": labels,
+                    "context": context,
+                    "title": title or f"Block {index}",
+                    "layout_row": item["row"],
+                    "layout_column": item["column"],
+                    "layout_end_column": item["end_column"],
+                }
+            )
+        return result
     statistics = data.get("statistics") or {}
     design = data.get("plot_design", statistics.get("design", []))
     by_well = {row["Well"]: row for row in design}
@@ -464,6 +500,45 @@ def plot_panels(data):
             }
         )
     return panels
+
+
+def panel_grid(panels):
+    """Map the drawn strips to panels, preserving their relative positions."""
+    if not all("layout_row" in panel for panel in panels):
+        columns = min(2, len(panels))
+        return (
+            math.ceil(len(panels) / columns),
+            columns,
+            [
+                (i // columns, i % columns, i % columns + 1)
+                for i in range(len(panels))
+            ],
+            [1] * columns,
+        )
+    rows = sorted({p["layout_row"] for p in panels})
+    left = min(p["layout_column"] for p in panels)
+    right = max(p["layout_end_column"] for p in panels)
+    widths = [
+        1
+        if any(
+            p["layout_column"] <= c <= p["layout_end_column"] for p in panels
+        )
+        else 0.2
+        for c in range(left, right + 1)
+    ]
+    return (
+        len(rows),
+        len(widths),
+        [
+            (
+                rows.index(p["layout_row"]),
+                p["layout_column"] - left,
+                p["layout_end_column"] - left + 1,
+            )
+            for p in panels
+        ],
+        widths,
+    )
 
 
 def _legend_handles(name, threshold, filtered, markers):
@@ -545,9 +620,13 @@ def _render_plot(
     well_counts = {
         g: len({r["Well"] for r in rows if r["Group"] == g}) for g in groups
     }
-    columns = min(2, len(panels))
+    grid_rows, columns, positions, widths = panel_grid(panels)
     panel_width = max(7.2, 1.85 * max(len(p["groups"]) for p in panels))
-    width = columns * panel_width
+    width = (
+        sum(widths)
+        * panel_width
+        / min(sum(widths[a:b]) for _, a, b in positions)
+    )
     view = f"FN coverage ≥ {threshold:g}%" if filtered else "All images"
     if data.get("fia_enabled"):
         view = (
@@ -555,7 +634,17 @@ def _render_plot(
             if filtered
             else "All matched images"
         )
+    marker = data.get("fiber_route", {}).get("marker_name", "Fibronectin")
+    source_channel = data.get("fiber_route", {}).get("source_channel")
+    if marker != "Fibronectin":
+        base_title = base_title.replace("Fibronectin", marker).replace(
+            "FN", marker
+        )
+        view = view.replace("FN", marker)
+        stats_note = stats_note.replace("FN", marker)
     title = f"{base_title} — {view}"
+    if source_channel is not None:
+        title += f"\n{marker} | original channel C{source_channel}"
     heading = wrap_label(
         title, (width - 0.6) * 72, FONT_SIZES["title"], "bold"
     )
@@ -563,6 +652,9 @@ def _render_plot(
         panels[0]["context"], (width - 0.6) * 72, FONT_SIZES["panel"]
     )
     handles = _legend_handles(name, threshold, filtered, styles["markers"])
+    if marker != "Fibronectin":
+        for handle in handles:
+            handle.set_label(handle.get_label().replace("FN", marker))
     if data.get("fia_enabled") and not filtered and data["min_nuclei"]:
         from matplotlib.lines import Line2D
 
@@ -646,6 +738,9 @@ def _render_plot(
                 f"{len(population) - len(rows)} images have "
                 "no defined calibrated ratio."
             )
+    if marker != "Fibronectin":
+        caption = caption.replace("FN", marker)
+        mask_caption = mask_caption.replace("FN", marker)
     display_caption = wrap_label(
         caption, (width - 0.6) * 72, FONT_SIZES["note"]
     )
@@ -661,9 +756,7 @@ def _render_plot(
         + 0.35 * legend_rows
         + 0.2
     )
-    body_height = math.ceil(len(panels) / columns) * (
-        4.2 + 0.28 * label_lines + 0.45 * levels + 0.55
-    )
+    body_height = grid_rows * (4.2 + 0.28 * label_lines + 0.45 * levels + 0.55)
     footer_height = (
         0.23 * (display_caption.count("\n") + footer_label.count("\n") + 2)
         + 0.32
@@ -725,12 +818,13 @@ def _render_plot(
                 borderaxespad=0,
             )
             grid = outer[1].subgridspec(
-                math.ceil(len(panels) / columns), columns
+                grid_rows, columns, width_ratios=widths
             )
             for index, panel in enumerate(panels):
                 local_rows = [r for r in rows if r["Group"] in panel["groups"]]
                 local_layout, _ = layouts[panel["id"]]
-                slot = grid[index // columns, index % columns]
+                grid_row, left, right = positions[index]
+                slot = grid[grid_row, left:right]
                 if levels:
                     subgrid = slot.subgridspec(
                         2, 1, height_ratios=[0.45 * levels, 4.2]
@@ -787,7 +881,7 @@ def _render_plot(
                 axis.set_ylim(0, shared_upper[field])
                 axis.set_xlim(0.4, len(panel["groups"]) + 0.6)
                 ylabel = (
-                    "Fibronectin coverage (%)"
+                    f"{marker} coverage (%)"
                     if name == "Fibronectin"
                     else "Fibers aligned (%)"
                     if name == "Alignment"
@@ -898,6 +992,7 @@ def _render_plot(
     rendered_ids.sort(key=order.get)
     red_ids.sort(key=order.get)
     plot = {
+        "fiber_route": data.get("fiber_route"),
         "name": name,
         "plot_id": plot_id,
         "sheet": "Plots",

@@ -124,9 +124,17 @@ class BufferedLog:
 
 
 def new_run(parent, source_name, area_label=None):
+    from .fiber_routes import active_route
+
     label = safe_label(source_name)
+    route = active_route()
+    if route is not None:
+        # Leave room for the area settings, marker, timestamp and extension.
+        label = label.encode("utf-8")[:65].decode("utf-8", errors="ignore")
     if area_label:
         label += "_" + area_label
+    if route is not None:
+        label += "_" + route.label
     stem = (
         datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         + f"_{os.getpid()}"
@@ -554,6 +562,7 @@ def validate_template(path, source, args):
 def process_folder(
     source, input_json, args, selection=None, template_selection=None
 ):
+    from .fiber_routes import active_route
     from .plate_templates import prepare_template
 
     buffered = BufferedLog()
@@ -568,7 +577,9 @@ def process_folder(
             if selection
             else template_selection
         ) or prepare_template(
-            source, lambda path, folder: validate_template(path, folder, args)
+            source,
+            lambda path, folder: validate_template(path, folder, args),
+            prefix="FIA" if active_route() else "UMA",
         )
         template_selection.verify()
         output_label = (
@@ -576,6 +587,15 @@ def process_folder(
             if selection
             else safe_label(source.name)
         )
+        if active_route() is not None:
+            output_label = (
+                safe_label(source.name)
+                .encode("utf-8")[:65]
+                .decode("utf-8", errors="ignore")
+                + ("_" + selection["variant"]["label"] if selection else "")
+                + "_"
+                + active_route().label
+            )
         run_id, directory = new_run(
             assay_directory(source, create=True),
             source.name,
@@ -675,6 +695,23 @@ def process_folder(
             directory,
             log,
             threshold,
+        )
+        from .fiber_routes import report_metadata, snapshot
+
+        report_metadata(data)
+        snapshot(directory, status)
+        if data.get("fiber_route"):
+            log.event(
+                "INFO", "Fiber selection", json.dumps(data["fiber_route"])
+            )
+            log.event("INFO", "Plot layout", json.dumps(data["layout_panels"]))
+        parameters.update(
+            fiber_route=data.get("fiber_route"),
+            layout_panels=data.get("layout_panels"),
+            legacy_column_note=(
+                "FN_* fields describe the selected Fiber marker; "
+                "measurements are unchanged."
+            ),
         )
         attach_processing_exclusions(data, directory, log)
         status["processing_excluded_images"] = len(
@@ -830,7 +867,8 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    from .plate_templates import interactive_selection, preflight_templates
+    from .fiber_routes import preflight as prepare_fibers
+    from .fiber_routes import routes, use_route
     from .report_options import resolve_options
 
     try:
@@ -846,16 +884,16 @@ def main(argv=None):
         return 1
     register_sources(folders, input_json)
     try:
-        preflight = preflight_templates(
+        preflight = prepare_fibers(
             folders,
+            args,
             lambda path, source: validate_template(path, source, args),
-            interactive=interactive_selection(args),
         )
     except (KeyboardInterrupt, EOFError):
         console("Plate-template setup cancelled; no reports generated.")
         return 130
     succeeded, failed, partial = 0, 0, 0
-    for item in preflight:
+    for item, design in preflight:
         source = item.source
         try:
             if item.error is not None:
@@ -869,7 +907,24 @@ def main(argv=None):
                 continue
             from .report_batch import process_source
 
-            result = process_source(source, input_json, args, item.selection)
+            results = []
+            for route in routes(source, design):
+                with use_route(route):
+                    results.append(
+                        process_source(
+                            source, input_json, args, item.selection
+                        )
+                    )
+            result = (
+                ReportStatus.SUCCESS
+                if results and all(r is ReportStatus.SUCCESS for r in results)
+                else ReportStatus.PARTIAL
+                if any(
+                    r in (ReportStatus.SUCCESS, ReportStatus.PARTIAL)
+                    for r in results
+                )
+                else ReportStatus.ERROR
+            )
         except KeyboardInterrupt:
             console("Report generation interrupted.", file=sys.stderr)
             return 130

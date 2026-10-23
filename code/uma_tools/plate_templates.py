@@ -15,7 +15,7 @@ from .report_schema import ValidationError
 Validator = Callable[[Path, Path], str]
 
 
-def candidates(source: Path) -> list[Path]:
+def candidates(source: Path, prefix="UMA") -> list[Path]:
     """List only direct, regular UMA*.xlsx inputs; never search results."""
     if not source.is_dir():
         raise ValidationError(f"Source folder not found: {source}")
@@ -23,7 +23,7 @@ def candidates(source: Path) -> list[Path]:
         (
             path
             for path in source.iterdir()
-            if path.name.casefold().startswith("uma")
+            if path.name.casefold().startswith(prefix.casefold())
             and path.suffix.casefold() == ".xlsx"
             and not path.is_symlink()
             and path.is_file()
@@ -32,13 +32,14 @@ def candidates(source: Path) -> list[Path]:
     )
 
 
-def find_template(source: Path) -> Path:
+def find_template(source: Path, prefix="UMA") -> Path:
     """Resolve an unambiguous map without asking or inspecting nested runs."""
-    paths = candidates(source)
+    paths = candidates(source, prefix)
     if len(paths) != 1:
         listing = "; ".join(str(path) for path in paths) or "none"
         raise ValidationError(
-            f"Expected one UMA*.xlsx plate template directly in {source}; "
+            f"Expected one {prefix}*.xlsx plate template directly in "
+            f"{source}; "
             f"found {len(paths)}: {listing}. "
             "Use an interactive terminal to select a template, or leave "
             "one matching file in this source folder."
@@ -95,11 +96,14 @@ def prepare_template(
     validator: Validator,
     path: Path | None = None,
     method: str = "automatic",
+    prefix: str = "UMA",
 ) -> TemplateSelection:
     """Validate content and capture the exact bytes approved at preflight."""
-    path = find_template(source) if path is None else path
-    if path.parent != source or path not in candidates(source):
-        raise ValidationError(f"Not a regular source-folder UMA*.xlsx: {path}")
+    path = find_template(source, prefix) if path is None else path
+    if path.parent != source or path not in candidates(source, prefix):
+        raise ValidationError(
+            f"Not a regular source-folder {prefix}*.xlsx: {path}"
+        )
     digest = sha256_file(path)
     # Workbook parsing is an input boundary: corrupt ZIP/XML, unavailable
     # worksheets and design errors must be fixable before any report starts.
@@ -133,7 +137,11 @@ def _answer(message: str) -> str:
 
 
 def preflight_templates(
-    folders: list[Path], validator: Validator, *, interactive: bool
+    folders: list[Path],
+    validator: Validator,
+    *,
+    interactive: bool,
+    prefix="UMA",
 ) -> list[PreflightResult]:
     """Resolve every source before returning control to report generation."""
     results, seen = [], set()
@@ -146,10 +154,10 @@ def preflight_templates(
         seen.add(canonical)
         while True:
             try:
-                paths = candidates(source)
+                paths = candidates(source, prefix)
                 path, method = None, "automatic"
                 if len(paths) > 1 and interactive:
-                    console(f"Several UMA plate templates in {source}:")
+                    console(f"Several {prefix} plate templates in {source}:")
                     for index, candidate in enumerate(paths, 1):
                         console(f"  {index}. {candidate.name}")
                     answer = _answer(
@@ -172,7 +180,9 @@ def preflight_templates(
                         console("Enter a template number from the list.")
                         continue
                     path, method = paths[int(answer) - 1], "interactive"
-                selection = prepare_template(source, validator, path, method)
+                selection = prepare_template(
+                    source, validator, path, method, prefix
+                )
                 results.append(PreflightResult(source, selection))
                 console(f"READY: {source} -> {selection.path.name}")
                 break
@@ -195,7 +205,7 @@ def preflight_templates(
                         continue
                 results.append(PreflightResult(source, error=issue))
                 break
-    console("Plate-template preflight summary (before report generation):")
+    console("Plate-template preflight summary (before processing):")
     for result in results:
         detail = (
             f"READY -> {result.selection.path}"

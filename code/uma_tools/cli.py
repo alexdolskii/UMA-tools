@@ -89,7 +89,14 @@ def _image_parser(description: str) -> argparse.ArgumentParser:
 def parse_arguments(step, argv=None):
     """Parse arguments before allocating managed runtime resources."""
     if step in ("alignment", "thickness"):
-        parser = _image_parser(f"Fibronectin {step} analysis")
+        parser = _image_parser(
+            f"Fiber {step} analysis using a shared plate scheme"
+        )
+        parser.add_argument(
+            "--marker",
+            help="Exact Fiber marker name from Channels; default: all",
+        )
+        parser.add_argument("--non-interactive", action="store_true")
         if step == "alignment":
             parser.add_argument(
                 "-a",
@@ -114,14 +121,14 @@ def parse_arguments(step, argv=None):
 def alignment(argv: Sequence[str] | None = None) -> int:
     """Run alignment with its existing angle and prompts."""
     args = parse_arguments("alignment", argv)
-    from .alignment_analysis import main_fibronectin_processing
+    from .fiber_workflow import run_images
 
     return _invoke(
         "alignment",
         _run_imagej_command,
-        main_fibronectin_processing,
-        args.input,
-        args.angle_value,
+        run_images,
+        "alignment",
+        args,
     )
 
 
@@ -130,9 +137,11 @@ def thickness(argv: Sequence[str] | None = None) -> int:
     """Run thickness and finish its ImageJ workers."""
     args = parse_arguments("thickness", argv)
     print(f"UMA-tools {package_version()} — thickness analysis", flush=True)
-    from .thickness_analysis import main
+    from .fiber_workflow import run_images
 
-    return _invoke("thickness", _run_imagej_command, main, args.input)
+    return _invoke(
+        "thickness", _run_imagej_command, run_images, "thickness", args
+    )
 
 
 @managed("area")
@@ -140,7 +149,11 @@ def area(argv: Sequence[str] | None = None) -> int:
     """Run area and record its runtime shutdown status."""
     from .area_analysis import main
 
-    return _invoke("area", main, *(() if argv is None else (argv,)))
+    return (
+        _invoke("area", main, argv)
+        if argv is not None
+        else _invoke("area", main)
+    )
 
 
 @managed("collect_results")

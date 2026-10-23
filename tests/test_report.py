@@ -66,6 +66,9 @@ class EventLog:
 
 class ReportFixture(unittest.TestCase):
     def setUp(self):
+        from legacy_table_fixture import table_only_boundary
+
+        table_only_boundary(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -743,19 +746,23 @@ class ReportCommandTests(ReportFixture):
                 "Threshold_Units": "Raw projection intensity",
             },
         )
+        self._table_boundary.close()
+        from shared_plate_fixture import promote_table_fixture
+
+        promote_table_fixture(paths)
         combined = paths["alignment"].parent
         original_bytes = {path: path.read_bytes() for path in paths.values()}
 
         bad_source = self.root / "missing latest assay"
         bad_source.mkdir()
         older = self.make_combined("20260914_100000_000001", source=bad_source)
-        self.inputs(older)
+        promote_table_fixture(self.inputs(older))
         latest = self.make_combined(
             "20260914_120000_000001",
             source=bad_source,
             status="SUCCESS_WITH_MISSING_ANALYSES",
         )
-        self.inputs(latest)["fibronectin"].unlink()
+        promote_table_fixture(self.inputs(latest))["fibronectin"].unlink()
         config = self.config([bad_source, self.source])
         executable = Path(sys.executable).with_name("uma_report")
         self.assertTrue(
@@ -889,6 +896,7 @@ class ReportCommandTests(ReportFixture):
                     "Filter Summary",
                     "Plate Map",
                     "Group_Order",
+                    "Plot_Layout",
                     "QC",
                     "Run Log",
                     "Plot_Data",

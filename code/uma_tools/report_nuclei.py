@@ -199,6 +199,28 @@ def _exclusions(reader, run):
 def load_run(run, source):
     """Validate the shared nuclei-only/full-marker source format."""
     reader = _Reader()
+    from .fiber_routes import active_route
+
+    route = active_route()
+    if route is not None:
+        from .plate_design import read_design
+
+        scheme_meta = reader.json(run / "plate_design.json")
+        content = reader.read(run / "plate_design.xlsx")
+        scheme = read_design(run / "plate_design.xlsx")
+        if (
+            hashlib.sha256(content).hexdigest()
+            != scheme_meta.get("Workbook_SHA256")
+            or scheme_meta.get("Schema_version") != 1
+            or scheme_meta.get("Wells") != scheme.wells
+            or scheme_meta.get("Panels") != scheme.panels
+            or scheme.scope_hash("Nuclei") != scheme_meta.get("Nuclei_SHA256")
+            or scheme.scope_hash("Nuclei") != route.design.scope_hash("Nuclei")
+        ):
+            raise ValidationError(
+                "FIA nuclei scheme is missing, changed, or incompatible with "
+                "current Nuclei assignments"
+            )
     meta = reader.json(run / "nuclei_run.json")
     if (
         meta.get("schema_version") != 1

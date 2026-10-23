@@ -494,13 +494,62 @@ def read_template(
 
     workbook = openpyxl.load_workbook(path, read_only=False, data_only=False)
     try:
-        selected = workbook.sheetnames[0] if sheet_name is None else sheet_name
+        selected = (
+            (
+                "Plate Map"
+                if "Channels" in workbook.sheetnames
+                else workbook.sheetnames[0]
+            )
+            if sheet_name is None
+            else sheet_name
+        )
         if selected not in workbook.sheetnames:
             raise ValidationError(
                 f"Template worksheet {selected!r} was not found. "
                 f"Available: {workbook.sheetnames}"
             )
         sheet = workbook[selected]
+        if "Channels" in workbook.sheetnames:
+            from .plate_design import read_design
+
+            if selected != "Plate Map":
+                raise ValidationError(
+                    "The shared scheme uses the Plate Map worksheet"
+                )
+            design = read_design(path)
+            order = []
+            for panel in design.panels:
+                for group in panel["groups"]:
+                    order.append(
+                        {
+                            "Group": group,
+                            "Order": len(order) + 1,
+                            "Source": "plot_layout",
+                            "Order_Cell": "Plate Map!" + panel["cells"][group],
+                            "Group_Cell": "Plate Map!" + panel["cells"][group],
+                            "Grid_Cells": "; ".join(
+                                "Plate Map!" + w["cell"]
+                                for w in design.wells.values()
+                                if w["condition"] == group
+                            ),
+                        }
+                    )
+            grid = [
+                [sheet.cell(r, c).value for c in range(1, 14)]
+                for r in range(1, 10)
+            ]
+            cells = {
+                f"{letter}{c:02d}": sheet.cell(r, c + 1).coordinate
+                for r, letter in enumerate("ABCDEFGH", 2)
+                for c in range(1, 13)
+            }
+            return (
+                selected,
+                grid,
+                {w: v["condition"] for w, v in design.wells.items()},
+                cells,
+                order,
+            )
         for merged in sheet.merged_cells.ranges:
             if merged.min_row <= 9 and merged.min_col <= 13:
                 raise ValidationError(
@@ -574,7 +623,12 @@ def prepare_display_tables(data, plots, parameters, manifests):
         data.get("group_order_records", []),
     )
     overview = [
-        ("Report", "UMA fibronectin analysis"),
+        (
+            "Report",
+            "UMA Fiber analysis"
+            if data.get("fiber_route")
+            else "UMA fibronectin analysis",
+        ),
         ("Source folder", parameters.get("source_folder", "")),
         ("Collection", parameters.get("combined_results_folder", "")),
         ("Plate", data["plate_id"]),
@@ -624,6 +678,32 @@ def prepare_display_tables(data, plots, parameters, manifests):
             "embedded plots do not recalculate.",
         ),
     ]
+    if data.get("fiber_route"):
+        route = data["fiber_route"]
+        overview[1:1] = [
+            ("Fiber marker", route["marker_name"]),
+            ("Original source channel", f"C{route['source_channel']}"),
+            ("Marker identity", route["marker_id"]),
+            (
+                "Table naming",
+                "FN_* columns describe this selected Fiber marker",
+            ),
+        ]
+        add(
+            "Plot_Layout",
+            ["Row", "Column", "End_column", "Block", "Groups", "Cells"],
+            [
+                {
+                    "Row": p["row"],
+                    "Column": p["column"],
+                    "End_column": p["end_column"],
+                    "Block": p["block"],
+                    "Groups": "; ".join(p["groups"]),
+                    "Cells": json.dumps(p["cells"], ensure_ascii=False),
+                }
+                for p in data["layout_panels"]
+            ],
+        )
     if data.get("fia_enabled"):
         overview.extend(
             [

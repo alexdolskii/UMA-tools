@@ -51,10 +51,14 @@ class StatisticsCommandTests(ReportFixture):
         sheet["O3"], sheet["P3"] = "10", "Treatment"
         book.save(paths["template"])
         book.close()
+        self._table_boundary.close()
+        from shared_plate_fixture import promote_table_fixture
+
+        promote_table_fixture(paths)
         originals = {path: path.read_bytes() for path in paths.values()}
         config = self.config([self.source])
         command = Path(sys.executable).with_name("uma_report")
-        combined = paths["template"].parent
+        combined = paths["alignment"].parent
         results = {}
         for unit, plot_format in (("well", "pdf"), ("image", "both")):
             with self.subTest(unit=unit):
@@ -95,7 +99,7 @@ class StatisticsCommandTests(ReportFixture):
                     parameters["group_order"], ["Treatment", "Control"]
                 )
                 self.assertEqual(
-                    parameters["group_order_source"], "order_table"
+                    parameters["group_order_source"], "plot_layout"
                 )
                 self.assertEqual(
                     status["group_order"], parameters["group_order"]
@@ -204,7 +208,7 @@ class StatisticsCommandTests(ReportFixture):
                     status["workbook"], read_only=True, data_only=False
                 )
                 try:
-                    self.assertEqual(len(workbook.sheetnames), 18)
+                    self.assertEqual(len(workbook.sheetnames), 19)
                     self.assertEqual(
                         workbook["Group_Order"].cell(2, 1).value, "Treatment"
                     )
@@ -246,16 +250,18 @@ class StatisticsCommandTests(ReportFixture):
             self.assertEqual(path.read_bytes(), original)
 
     def test_explicit_stats_invalid_markup_fails_with_diagnostics(self):
-        paths = self.inputs()
+        self.inputs()
         config = self.config([self.source])
         self.assertEqual(
             report.main(["-i", str(config), "--stats-unit", "well"]), 1
         )
-        (output,) = paths["template"].parent.parent.glob("UMA_Report_*")
+        (output,) = (self.source / "uma_assay").glob("UMA_Report_*")
         status = json.loads((output / "run_status.json").read_text())
         self.assertEqual(status["status"], "VALIDATION_FAILED")
-        self.assertEqual(status["stage"], "Statistics")
-        self.assertEqual(status["stats_unit"], "well")
+        self.assertIn("Invalid plate template", status["error"])
+        self.assertIn(
+            "Invalid plate template", (output / "run.log").read_text()
+        )
         self.assertTrue((output / "validation_errors.csv").is_file())
         self.assertEqual(list(output.glob("*.xlsx")), [])
 

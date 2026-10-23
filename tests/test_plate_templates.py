@@ -166,6 +166,15 @@ def test_all_maps_are_validated_before_first_report(
     tmp_path, monkeypatch, command
 ):
     sources = [make_source(tmp_path, name)[0] for name in ("One", "Two")]
+    if command == "main":
+        from shared_plate_fixture import scheme
+
+        for source in sources:
+            scheme(
+                source / "FIA_experiment.xlsx",
+                channels={"B02": ("Control", 2)},
+                layout=["Control"],
+            )
     config = tmp_path / "input.json"
     config.write_text(json.dumps({"folder_paths": [str(p) for p in sources]}))
     module = report if command == "main" else functional_report
@@ -194,7 +203,7 @@ def test_all_maps_are_validated_before_first_report(
         process,
     )
     assert module.main(["-i", str(config), "--non-interactive"]) == 0
-    assert used == sources
+    assert list(dict.fromkeys(used)) == sources
 
 
 @pytest.mark.parametrize("command", ["main", "functional"])
@@ -203,6 +212,15 @@ def test_noninteractive_bad_map_logs_failure_and_processes_good_source(
 ):
     bad, template = make_source(tmp_path, "Bad")
     good, _ = make_source(tmp_path, "Good")
+    if command == "main":
+        from shared_plate_fixture import scheme
+
+        template = bad / "FIA_experiment.xlsx"
+        scheme(
+            good / "FIA_experiment.xlsx",
+            channels={"B02": ("Control", 2)},
+            layout=["Control"],
+        )
     template.write_bytes(b"bad xlsx")
     config = tmp_path / "input.json"
     config.write_text(json.dumps({"folder_paths": [str(bad), str(good)]}))
@@ -218,7 +236,10 @@ def test_noninteractive_bad_map_logs_failure_and_processes_good_source(
         process,
     )
     assert module.main(["-i", str(config), "--non-interactive"]) == 1
-    assert process.call_count == 1 and process.call_args.args[0] == good
+    assert (
+        process.call_count == (2 if command == "main" else 1)
+        and process.call_args.args[0] == good
+    )
     logs = list(bad.rglob("*.log"))
     assert logs and any(str(template) in path.read_text() for path in logs)
 

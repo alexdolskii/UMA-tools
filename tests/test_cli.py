@@ -13,38 +13,36 @@ from uma_tools import cli
 
 class CommandTests(unittest.TestCase):
     def test_alignment_arguments(self):
-        module = types.ModuleType("uma_tools.alignment_analysis")
-        module.main_fibronectin_processing = Mock()
-        with patch.dict(sys.modules, {module.__name__: module}):
-            with patch.object(
-                sys, "argv", ["uma_alignment", "-i", "a b.json", "-a", "10"]
-            ):
-                cli.alignment.__wrapped__()
-        module.main_fibronectin_processing.assert_called_once_with(
-            "a b.json", 10.0
+        with patch(
+            "uma_tools.fiber_workflow.run_images", return_value=0
+        ) as run:
+            self.assertEqual(
+                cli.alignment.__wrapped__(["-i", "a b.json", "-a", "10"]), 0
+            )
+        step, args = run.call_args.args
+        self.assertEqual(
+            (step, args.input, args.angle_value), ("alignment", "a b.json", 10)
         )
 
     def test_alignment_default_angle(self):
-        module = types.ModuleType("uma_tools.alignment_analysis")
-        module.main_fibronectin_processing = Mock()
-        with patch.dict(sys.modules, {module.__name__: module}):
-            with patch.object(
-                sys, "argv", ["uma_alignment", "-i", "input.json"]
-            ):
-                cli.alignment.__wrapped__()
-        module.main_fibronectin_processing.assert_called_once_with(
-            "input.json", 15
-        )
+        with patch(
+            "uma_tools.fiber_workflow.run_images", return_value=0
+        ) as run:
+            cli.alignment.__wrapped__(["-i", "input.json"])
+        self.assertEqual(run.call_args.args[1].angle_value, 15)
 
     def test_thickness_arguments(self):
-        module = types.ModuleType("uma_tools.thickness_analysis")
-        module.main = Mock()
-        with patch.dict(sys.modules, {module.__name__: module}):
-            with patch.object(
-                sys, "argv", ["uma_thickness", "-i", "a b.json"]
-            ):
-                cli.thickness.__wrapped__()
-        module.main.assert_called_once_with("a b.json")
+        with patch(
+            "uma_tools.fiber_workflow.run_images", return_value=0
+        ) as run:
+            cli.thickness.__wrapped__(
+                ["-i", "a b.json", "--marker", "Collagen IV"]
+            )
+        step, args = run.call_args.args
+        self.assertEqual(
+            (step, args.input, args.marker),
+            ("thickness", "a b.json", "Collagen IV"),
+        )
 
     def test_area_preserves_analysis_exit_status(self):
         module = types.ModuleType("uma_tools.area_analysis")
@@ -96,7 +94,7 @@ class CommandTests(unittest.TestCase):
             from uma_tools import cli
 
             command = os.environ["UMA_TEST_COMMAND"]
-            module = types.ModuleType(f"uma_tools.{command}_analysis")
+            module = types.ModuleType("uma_tools.fiber_workflow")
             def main(*_):
                 jar = os.environ.get("UMA_TEST_IMAGEJ_JAR")
                 if jar:
@@ -116,11 +114,7 @@ class CommandTests(unittest.TestCase):
                 if os.environ["UMA_TEST_ANALYSIS_FAILS"] == "1":
                     raise ValueError("deliberate analysis failure")
 
-            entry_point = (
-                "main_fibronectin_processing"
-                if command == "alignment" else "main"
-            )
-            setattr(module, entry_point, main)
+            module.run_images = main
             sys.modules[module.__name__] = module
             sys.argv = [f"uma_{command}", "-i", "input.json"]
             raise SystemExit(getattr(cli, command).__wrapped__())

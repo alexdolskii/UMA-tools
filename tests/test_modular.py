@@ -182,6 +182,16 @@ class EntryPointTests(unittest.TestCase):
             "report_plots",
             "plot_style",
             "plot_palette",
+            "area_variants",
+            "collection_variants",
+            "plate_order",
+            "plate_templates",
+            "report_batch",
+            "report_options",
+            "report_nuclei",
+            "plate_design",
+            "fiber_routes",
+            "fiber_workflow",
             "report_workbook",
         }
         package = REPOSITORY / "code" / "uma_tools"
@@ -280,16 +290,19 @@ entry = next(
 )
 assert entry.load().__wrapped__() == int(result)
 expected = {
-    "uma_tools.alignment_analysis": ("routing path.json", 15),
-    "uma_tools.thickness_analysis": ("routing path.json",),
+
 }.get(module_name, ())
-assert calls == [expected], calls
+if module_name == "uma_tools.fiber_workflow":
+    assert len(calls) == 1 and calls[0][0] in ("alignment", "thickness")
+    assert calls[0][1].input == "routing path.json"
+else:
+    assert calls == [expected], calls
 for heavy in ("imagej", "matplotlib.pyplot"):
     assert heavy not in sys.modules, heavy
 """
         targets = (
-            ("alignment_analysis", "main_fibronectin_processing", 0),
-            ("thickness_analysis", "main", 0),
+            ("fiber_workflow", "run_images", 0),
+            ("fiber_workflow", "run_images", 0),
             ("area_analysis", "main", 3),
             ("collect_results", "main", 3),
             ("report", "main", 3),

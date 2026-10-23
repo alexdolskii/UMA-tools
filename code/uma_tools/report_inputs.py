@@ -73,6 +73,9 @@ def select_combined(source: Path, log: EventLogger) -> Path:
             if match[2]:
                 timestamp = timestamp.replace(microsecond=int(match[2]))
             status = read_collection_status(path)
+            from .fiber_routes import validate_run
+
+            validate_run(path, status)
             if status.get("status") not in SUCCESS_STATES:
                 raise ValidationError(
                     f"Collector status is {status.get('status')!r}"

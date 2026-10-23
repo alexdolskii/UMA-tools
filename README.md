@@ -1,7 +1,8 @@
 # UMA-tools V2 (Unit Matrix Assay)
 
 UMA-tools analyzes fibronectin alignment, layer thickness, and area coverage in
-confocal images of 3D fibroblast/ECM units.
+confocal images of 3D fibroblast/ECM units. The shared plate scheme also
+supports other named `Fiber` markers with the same measurement methods.
 
 **Development status:** `UMA-tools-V2` is the second-version development branch
 for a forthcoming updated protocol. Active development continues in
@@ -145,8 +146,10 @@ Use one JSON file with absolute paths to the original ND2/TIFF image folders:
 }
 ```
 
-Keep the same channel order across images. Activate the environment in each new
-terminal session, then run the first four stages with the same JSON:
+Place one completed [`FIA_96_well_Template.xlsx`](templates/FIA_96_well_Template.xlsx)
+**beside the raw images in each JSON folder before the first stage**. Rename it
+`FIA_<experiment>.xlsx`. This is the shared FIA/UMA scheme; the prefix is `FIA`
+(case insensitive), including when only UMA is used. Then run:
 
 ```bash
 conda activate uma_tools
@@ -154,108 +157,91 @@ uma_alignment -i input_paths.json -a 15
 uma_thickness -i input_paths.json
 area_analysis -i input_paths.json -t 2000
 uma_collect_results -i input_paths.json
-```
-
-Each image assay asks for the fibronectin channel, numbered from **1**.
-Thickness also asks for the image file type. For execution outside the
-repository, provide the JSON's absolute path in quotes.
-
-Before the fifth stage, copy
-[`UMA_96_well_plate_template.xlsx`](UMA_96_well_plate_template.xlsx) from the
-repository root into **each original image folder listed in the JSON**,
-as `<image_folder>/UMA_<experiment>.xlsx`. Fill in your experimental groups
-and save it. Keep the `UMA` filename prefix (case insensitive).
-The selected collection must include all three analyses for each reportable
-Area variant. Then run:
-
-```bash
 uma_report -i input_paths.json --fn-threshold 20
 ```
 
-The supplied template has `Plate Map` and `Instructions` worksheets, with
-96 empty well cells and an empty optional `Order` / `Group` table in O:P.
-Keep columns 1–12 in `B1:M1` and rows A–H in `A2:A9`. Enter literal group names
-in `B2:M9` (for example, well A01 is cell B2). Use identical spelling, case,
-and spacing for wells in the same group. Do not use formulas or merge cells
-in `A1:M9`. Every well represented in the images needs a group; unused wells
-may stay blank. The empty template must be filled before reporting.
-Image names must contain a supported well identifier such as `WellA02`;
-`_Seq####` is not required.
+**Version 0.2.29 starts a fresh five-stage chain.** Rerun image measurements;
+earlier results without scheme/channel provenance are not accepted. The
+measurement methods, calibration, mask thresholds and statistical methods
+are unchanged. No environment recreation or new dependencies are required.
 
-**Optional condition order (all three reporting commands):**
+### Shared experimental scheme
 
-- Enter each unique condition from the plate grid once in `P2:P97` (`Group`)
-  and a unique positive integer in `O2:O97` (`Order`). Numeric text such as
-  `"1"` and gaps such as 10, 20, 30 are accepted. Include conditions with no
-  images. Names must match the grid exactly. Repeated names in different
-  functional comparison blocks share one entry in this table.
-- Conditions follow the numbers, not table row positions. Within each
-  comparison block, conditions follow `Order`; blocks are displayed by
-  their lowest condition rank. A bold control can appear anywhere.
-  `Order=1` and formatting in the order table have no statistical meaning.
-- Without these headers, or with the entire table blank, use first
-  appearance in the grid, row by row and left to right. Previously saved
-  templates remain supported. Conditions with no images or no retained
-  images keep their position and `n=0`.
-- Headers are recognized in row 1 anywhere to the right of column M:
-  `Order` with `Group` or `Groups`, ignoring header case and outer spaces.
-  Duplicated/ambiguous headers, incomplete pairs, duplicate ranks or names,
-  unknown/missing conditions, formulas, errors, and invalid ranks stop the
-  report before analytical calculations, with condition/cell diagnostics.
+- **Plate Map, B2:M9:** conditions in the 96-well grid. Identical condition
+  names have identical direct solid RGB fills and bold formatting. Fill
+  identifies the comparison block; bold identifies its control.
+- **PLOT LAYOUT, B15:M21 on Plate Map:** one horizontal strip per comparison
+  block, with every condition exactly once. Copy the condition's name, fill
+  and bold formatting from the grid. Separate adjacent blocks with a blank
+  column. The strip position specifies panel placement; left-to-right order
+  specifies the X axis. A control can appear last. This replaces the optional
+  `Order` / `Group` table for the five main commands.
+- **Channels, C6:N37:** four physical positions C1–C4 for each well. Write
+  `Fiber: Fibronectin`, `Fiber: Collagen IV`, or another Fiber marker name at
+  its actual acquisition channel. Other supported shared assignments are
+  `Nuclei: DAPI`, `Foci: marker`, `Nuclear intensity: marker`, and
+  `Field signal: marker`; UMA leaves their image measurements to FIA.
+  Write `Ignore` for an existing unused channel. Blank means an absent
+  trailing channel, not a channel to renumber or skip.
+- **Intersections, C44:N51 on Channels:** FIA Foci intersections such as
+  `C2+C3`. UMA validates and preserves this information but does not calculate
+  intersections. FIA requires one Nuclei assignment per annotated well;
+  UMA can also analyze fiber-only wells without Nuclei.
 
-The blank template provides an optional condition dropdown, wrapped cells,
-and a frozen `B2` pane. Manual condition entry remains possible: accept the
-Excel warning when entering a name outside the dropdown. Duplicate entries
-are highlighted red in the order table and incomplete pairs amber; these
-rules do not format the plate grid. The workbook contains no macros.
+All five commands check every source scheme before processing the batch.
+Only direct, visible, regular `FIA*.xlsx` files are candidates; hidden files,
+`._` metadata, Excel lock files, links and results subfolders are ignored.
+One candidate is automatic. In a terminal, several candidates can be selected
+separately for each folder; invalid maps offer retry, skip or cancel.
+`--non-interactive` records bad/ambiguous folders and continues with ready
+folders, returning a nonzero exit code. All five commands use `Plate Map`
+regardless of worksheet tab order.
 
-Order is resolved before palette assignment and FN filtering. It is shared
-by all metrics, full/filtered plots, PNG/PDF/Excel, and summary tables.
-`Group_Order` in Excel, `group_order.csv`, `group_order.json`, run metadata,
-and the log record ranks, the source (`plate_grid` / `order_table`), and
-source cell addresses. Original workbooks remain archived in report inputs.
-Only presentation changes: measurements, image inclusion, well aggregation,
-quartiles, control comparisons, and statistical results are preserved.
-Functional reporting uses the same parser; see its
-[README](functional_assay/README.md) for template locations and outputs.
+Images need an unambiguous `WellA01`–`WellH12` token (unpadded numbers also
+work). A `Point` well token, if present, must agree. `_Seq####` and sequential
+acquisition are not required. ND2/TIF/TIFF files are selected automatically.
+Unannotated wells and wells without the selected Fiber assignment are recorded
+as `NOT_APPLICABLE`, not analyzed or silently mapped to a different channel.
+Actual channel counts must match the scheme; mismatches fail that image and
+other images continue.
 
-**How the template is found (UMA-tools 0.2.28 / functional assay 0.6.1):**
+### Fiber markers and channel-separated results
 
-- `uma_report` and `uma_functional_report` check **all original image folders
-  in the JSON before generating the first report**. Each folder may have its
-  own experimental design and filename.
-- Search only directly in the source folder for regular `UMA*.xlsx` files,
-  ignoring case: `UMA_BK_far_day7.xlsx` and `uma plate.XLSX` both work.
-  Other Excel names, hidden/macOS `._` files, Excel lock files (`~$`),
-  symbolic links, directories, and files inside subfolders are ignored.
-  `.xls` is not supported. Maps inside results folders are not searched.
-- One candidate is selected automatically. With several candidates in an
-  interactive terminal, choose a numbered file separately for each folder.
-  A missing, unreadable, or invalid map offers **retry after correction,
-  skip this folder, or cancel the command**. The final preflight summary
-  shows each source folder, selected map, and readiness before reports start.
-- Without a terminal, or with `--non-interactive`, no choices are guessed:
-  ambiguous/invalid folders get explicit diagnostics and are skipped; ready
-  folders continue. Any skipped/failed folder makes the exit code nonzero.
-- Preflight checks the worksheet, grid, optional order table and, when
-  statistics are enabled, comparison controls. Matching measured wells to
-  annotations is also validated when each report reads its selected CSVs.
-- The first worksheet in tab order is used by default; override it with
-  `--sheet "Worksheet name"`. The active Excel tab does not select a sheet.
-- Every Area variant for a source uses the same preflight selection. Reports
-  archive the exact workbook and record its original path, SHA256, worksheet,
-  and selection method in metadata and logs. A map changed after preflight
-  is rejected; rerun the command to use that edit. A later edit invalidates
-  unchanged-report reuse without modifying previous reports.
+The three image commands read channels from the scheme; they no longer ask
+for one channel for the whole folder. By default they run every Fiber marker.
+Use, for example, `--marker "Collagen IV"` to run only that exact marker.
+The same named marker in C2 and C3 keeps one biological identity but produces
+**separate image runs, collections and reports for each source channel**.
+No graph or statistical comparison pools different physical channels.
+All Area thresholds are collected independently within each marker/channel.
+Folder and workbook names identify the marker, channel and Area thresholds.
 
-Keep the working map beside the raw images. Move an existing map out of
-`Combined_Results` or `Cell_Analysis` and add the `UMA` prefix if necessary.
-Image analysis and collection do not require the map, and collection updates
-no longer copy it between revisions. Both reporting workflows can use the
-same map, or you can select separate `UMA` maps in an interactive terminal.
-`uma_survival_report` keeps the **explicit `plate_template` path in its JSON**
-for one map shared by all days; it validates that map before loading days.
-The explicitly named survival workbook does not require a `UMA` prefix.
+The main outputs remain under `<source>/uma_assay`. Each run archives the
+scheme (`plate_design.xlsx` / `.json`), selected/not-applicable images, marker,
+physical channel and original-image hashes. Collection rejects incompatible
+assignments or changed source images. Editing plot positions or condition
+formatting does not change stored image measurements; rerun the report to
+use the updated presentation. Changing Fiber channel assignments requires
+new image analyses for the affected marker/channel.
+
+`Group_Order` and layout metadata preserve the resolved order and source
+cells in Excel, JSON and logs. Colors are assigned before filtering; gray
+points, well-specific shapes and red low-coverage outlines remain unchanged.
+Conditions without images retain their position and `n=0`. A condition with
+no applicable marker/channel is not compared statistically against a control
+from a different channel. An assigned condition with missing observations
+remains a planned comparison with insufficient-data diagnostics.
+
+For stable table interfaces, existing `FN_*` column names, `--fn-threshold`
+and `Fibronectin_Area_Summary.csv` are retained for every Fiber marker. The
+scheme, metadata, figure titles and overview identify the actual marker;
+these fields mean coverage/area of that selected Fiber signal.
+
+This transition covers **only the five main commands in `code`**.
+`functional_assay` retains its existing `UMA*.xlsx` and `Order` / `Group`
+workflow, including the explicit survival `plate_template` JSON path; see its
+[README](functional_assay/README.md). The original root-level
+`UMA_96_well_plate_template.xlsx` remains available for those workflows.
 
 Key parameters:
 
@@ -282,7 +268,7 @@ area_analysis -i input_paths.json -t 1500
 area_analysis -i input_paths.json -t 2000
 area_analysis -i input_paths.json -t 1500 50000
 uma_collect_results -i input_paths.json
-# Keep one filled UMA*.xlsx beside the original images in each JSON folder.
+# Keep one filled FIA*.xlsx beside the original images in each JSON folder.
 uma_report -i input_paths.json
 ```
 
@@ -420,7 +406,7 @@ With no exclusions, collected summary bytes are unchanged.
 
 Reporting still requires all three summaries per variant from the latest
 completed collection, including a usable `PARTIAL` collection, and the
-selected source-folder `UMA*.xlsx` shared by its variants. It uses the matched retained images, then
+selected source-folder `FIA*.xlsx` shared by its variants. It uses the matched retained images, then
 applies the requested FN filter. Processing failures are distinct from
 low-FN exclusions: they appear in a separate **Processing Exclusions** Excel
 sheet, a CSV and the report log. A collection missing an assay can be saved,
@@ -494,13 +480,13 @@ source folder; it does not enter `uma_assay`. Hidden files, including macOS
 |---|---|
 | Alignment | `uma_assay/Alignment_assay_results_angle_.../`: orientation images and tables; `Analysis/Alignment_Summary.csv` |
 | Thickness | `uma_assay/Thickness_assay_results_.../`: masks, thickness maps, and `Thickness_Summary.csv` |
-| Area | `uma_assay/Area_assay_results_threshold_<lower>[_to_<upper>]_<timestamp>_<id>/`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
-| Collection | `uma_assay/Combined_Results_<source_folder_name>_<timestamp>/`: frozen inputs in `Raw/`, matched CSVs in `Variants/`; the working plate map stays in the source folder |
-| Report | `uma_assay/UMA_Report_<source_folder_name>_AreaThr_<limits>_<projection>_C<channel>_<timestamp>/`: one workbook per Area variant, 6 plots (8 with FIA), tables, input copies, and optional statistics |
+| Area | `uma_assay/Area_assay_results_threshold_<lower>[_to_<upper>]_<marker>_C<channel>_<timestamp>_<id>/`: native-resolution SUM32 projections, masks, and `Fibronectin_Area_Summary.csv` |
+| Collection | `uma_assay/Combined_Results_<source_folder_name>_<marker>_C<channel>_<timestamp>/`: frozen inputs in `Raw/`, matched CSVs in `Variants/`; the working plate map stays in the source folder |
+| Report | `uma_assay/UMA_Report_<source_folder_name>_AreaThr_<limits>_<projection>_C<channel>_<marker>_C<channel>_<timestamp>/`: one workbook per Area variant, 6 plots (8 with FIA), tables, input copies, and optional statistics |
 
 Reports are siblings of collections. The report's `run_status.json` and input
 provenance identify the selected `Combined_Results` and the source-folder
-`UMA*.xlsx`. A verified copy of that workbook is archived in each report.
+`FIA*.xlsx`. A verified copy of that workbook is archived in each report.
 
 Area folder names show the requested raw-intensity thresholds:
 
@@ -544,11 +530,11 @@ Use `--interactive` to ask for unspecified options while preserving supplied
 values, or `--non-interactive` to use defaults without questions. Without a
 terminal, `-i` is required and no questions are asked. Defaults remain FN
 coverage **20%**, no FIA integration, no statistical tests, and PDF figures.
-For each source folder in the JSON, keep the working `UMA*.xlsx` beside
+For each source folder in the JSON, keep the working `FIA*.xlsx` beside
 the original images. Preflight resolves all folders' maps before reporting.
-The first worksheet and source-folder name are the automatic sheet and
-plate label; the settings wizard does not ask for them. Optional `--sheet` and `--plate-id` command-line
-overrides remain available.
+`Plate Map` and the source-folder name are the automatic sheet and plate
+label. The wizard does not ask for them. `--plate-id` can change the label;
+`--sheet`, if supplied, must be `Plate Map` for the shared scheme.
 
 ```bash
 # Guided setup, including the choice to use FIA data
@@ -805,12 +791,17 @@ uma_diagnostics --version
 
 Version 0.2.12 adds the explicit `psutil` dependency for process inspection;
 it may already be installed through another library. No scientific dependency
-versions change. Both version commands should report `0.2.28`.
-Version 0.2.28 and functional assay 0.6.1 use source-folder `UMA*.xlsx` maps
-with batch preflight. Update both packages with
-`python -m pip install --no-deps . ./functional_assay`. Move your filled map
-next to the original images and keep its `UMA` prefix; no new collection or
-image analysis is needed solely for this template-location change.
+versions change. Both version commands should report **0.2.29**.
+
+For 0.2.29, prepare the shared `FIA*.xlsx` beside raw images and **rerun all
+five main stages**. Previous image runs lack the required scheme/channel
+provenance. Functional assays remain at their existing format and package;
+they do not need to be reinstalled for this migration.
+
+Earlier 0.2.28 / functional 0.6.1 introduced source-folder `UMA*.xlsx`
+discovery. That rule remains in functional assays; the main five commands
+now use the shared FIA scheme instead.
+
 Version 0.2.27 adds multiple Area variants, immutable collection revisions,
 and changed-only report batches. Rerun collection once to adopt the new
 layout from saved analyses. Working templates now stay in the source folder.

@@ -113,7 +113,8 @@ ASSAYS = (
     Assay(
         "Thickness",
         "Thickness_assay_results_",
-        r"Thickness_assay_results_" + ASSAY_TIMESTAMP_PATTERN,
+        r"Thickness_assay_results_(?:Fiber_.+_C[1-4]_)?"
+        + ASSAY_TIMESTAMP_PATTERN,
         SUMMARY_NAMES["Thickness"],
         ("File_Name", *THICKNESS_METRICS),
         THICKNESS_METRICS,
@@ -122,6 +123,7 @@ ASSAYS = (
         "Area",
         "Area_assay_results_",
         r"Area_assay_results_(?:threshold_[^_]+(?:_to_[^_]+)?_)?"
+        + r"(?:Fiber_.+_C[1-4]_)?"
         + ASSAY_TIMESTAMP_PATTERN,
         SUMMARY_NAMES["Area"],
         ("File_Name", "FN_Positive_Pixels", "FN_Area_Percent", "FN_Area"),
@@ -192,6 +194,8 @@ def image_key(assay, name):
 
 
 def read_summary(assay, run, timestamp):
+    from .fiber_routes import validate_run
+
     path = run / assay.summary
     # Never follow a summary or Analysis directory into a different run.
     if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
@@ -217,6 +221,7 @@ def read_summary(assay, run, timestamp):
             raise ValidationError(
                 f"Run completion status is {state!r}, not SUCCESS or PARTIAL"
             )
+    validate_run(run, status)
     data = path.read_bytes()
     reader = csv.DictReader(
         io.StringIO(data.decode("utf-8-sig"), newline=""), strict=True
@@ -284,6 +289,29 @@ def read_summary(assay, run, timestamp):
         rows.append(row)
     if not rows:
         raise ValidationError("CSV contains no image rows")
+    from .fiber_routes import active_route
+
+    route = active_route()
+    if route is not None:
+        from .plate_design import well_from_name
+
+        for row in rows:
+            original = row.get("Source_File_Name", "")
+            if (
+                row.get("Fiber_Marker_ID") != route.marker["id"]
+                or row.get("Source_Channel") != str(route.channel)
+                or not original
+                or Path(original).name != original
+                or well_from_name(original) not in route.wells
+                or image_key(assay, row["File_Name"])[1]
+                not in (original, Path(original).stem)
+                or sha256_file(route.source / original)
+                != row.get("Source_SHA256")
+            ):
+                raise ValidationError(
+                    "Changed source or mismatched Fiber/channel identity in "
+                    "summary"
+                )
     audited = validate_image_audit(assay, status, rows, data)
     if assay.name == "Area" and not audited:
         for field in ("input_images", "processed_images", "generated_masks"):
@@ -643,6 +671,9 @@ def collect_folder(source, input_json):
     }
     records, tables, selection_errors = [], {}, []
     try:
+        from .fiber_routes import snapshot
+
+        snapshot(output, status)
         save_json(output / "run_status.json", status)
         logger.info(
             "UMA results collector %s. Source: %s",
@@ -869,8 +900,16 @@ def main(argv=None):
         diagnostic_failure(None, input_json, error)
         return 1
     register_sources(folders, input_json)
+    from .fiber_routes import preflight, routes, use_route
+
+    prepared = preflight(folders, args)
     seen, failed, succeeded = set(), 0, 0
-    for source in folders:
+    for item, design in prepared:
+        source = item.source
+        if item.error:
+            diagnostic_failure(source, input_json, item.error)
+            failed += 1
+            continue
         try:
             canonical = source.resolve()
         except (OSError, ValueError) as error:
@@ -884,7 +923,15 @@ def main(argv=None):
         try:
             from .collection_variants import collect
 
-            result = collect(source, input_json, args)
+            results = []
+            for route in routes(source, design):
+                with use_route(route):
+                    results.append(collect(source, input_json, args))
+            result = (
+                CollectStatus.SUCCESS
+                if results and all(r.succeeded for r in results)
+                else CollectStatus.ERROR
+            )
         except KeyboardInterrupt:
             console("Collection interrupted.", file=sys.stderr)
             return 130

@@ -36,6 +36,8 @@ STATISTICS_TABLE_START = 14
 def workbook_sheet_names(data):
     """Include statistical exports only when tests were requested."""
     names = list(SHEET_NAMES)
+    if data.get("fiber_route"):
+        names.insert(names.index("Group_Order") + 1, "Plot_Layout")
     if data.get("fia_enabled"):
         names[
             names.index("Filter Summary") : names.index("Filter Summary")

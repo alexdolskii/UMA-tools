@@ -160,6 +160,17 @@ def archive_table(table, output, relative, origin=None):
         raise OSError(f"Copy verification failed: {path}")
     if status_data is not None:
         (folder / "run_status.json").write_bytes(status_data)
+    from .fiber_routes import active_route
+
+    if active_route() is not None:
+        for name in (
+            "plate_design.xlsx",
+            "plate_design.json",
+            "source_selection.csv",
+        ):
+            original = table.run / name
+            if original.is_file():
+                (folder / name).write_bytes(original.read_bytes())
     origin = origin or {}
     record = {
         "analysis": table.assay.name,
@@ -248,6 +259,9 @@ def build_variant(source, output, tables, origins, settings):
         "exclusions_sha256": sha256_file(output / "processing_exclusions.csv"),
         "errors": errors,
     }
+    from .fiber_routes import snapshot
+
+    snapshot(output, state)
     if errors:
         state["status"] = "VALIDATION_FAILED"
     else:
@@ -404,6 +418,9 @@ def collect(source, input_json, args):
             "variants": [],
             "copied_csvs": [],
         }
+        from .fiber_routes import snapshot
+
+        snapshot(output, state)
         save_json(output / "run_status.json", state)
         logger.info("Collection mode: %s; parent: %s", mode, previous)
         for change in changes:

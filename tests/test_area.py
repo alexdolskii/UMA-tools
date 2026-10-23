@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from uma_tools import area_analysis as area
-from uma_tools.area_imagej import FLOAT32_MAX
+from uma_tools.area_imagej import FLOAT32_MAX, threshold_settings
 
 
 class AreaInputTests(unittest.TestCase):
@@ -38,13 +38,29 @@ class AreaInputTests(unittest.TestCase):
                 with self.subTest(arguments=arguments):
                     root = Path(folder) / str(index)
                     root.mkdir()
+                    from shared_plate_fixture import scheme
+
+                    design = scheme(
+                        root / "FIA_plate.xlsx",
+                        channels={"B02": ("Control", 2)},
+                        layout=["Control"],
+                    )
+                    from uma_tools.fiber_routes import routes
+
+                    route = routes(root, design)[0]
                     with (
                         patch.object(area, "ImageJEngine") as engine,
                         patch.object(area, "shutdown_imagej_workers"),
                         contextlib.redirect_stdout(io.StringIO()),
                     ):
                         result = area.main(
-                            ["--folder", str(root), "--channel", "1"]
+                            [
+                                "--folder",
+                                str(root),
+                                "--marker",
+                                "Fibronectin",
+                                "--non-interactive",
+                            ]
                             + list(arguments)
                         )
                     self.assertEqual(result, 1)
@@ -56,14 +72,14 @@ class AreaInputTests(unittest.TestCase):
                     self.assertEqual(status["status"], "NO_INPUT")
                     self.assertEqual(
                         output.name,
-                        f"Area_assay_results_{label}{status['run_id']}",
+                        f"Area_assay_results_{label}{route.label}_{status['run_id']}",
                     )
                     parameters = json.loads(
                         (output / "run_parameters.json").read_text()
                     )
                     self.assertEqual(
                         parameters["threshold"],
-                        area.threshold_settings(*bounds),
+                        threshold_settings(*bounds),
                     )
 
     def test_direct_inventory_needs_no_alignment_or_sequence_identifier(self):
@@ -112,8 +128,6 @@ class AreaInputTests(unittest.TestCase):
                     [
                         "-i",
                         str(manifest),
-                        "--channel",
-                        "1",
                         "-t",
                         "5000",
                         "2000",
@@ -188,11 +202,31 @@ class AreaCommandImageJTests(unittest.TestCase):
         return expected
 
     def run_command(self, root, manifest, bounds):
+        import openpyxl
+        from shared_plate_fixture import scheme
+
+        for folder in json.loads(manifest.read_text())["folder_paths"]:
+            design = scheme(
+                Path(folder) / "FIA_plate.xlsx",
+                channels={"B02": ("Control", 2)},
+                layout=["Control"],
+            )
+            book = openpyxl.load_workbook(design.path)
+            book["Channels"]["D13"] = None
+            book.save(design.path)
+            book.close()
         command = Path(sys.executable).parent / "area_analysis"
         result = subprocess.run(
-            [str(command), "-i", str(manifest), *bounds],
+            [
+                str(command),
+                "-i",
+                str(manifest),
+                "--marker",
+                "Fibronectin",
+                "--non-interactive",
+                *bounds,
+            ],
             cwd=root,
-            input="2\n",
             capture_output=True,
             text=True,
             timeout=240,
@@ -201,7 +235,7 @@ class AreaCommandImageJTests(unittest.TestCase):
             result.stdout.count(
                 "Enter fibronectin channel index (starting from 1):"
             ),
-            1,
+            0,
         )
         return result
 
@@ -214,7 +248,7 @@ class AreaCommandImageJTests(unittest.TestCase):
             source = root / "originals"
             source.mkdir()
             expected_sum = self.write_multichannel_stack(
-                source / "sample.tiff"
+                source / "sample_WellB02.tiff"
             )
             (source / "._sample.tiff").write_bytes(b"Not an image")
             (source / "directory.tiff").mkdir()
@@ -265,7 +299,7 @@ class AreaCommandImageJTests(unittest.TestCase):
                         rows = list(csv.DictReader(stream))
                     self.assertEqual(len(rows), 1)
                     row = rows[0]
-                    self.assertEqual(row["File_Name"], "sample.tiff")
+                    self.assertEqual(row["File_Name"], "sample_WellB02.tiff")
                     self.assertEqual(int(row["Channel_Index"]), 2)
                     self.assertEqual(int(row["Number_of_Z_Stacks"]), 2)
                     self.assertEqual(
@@ -303,12 +337,12 @@ class AreaCommandImageJTests(unittest.TestCase):
             bad.mkdir()
             good.mkdir()
             tifffile.imwrite(
-                bad / "single_channel.tif",
+                bad / "single_channel_WellB02.tif",
                 np.ones((2, 4, 5), dtype=np.uint16),
                 imagej=True,
                 metadata={"axes": "ZYX"},
             )
-            self.write_multichannel_stack(good / "valid.tiff")
+            self.write_multichannel_stack(good / "valid_WellB02.tiff")
             manifest = root / "input.json"
             manifest.write_text(
                 json.dumps({"folder_paths": [str(bad), str(good)]})

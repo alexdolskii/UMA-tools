@@ -9,8 +9,8 @@ Run in the UMA environment:
 
 The threshold is an inclusive LOWER [UPPER] interval in raw projection
 intensity units. The default lower bound is 2000; an omitted upper bound
-(or inf) uses the largest finite float32 value. The 1-based fibronectin
-channel is requested once unless --channel is supplied. --projection
+(or inf) uses the largest finite float32 value. The shared scheme assigns
+each well's Fiber marker and physical channel. --projection
 defaults to sum; --projections-only retains the optional inspection mode
 without masks or area measurements.
 
@@ -59,10 +59,8 @@ from pathlib import Path
 
 from . import package_version
 from .area_imagej import (
-    DEFAULT_THRESHOLD_LOWER,
     ImageJEngine,
     ValidationError,
-    threshold_settings,
 )
 from .config import load_json, resolve_path
 from .files import assay_directory, sha256_file
@@ -75,11 +73,9 @@ from .imagej import (
 )
 from .progress import (
     CANCELLATIONS,
-    ask_channel,
     console,
     folder_logged,
     outcome,
-    register_sources,
 )
 from .run import RunLog as _RunLog
 from .run import unique_output
@@ -251,12 +247,16 @@ def original_inventory(source_folder):
     """
     Select every visible original image directly in the supplied folder.
     """
+    from .fiber_routes import selected_name
+
     files = sorted(
         path
         for path in source_folder.iterdir()
         if not path.name.startswith(".")
         and path.is_file()
+        and not path.is_symlink()
         and path.suffix.lower() in ORIGINAL_EXTENSIONS
+        and selected_name(source_folder, path.name)
     )
     return [
         {
@@ -405,6 +405,9 @@ def process_original_images(
                 if not entry["SHA256"]:
                     raise OSError(entry["Reason"])
                 original, reader_name = engine.open_original(path, channel)
+                from .fiber_routes import validate_channels
+
+                validate_channels(path.name, original.getNChannels())
                 projection, measured = engine.project(
                     original, channel, method
                 )
@@ -766,10 +769,9 @@ def parse_args(argv=None):
         ),
     )
     parser.add_argument(
-        "--channel",
-        type=int,
-        help="Fibronectin channel, numbered from 1; prompt once if omitted.",
+        "--marker", help="Exact Fiber marker name from Channels; default: all"
     )
+    parser.add_argument("--non-interactive", action="store_true")
     parser.add_argument(
         "--projection",
         choices=["sum", "mean", "max"],
@@ -856,90 +858,24 @@ def finish_imagej(holder, outputs):
 
 
 def main(argv=None):
+    """Run the shared scheme workflow while retaining startup diagnostics."""
     args = parse_args(argv)
-    holder, outputs, folders = [None], [], []
-    exit_code = 0
+    from .fiber_workflow import run_images
+
     try:
-        folders, input_json = read_source_folders(args)
-        register_sources(folders, input_json)
-        bounds = (
-            args.threshold
-            if args.threshold is not None
-            else [DEFAULT_THRESHOLD_LOWER]
-        )
-        if not 1 <= len(bounds) <= 2:
-            raise ValidationError("Use -t LOWER or -t LOWER UPPER.")
-        lower = bounds[0]
-        upper = bounds[1] if len(bounds) == 2 else None
-        limits = (
-            None if args.projections_only else threshold_settings(lower, upper)
-        )
-        channel = args.channel
-        if channel is None:
-            channel = ask_channel()
-        if (
-            isinstance(channel, bool)
-            or not isinstance(channel, int)
-            or channel < 1
-        ):
-            raise ValidationError(
-                "The fibronectin channel must be an integer "
-                "greater than or equal to 1."
-            )
-        console(
-            f"UMA-tools {package_version()}: "
-            f"{args.projection.upper()}32; channel {channel}; "
-            + (
-                f"threshold {limits['lower']:.9g} to {limits['upper']:.9g}."
-                if limits is not None
-                else "projections only."
-            ),
-            flush=True,
-        )
-        completed = failed = 0
-        for folder in folders:
-            try:
-                result = process_folder(
-                    folder,
-                    channel,
-                    args.projection,
-                    limits,
-                    holder,
-                    input_json,
-                    outputs,
-                )
-                completed += int(result is FolderStatus.SUCCESS)
-                failed += int(result is not FolderStatus.SUCCESS)
-            except (ValidationError, OSError) as error:
-                failed += 1
-                console(
-                    f"Cannot process {folder}: {error}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                output = save_startup_error(error, [folder], args)
-                if output is not None:
-                    outputs.append(output)
-        console(
-            f"Finished: {completed} successful folder(s), "
-            f"{failed} incomplete or failed folder(s).",
-            flush=True,
-        )
-        exit_code = 0 if failed == 0 else 1
+        return run_images("area", args)
     except CANCELLATIONS:
         outcome("CANCELLED", "Processing cancelled by user")
-        exit_code = 130
+        return 130
     except Exception as error:
+        try:
+            folders, _ = read_source_folders(args)
+        except (OSError, ValueError, ValidationError):
+            folders = []
         console(f"Cannot start: {error}", file=sys.stderr, flush=True)
-        output = save_startup_error(error, folders, args)
-        if output is not None:
-            outputs.append(output)
-        exit_code = (
+        save_startup_error(error, folders, args)
+        return (
             2
             if isinstance(error, (ValidationError, OSError, ValueError))
             else 1
         )
-    finally:
-        if not finish_imagej(holder, outputs) and exit_code == 0:
-            exit_code = 1
-    return exit_code

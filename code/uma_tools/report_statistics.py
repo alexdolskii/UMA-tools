@@ -100,6 +100,9 @@ def _color_fields(cell):
         raise ValueError("Unsupported or automatic fill color")
     if kind == "rgb":
         value = value.upper()
+        if "Channels" in cell.parent.parent.sheetnames:
+            # Match FIA's direct RGB block identity (alpha/tint are not IDs).
+            value, tint = "FF" + value[-6:], 0.0
     key = f"solid:{kind}:{value}:tint={tint!r}"
     return {
         "Color_Code": key,
@@ -139,6 +142,10 @@ def _annotated_styles(sheet, well_map):
             if cell.value is None or not str(cell.value).strip():
                 continue
             well, group = f"{letter}{column:02d}", str(cell.value)
+            if "Channels" in sheet.parent.sheetnames:
+                import unicodedata
+
+                group = unicodedata.normalize("NFC", group.strip())
             observed_map[well] = group
             try:
                 if isinstance(cell.value, CellRichText):
@@ -229,11 +236,16 @@ def _read_design(template, data):
         blocks = _comparison_blocks(design)
         from .plate_order import order_blocks, read_group_order
 
-        order = read_group_order(
-            sheet,
-            {row["Well"]: row["Group"] for row in design},
-            {row["Well"]: row["Excel_Cell"] for row in design},
-        )
+        if "Channels" in workbook.sheetnames:
+            from .report_tables import read_template
+
+            order = read_template(template, "Plate Map")[4]
+        else:
+            order = read_group_order(
+                sheet,
+                {row["Well"]: row["Group"] for row in design},
+                {row["Well"]: row["Excel_Cell"] for row in design},
+            )
         blocks = order_blocks(blocks, order)
         theme = workbook.loaded_theme
         palette = list(workbook._colors)
@@ -448,6 +460,31 @@ def calculate_statistics(
         if group != block["control"]
         for metric, label in metrics
     ]
+    if "applicable_wells" in data:
+        applicable = {
+            row["Group"]
+            for row in design
+            if row["Well"] in data["applicable_wells"]
+        }
+        for row in comparisons:
+            if (
+                row["Control"] not in applicable
+                or row["Treatment"] not in applicable
+            ):
+                row.update(
+                    Status="Not applicable",
+                    Significance="",
+                    Reason=(
+                        "Marker/channel not assigned to control or treatment "
+                        "in this scheme"
+                    ),
+                )
+        for row in comparisons:
+            row["Family_Size"] = sum(
+                r["Comparison_Block"] == row["Comparison_Block"]
+                and r["Status"] != "Not applicable"
+                for r in comparisons
+            )
     _apply_holm(comparisons)
     method = (
         METHOD.replace("seven metrics", f"{len(metrics)} metrics")
@@ -473,10 +510,10 @@ def calculate_statistics(
         f"{tested}/{len(comparisons)} planned tests performed. {method}",
     )
     for row in comparisons:
-        if row["Status"] == "Not tested":
+        if row["Status"] in ("Not tested", "Not applicable"):
             log.event(
                 "WARNING",
-                "Statistics not tested",
+                "Statistics " + row["Status"].lower(),
                 f"{row['Comparison_Block']}: {row['Treatment']} versus "
                 f"{row['Control']}; {row['Metric']}: {row['Reason']}",
             )

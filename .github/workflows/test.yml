@@ -48,5 +48,12 @@ jobs:
           python -m pytest tests/test_area_variants.py
           tests/test_report_options.py tests/test_report_nuclei.py
           tests/test_plate_templates.py functional_assay/tests/test_functional_report.py
+          tests/test_shared_plate.py
           functional_assay/tests/test_survival_report.py
           functional_assay/tests/test_workflow.py -q
+
+      - name: Verify shared scheme numerical invariance in Fiji
+        env:
+          UMA_RUN_IMAGEJ_TESTS: "1"
+          MPLBACKEND: Agg
+        run: python -m pytest tests/test_shared_native.py -q

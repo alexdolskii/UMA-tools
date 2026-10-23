@@ -153,6 +153,9 @@ def process_part1(
 
                 # Get image dimensions
                 width, height, channels, slices, frames = imp.getDimensions()
+                from .fiber_routes import validate_channels
+
+                validate_channels(filename, channels)
                 _LOGGER.info(
                     f"Image dimensions for '{filename}': width={width}, "
                     f"height={height}, channels={channels}, slices={slices}, "

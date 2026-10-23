@@ -194,6 +194,7 @@ def choose(plans, args):
 @folder_logged("source")
 def process_source(source, input_json, args, template_selection=None):
     from . import report
+    from .fiber_routes import active_route
     from .plate_templates import prepare_template
 
     buffered = report.BufferedLog()
@@ -202,6 +203,7 @@ def process_source(source, input_json, args, template_selection=None):
         template_selection = template_selection or prepare_template(
             source,
             lambda path, folder: report.validate_template(path, folder, args),
+            prefix="FIA" if active_route() else "UMA",
         )
         template_selection.verify()
         buffered.event(
@@ -248,6 +250,9 @@ def process_source(source, input_json, args, template_selection=None):
                     path, source.name, template_selection.path
                 )
                 variant_state = report_inputs.read_collection_status(path)
+                from .fiber_routes import validate_run
+
+                validate_run(path, variant_state)
                 if sha256_file(inside(path, "processing_exclusions.csv")) != (
                     variant_state.get("exclusions_sha256")
                 ):
@@ -339,6 +344,9 @@ def process_source(source, input_json, args, template_selection=None):
                     "collection": str(collection),
                     "source_folder": str(source),
                     "plate_template": template_selection.metadata(),
+                    "fiber_route": active_route().metadata
+                    if active_route() is not None
+                    else None,
                     "plan": rows,
                 },
             )
@@ -404,6 +412,9 @@ def process_source(source, input_json, args, template_selection=None):
                     "source_folder": str(source),
                     "collection": str(collection),
                     "error": str(error),
+                    "fiber_route": active_route().metadata
+                    if active_route() is not None
+                    else None,
                 },
             )
             raise

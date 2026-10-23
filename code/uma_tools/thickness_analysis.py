@@ -108,6 +108,9 @@ def open_fibronectin_channel(
 
     # Extract fibronectin channel
     phase("Extracting fibronectin channel...")
+    from .fiber_routes import validate_channels
+
+    validate_channels(filename, imp.getNChannels())
     if fibronectin_channel > imp.getNChannels() or fibronectin_channel < 1:
         _LOGGER.warning(f"Invalid fibronectin channel for image {filename}")
         imp.close()
@@ -375,7 +378,10 @@ def process_single_folder(
         .tiff).
         fibronectin_channel (int): The fibronectin channel index.
     """
-    image_files = image_names(folder, (file_extension,))
+    image_files = image_names(
+        folder,
+        (file_extension,) if file_extension else (".nd2", ".tif", ".tiff"),
+    )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     _, output = unique_output(

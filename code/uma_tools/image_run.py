@@ -26,12 +26,16 @@ def image_names(folder, extensions):
     """
     Select only visible regular source images, never result directories.
     """
+    from .fiber_routes import selected_name
+
     return [
         item.name
         for item in Path(folder).iterdir()
         if not item.name.startswith(".")
         and item.is_file()
+        and not item.is_symlink()
         and item.suffix.lower() in extensions
+        and selected_name(folder, item.name)
     ]
 
 
@@ -68,6 +72,9 @@ class ImageRun:
             parameters=parameters,
             started_utc=utc_now(),
         )
+        from .fiber_routes import snapshot
+
+        snapshot(self.output, self.status)
         self.token = None
         self.stages = tuple(stages)
         self.operations = tuple(operations)
@@ -164,6 +171,12 @@ class ImageRun:
         self.save()
         self._show_progress(name, stage)
         try:
+            from .fiber_routes import active_route
+
+            if active_route() is not None and "Source_SHA256" not in record:
+                record["Source_SHA256"] = sha256_file(
+                    Path(self.status["source_folder"]) / name
+                )
             with (
                 image_progress(
                     self._progress_label(stage),
@@ -208,6 +221,11 @@ class ImageRun:
             else "FAILED"
         )
         if summary is not None and count:
+            from .fiber_routes import annotate_summary
+
+            annotate_summary(
+                summary, self.status["source_folder"], self.records
+            )
             self.status["summary_sha256"] = sha256_file(Path(summary))
         self.status.update(status=state, ended_utc=utc_now())
         self.save()

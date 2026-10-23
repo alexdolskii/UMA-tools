@@ -9,13 +9,23 @@ plate-template preparation, outputs, and updates.
 
 ## Five commands
 
-Run the stages individually in order with the same JSON. Before reporting,
-place a filled `UMA*.xlsx` plate template directly in each original
-`<image_folder>` from the JSON. All folders are checked before reports start.
-Keep original-image paths in the JSON. All five commands write results and
-journals inside `uma_assay`; reports are saved beside collections. Collection
-and reporting search only `uma_assay`, so rerun analyses saved in the earlier
-layout.
+Run the stages in order with the same JSON. Before the first stage, put a
+completed shared `FIA*.xlsx` scheme directly in each raw-image folder.
+Version 0.2.29 uses **Plate Map / Channels / PLOT LAYOUT** throughout all
+five commands and requires new analyses with scheme provenance. See the
+[shared format](../README.md#shared-experimental-scheme) and
+[blank template](../templates/FIA_96_well_Template.xlsx).
+
+`Fiber: marker` assignments select images and their actual source channels.
+Each marker/channel is processed, collected and plotted separately; C2 and
+C3 measurements of the same named marker are never pooled. The image
+commands accept optional `--marker "Collagen IV"`; otherwise every Fiber
+marker runs. Image type and channel are read automatically. Existing
+measurement algorithms and command threshold/statistics parameters remain.
+
+All outputs and journals stay under `<source>/uma_assay`. Shared helper
+backward compatibility is retained for functional assays; their workflow
+is not part of this migration.
 
 | Stage | Installed command | Implementation in `uma_tools` |
 |---|---|---|
@@ -26,7 +36,7 @@ layout.
 | Report | `uma_report` | `report.py` |
 
 Area result folders include the requested thresholds: `-t 1500` creates
-`Area_assay_results_threshold_1500_<timestamp>_<id>`; `-t 1500 50000` adds
+`Area_assay_results_threshold_1500_<marker>_C2_<timestamp>_<id>`; `-t 1500 50000` adds
 `threshold_1500_to_50000`. Omitting `-t` records the default `threshold_2000`.
 An omitted upper bound or `inf` uses the finite float32 maximum. Both Area
 naming formats remain discoverable inside `uma_assay`, ordered by timestamp.
@@ -79,20 +89,23 @@ displayed default; `q` cancels. `uma_report -i input_paths.json` also starts
 the wizard in a terminal. Explicit analysis options skip the settings wizard;
 `--interactive` asks only for missing settings and `--non-interactive` uses
 defaults without questions. Defaults: FN 20%, FIA off, nuclei cutoff 0,
-statistics off, PDF, first worksheet, source-folder label.
+statistics off, PDF, Plate Map worksheet, source-folder label.
 
-Keep a filled `UMA*.xlsx` directly in each source folder. The shared
-`plate_templates.py` preflight checks all folders before any report starts:
-one candidate is automatic; several candidates offer a per-folder choice
-in a terminal. Missing/invalid maps offer retry, skip or cancel. With
-`--non-interactive` (or no terminal), invalid/ambiguous sources are logged
-and skipped, valid sources continue, and the command returns a nonzero code.
-The summary lists each source and selected map. Every Area variant shares
-that selection. Original paths, checksums and workbook copies are retained
-in the report; changes after preflight are rejected. The worksheet and
-plate label use their usual defaults; `--sheet` and `--plate-id` remain
-optional overrides. Old result-folder maps are not searched or copied by
-collection. See [template discovery](../README.md#run-the-five-stages).
+All five commands validate every source-folder `FIA*.xlsx` before processing.
+They use `Plate Map`, `Channels` and the physical panel positions in
+`PLOT LAYOUT`; `--sheet`, when supplied, must select `Plate Map`. Every Area
+variant shares the selected scheme. Missing/ambiguous/invalid sources are
+resolved before work starts (retry/select/skip/cancel in a terminal;
+explicit diagnostics and continuation with `--non-interactive`).
+
+Each image run archives exact workbook bytes, resolved assignments and
+original-image SHA256. Collection validates that evidence and isolates each
+marker/channel. New reports also archive the current scheme, resolved layout
+and order. Editing layout/formatting invalidates unchanged-report reuse;
+changing Fiber assignments requires remeasurement. `source_selection.csv`
+explains wells not applicable to each route. Existing `FN_*` columns are
+retained as stable names for the selected Fiber marker, named in metadata
+and plot titles.
 
 Optional FIA integration uses the latest valid final-nuclei run under the
 same source folder's `fia_assay`, for either nuclei-only or full marker
@@ -109,13 +122,17 @@ uma_report -i input_paths.json --with-fia-nuclei --min-nuclei 20 --stats-unit we
 
 The file-format adapter is `report_nuclei.py`; CLI options and guided setup
 are in `report_options.py`. No FIA Python imports, Java startup, or new
-production dependencies are needed. See the [integration rules and
+production dependencies are needed. The adapter additionally validates FIA's
+`plate_design.xlsx` / `.json` and `Nuclei_SHA256` against the current scheme.
+`Nuclei_Images.csv`, `Nuclei_Morphology.csv` and `Nuclei_Run_Info.csv` remain
+the authoritative sources for `Non_border_nuclei_count`; subsequent FIA
+marker reports do not replace them. See the [integration rules and
 outputs](../README.md#guided-report-setup-and-optional-fia-nuclei-counts).
 
 ## Figure and workbook style
 
 Version 0.2.13 follows the FIA figure style: Arial (Liberation Sans or DejaVu
-Sans fallback), readable labels, at most two panel columns, and shared linear
+Sans fallback), readable labels, panel positions from PLOT LAYOUT, and shared linear
 Y limits. Without FIA integration, all 6 figures are embedded on one final **Plots** sheet: FN coverage,
 alignment, and thickness measured area, each before and after FN filtering.
 Thickness StdDev, Min, Max, and Median remain in measurement and optional
@@ -156,6 +173,9 @@ The remaining modules have these responsibilities:
 | Module | Responsibility |
 |---|---|
 | `cli.py` | Command arguments, dispatch, and completion status |
+| `plate_design.py` | Shared FIA/UMA schema and marker identities |
+| `fiber_routes.py` | Marker/channel selection, immutable scheme evidence and source identity |
+| `fiber_workflow.py` | Common preflight and the three unchanged image engines |
 | `__init__.py` | Package identity and installed version |
 | `config.py` | JSON input folders and configuration errors |
 | `files.py` | Core `uma_assay` location, filename labels, CSV/JSON writing, and checksums |
@@ -201,7 +221,7 @@ and compatibility adapters are no longer supported.
   three CSVs; unexplained differences still fail validation. Keep complete
   inputs before exclusions so one variant cannot remove another's images.
   Reporting requires three summaries per variant in the latest completed
-  collection and one preselected source-folder UMA template, without fallback. See the
+  collection and one preselected source-folder FIA shared scheme, without fallback. See the
   [partial-result rules](../README.md#progress-logs-and-partial-results).
 - Preserve filename identities and explicit CSV/JSON writing policies.
   Exclude hidden files, macOS `._` files, and directories named like images.
@@ -267,7 +287,7 @@ metadata, symbolic links, lightweight imports, and log copying/rotation.
 Appearance regressions reconcile every plotted image and box across panel
 layouts and formats, preserve boxplot colors, well shapes and low-FN
 outlines, exercise
-uncolored and tinted templates without statistics, and verify 6 pictures on
+historical uncolored/tinted table fixtures without statistics, and verify 6 pictures on
 one Plots sheet. Numeric exports, raw/adjusted p-values, and the frozen
 alignment distributions/RGB samples remain covered by regression checks.
 
@@ -289,3 +309,23 @@ All displayed metrics retain their image populations and box values;
 installed CLI tests reconcile
 the color/marker mapping between CSV, JSON and Excel.
 
+
+
+Shared-scheme regressions validate marker/channel separation, source hashes,
+worksheet selection independent of tab order, PLOT LAYOUT positions, absent
+conditions, partial exclusions and immutable multi-threshold updates. They
+compare complete report tables, filters and Welch/Holm results before/after
+layout reordering. The current FIA nuclei format is tested both alone and
+with unrelated marker outputs, including the count filter and area/nucleus
+ratio under image-level statistics. Earlier table-only regression fixtures
+isolate the routing boundary; new shared-scheme tests exercise that boundary
+with actual five-stage contracts.
+
+`tests/test_shared_native.py` runs Fiji in its own process. Identical fiber
+pixels in C2/C3 must give identical alignment, thickness and Area values to
+the existing engines with explicitly selected channels; masks, thickness
+maps and SUM projections must match pixel for pixel. Run it with:
+
+```bash
+UMA_RUN_IMAGEJ_TESTS=1 python -m pytest tests/test_shared_native.py -q
+```
