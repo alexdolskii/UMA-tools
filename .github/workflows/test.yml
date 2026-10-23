@@ -2,61 +2,129 @@ name: Test
 
 on:
   push:
-    branches: [main, UMA-tools-V2]
+    branches: [main, UMA-tools-V2, 'ci/**']
   pull_request:
     branches: [main, UMA-tools-V2]
+  workflow_dispatch:
+    inputs:
+      cold_cache:
+        description: Skip restoration of Maven and jgo caches
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -el {0}
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }}
+  python:
+    name: Python - ${{ matrix.suite }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    defaults:
-      run:
-        shell: bash -el {0}
-
+        suite: [main, functional]
+    env:
+      MPLBACKEND: Agg
+      UMA_RUN_IMAGEJ_TESTS: '0'
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
           auto-activate-base: false
           activate-environment: uma_tools
           environment-file: environment_uma.yaml
+      - run: python -m pip install . ./functional_assay -r requirements-dev.txt
+      - name: Test main workflows and dependency preparation without JVM
+        if: matrix.suite == 'main'
+        run: python -m pytest tests scripts/tests -q --junitxml=test-results.xml
+      - name: Test functional workflows without JVM
+        if: matrix.suite == 'functional'
+        run: python -m pytest functional_assay/tests -q --junitxml=test-results.xml
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: python-${{ matrix.suite }}-${{ matrix.os }}
+          path: test-results.xml
 
-      - name: Install the package
-        id: install
-        run: python -m pip install . ./functional_assay "pytest>=8,<10"
-
-      - name: Run the test suite
-        env:
-          UMA_RUN_IMAGEJ_TESTS: "1"
-          MPLBACKEND: Agg
-        run: python -m unittest discover -s tests -v
-
-
-      - name: Test Area revisions, template preflight and report integration
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        env:
-          MPLBACKEND: Agg
+  fiji:
+    name: Fiji - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      MPLBACKEND: Agg
+      UMA_RUN_IMAGEJ_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          auto-activate-base: false
+          activate-environment: uma_tools
+          environment-file: environment_uma.yaml
+      - run: python -m pip install . ./functional_assay -r requirements-dev.txt
+      - name: Restore validated Fiji dependencies
+        id: cache
+        if: inputs.cold_cache != true
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.jgo
+            ~/.cache/uma-tools/bootstrap
+          key: fiji-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('environment_uma.yaml', 'pyproject.toml', 'code/uma_tools/constants.py', 'scripts/prepare_fiji.py') }}
+      - name: Validate Java and prepare pinned Fiji
+        id: prepare
+        run: |
+          set -euo pipefail
+          java -version
+          mvn -version
+          python scripts/prepare_fiji.py --check 2>&1 | tee fiji-bootstrap.log
+      - name: Save only verified dependency caches
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.jgo
+            ~/.cache/uma-tools/bootstrap
+          key: fiji-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('environment_uma.yaml', 'pyproject.toml', 'code/uma_tools/constants.py', 'scripts/prepare_fiji.py') }}
+      - name: Check dependencies in a fresh process
+        run: python scripts/prepare_fiji.py --check
+      # JVMs cannot be restarted in one Python interpreter. Separate the
+      # in-process reference tests from command-level subprocess checks.
+      - name: Native core measurements and calibration
+        run: python -m pytest tests/test_headless.py -q --junitxml=fiji-core.xml
+      - name: Native commands, partial recovery and channel equivalence
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: >-
-          python -m pytest tests/test_area_variants.py
-          tests/test_report_options.py tests/test_report_nuclei.py
-          tests/test_plate_templates.py functional_assay/tests/test_functional_report.py
-          tests/test_shared_plate.py
-          functional_assay/tests/test_survival_report.py
-          functional_assay/tests/test_workflow.py -q
-
-      - name: Verify shared scheme numerical invariance in Fiji
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        env:
-          UMA_RUN_IMAGEJ_TESTS: "1"
-          MPLBACKEND: Agg
-        run: python -m pytest tests/test_shared_native.py -q
+          python -m pytest tests/test_area.py::AreaCommandImageJTests
+          tests/test_cli.py tests/test_partial_fiji.py tests/test_shared_native.py
+          -q --junitxml=fiji-commands.xml
+      - name: Native functional measurements
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: python -m pytest functional_assay/tests/test_cell_fiji.py -q --junitxml=fiji-functional.xml
+      - name: Native stitching command exit
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: python -m pytest functional_assay/tests/test_stitching.py -q --junitxml=fiji-stitching.xml
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: fiji-${{ matrix.os }}
+          path: |
+            fiji-bootstrap.log
+            fiji-*.xml

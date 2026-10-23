@@ -72,45 +72,33 @@ mvn -version
 Both commands should report **Java 11**. The patch version may differ, for
 example `11.0.x`.
 
-Next, verify that Python can initialize Fiji using the same startup procedure
-as the analysis commands. Run this after installing the UMA-tools package
-with `python -m pip install -e .` as shown above:
+Next, prepare the pinned historical dependency and verify the actual Python
+JVM. Run from the repository root after installing UMA-tools:
 
 ```bash
-python - <<'PY'
-from scyjava import jimport
-from uma_tools.imagej import initialize_imagej, shutdown_imagej_workers
-
-ij = None
-try:
-    ij = initialize_imagej()
-    system = jimport("java.lang.System")
-    print("Java version:", system.getProperty("java.version"))
-    print("Java home:", system.getProperty("java.home"))
-
-    if str(system.getProperty("java.specification.version")) != "11":
-        raise RuntimeError("Use Java 11 for the tested UMA-tools environment.")
-finally:
-    try:
-        if ij is not None:
-            ij.dispose()
-    finally:
-        shutdown_imagej_workers()
-
-print("Java/Fiji check passed.")
-PY
+python scripts/prepare_fiji.py --check
 ```
 
-The first initialization requires internet access to download Fiji components.
-A successful check prints **`Java/Fiji check passed.`** and returns to the
-terminal. This checks the Java runtime actually used by Python, in addition
-to the Java executable found by the shell.
+SciJava no longer serves `woolz:JWlz:1.4.0`, which Fiji 2.14.0 requires.
+This helper retrieves that exact JAR from the official Fiji archive (with
+Bio-Formats as a fallback), verifies its pinned SHA-256, and registers it in
+Maven's configured local repository. A verified download is reused on later
+runs. It does not update Fiji, disable TLS verification, or alter measurements.
+See [dependency provenance and CI checks](scripts/README.md).
+
+The check initializes Fiji in a separate Python process, requires Java 11,
+runs a small image filter, closes its workers, and checks that the process
+exits. Success prints **`Java/Fiji check passed.`** followed by
+**`Fiji process exited successfully.`** Initial dependency loading needs
+internet access and can take several minutes; a 15-minute timeout prevents
+an indefinite wait. The environment pins **Maven 3.9.9** alongside Fiji 2.14.0
+and OpenJDK 11 so dependency resolution is tested with a known toolchain.
 
 **If Java or Maven is missing**, install it in the activated UMA environment,
 then reactivate that environment and repeat the checks:
 
 ```bash
-conda install -c conda-forge "openjdk=11" maven
+conda install -c conda-forge "openjdk=11" "maven=3.9.9"
 conda deactivate
 conda activate uma_tools
 ```

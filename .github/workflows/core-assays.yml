@@ -2,7 +2,7 @@ name: Validate main UMA assays
 
 on:
   push:
-    branches: [UMA-tools-V2]
+    branches: [UMA-tools-V2, 'ci/**']
     paths:
       - 'code/**'
       - 'tests/**'

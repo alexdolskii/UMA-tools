@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 from functional_assay import calibration, cell_analysis, cell_imagej
+
 from uma_tools import cli
 from uma_tools.files import sha256_file
 

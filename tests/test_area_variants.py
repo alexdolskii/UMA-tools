@@ -280,9 +280,10 @@ def test_real_reports_reuse_then_add_one_variant_and_detect_missing_output(
         assert state["plate_template"]["original_path"] == str(
             experiment.source / "UMA_My own plate.xlsx"
         )
-        assert state["plate_template"]["sha256"] == hashlib.sha256(
-            experiment.seed["template"]
-        ).hexdigest()
+        assert (
+            state["plate_template"]["sha256"]
+            == hashlib.sha256(experiment.seed["template"]).hexdigest()
+        )
         parameters = read_json(folder / "run_parameters.json")
         assert parameters["full_data_images"] == 2
         assert parameters["filtered_images"] == (

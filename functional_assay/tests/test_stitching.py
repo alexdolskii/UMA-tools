@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 from functional_assay import stitching
 from functional_assay.workflow import assay_directory
+
 from uma_tools import cli
 
 

@@ -7,11 +7,10 @@ Performs quantification, QC projections, and clustering analysis
 
 import argparse
 import logging
-from collections import Counter
-from pathlib import Path
-from datetime import datetime
-from nla_config_loader import load_config
 import os
+from collections import Counter
+from datetime import datetime
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,6 +19,8 @@ from skimage.measure import regionprops_table
 from sklearn.cluster import HDBSCAN
 from sklearn.preprocessing import StandardScaler
 from tifffile import imread
+
+from nla_config_loader import load_config
 
 
 def generate_qc_projections(mask_arr, df, out_png):
@@ -95,17 +96,18 @@ def quantify(
     labels = imread(mask_path)
     props = regionprops_table(
         labels,
-        properties=("label", "area", "centroid", "equivalent_diameter_area")
+        properties=("label", "area", "centroid", "equivalent_diameter_area"),
     )
-    df = (pd.DataFrame(props)
-          .rename(columns={
-              "label": "nucleus_id",
-              "area": "vol_vox",
-              "centroid-0": "z",
-              "centroid-1": "y",
-              "centroid-2": "x",
-              "equivalent_diameter_area": "diam_px"
-          }))
+    df = pd.DataFrame(props).rename(
+        columns={
+            "label": "nucleus_id",
+            "area": "vol_vox",
+            "centroid-0": "z",
+            "centroid-1": "y",
+            "centroid-2": "x",
+            "equivalent_diameter_area": "diam_px",
+        }
+    )
     df = df[df["vol_vox"] >= min_vox]
     df.to_csv(csv_out, index=False)
 
@@ -119,19 +121,20 @@ def quantify(
 
 
 def cluster(
-        csv_path: Path,
-        out_dir: Path,
-        z_scale: int = 10,
-        summary: list = None,
-        *,
-        trim_method: str = "MAD",
-        k: float | tuple = 2.5,
-        min_cluster_size: int = 5,
-        min_samples: int = 3,
-        epsilon: float = 4.0,
-        min_nuclei: int = 10,
-        normalize: bool = True,
-        point_size: int = 60) -> dict:
+    csv_path: Path,
+    out_dir: Path,
+    z_scale: int = 10,
+    summary: list = None,
+    *,
+    trim_method: str = "MAD",
+    k: float | tuple = 2.5,
+    min_cluster_size: int = 5,
+    min_samples: int = 3,
+    epsilon: float = 4.0,
+    min_nuclei: int = 10,
+    normalize: bool = True,
+    point_size: int = 60,
+) -> dict:
     """
     Cluster nuclei with 4 projections:
     1. Top-left: XZ (clustered)
@@ -146,9 +149,12 @@ def cluster(
     if df.empty:
         logging.warning(f"{csv_path.name}: empty file")
         return
-        
+
     if len(df) < 3:
-        logging.warning(f"{csv_path.name}: Only {len(df)} nuclei found. Clustering requires at least 3 nuclei.")
+        logging.warning(
+            f"{csv_path.name}: Only {len(df)} nuclei found. "
+            "Clustering requires at least 3 nuclei."
+        )
         # Still proceed but will skip clustering
 
     if summary is None:
@@ -166,14 +172,17 @@ def cluster(
 
     # XZ clustering (Top-left)
     xz_coords = coords_scaled[:, [0, 2]]  # X and Z
-    
+
     # Adjust clustering parameters based on data size
     actual_min_samples = min(min_samples, len(xz_coords))
     actual_min_cluster_size = min(min_cluster_size, len(xz_coords))
-    
+
     if len(xz_coords) < 3:
         # Not enough data for clustering, assign all to noise
-        logging.warning(f"{csv_path.name}: Only {len(xz_coords)} nuclei found, skipping XZ clustering")
+        logging.warning(
+            f"{csv_path.name}: Only {len(xz_coords)} nuclei found, "
+            "skipping XZ clustering"
+        )
         df["cluster_xz"] = [-1] * len(df)
         xz_clusterer = None
     else:
@@ -181,16 +190,19 @@ def cluster(
             min_cluster_size=actual_min_cluster_size,
             min_samples=actual_min_samples,
             cluster_selection_epsilon=epsilon,
-            n_jobs=-1
+            n_jobs=-1,
         ).fit(xz_coords)
         df["cluster_xz"] = xz_clusterer.labels_
-    
+
     # YZ clustering (Bottom-left)
     yz_coords = coords_scaled[:, [1, 2]]  # Y and Z
-    
+
     if len(yz_coords) < 3:
         # Not enough data for clustering, assign all to noise
-        logging.warning(f"{csv_path.name}: Only {len(yz_coords)} nuclei found, skipping YZ clustering")
+        logging.warning(
+            f"{csv_path.name}: Only {len(yz_coords)} nuclei found, "
+            "skipping YZ clustering"
+        )
         df["cluster_yz"] = [-1] * len(df)
         yz_clusterer = None
     else:
@@ -198,7 +210,7 @@ def cluster(
             min_cluster_size=actual_min_cluster_size,
             min_samples=actual_min_samples,
             cluster_selection_epsilon=epsilon,
-            n_jobs=-1
+            n_jobs=-1,
         ).fit(yz_coords)
         df["cluster_yz"] = yz_clusterer.labels_
 
@@ -207,7 +219,7 @@ def cluster(
         xz_counts = Counter(xz_clusterer.labels_)
     else:
         xz_counts = Counter([-1] * len(df))
-        
+
     if yz_clusterer is not None:
         yz_counts = Counter(yz_clusterer.labels_)
     else:
@@ -215,37 +227,45 @@ def cluster(
 
     # Prepare statistics for summary
     image_stats = {
-        'Image': csv_path.stem,
-        'Total_Nuclei': len(df),
-        'XZ_Clusters': len([k for k in xz_counts if k != -1]),
-        'YZ_Clusters': len([k for k in yz_counts if k != -1]),
-        'XZ_Unclustered': xz_counts.get(-1, 0),
-        'YZ_Unclustered': yz_counts.get(-1, 0),
-        'XZ_Cluster_Counts': dict(xz_counts),
-        'YZ_Cluster_Counts': dict(yz_counts)
+        "Image": csv_path.stem,
+        "Total_Nuclei": len(df),
+        "XZ_Clusters": len([k for k in xz_counts if k != -1]),
+        "YZ_Clusters": len([k for k in yz_counts if k != -1]),
+        "XZ_Unclustered": xz_counts.get(-1, 0),
+        "YZ_Unclustered": yz_counts.get(-1, 0),
+        "XZ_Cluster_Counts": dict(xz_counts),
+        "YZ_Cluster_Counts": dict(yz_counts),
     }
     summary.append(image_stats)
 
     # Create figure
-    fig = plt.figure(figsize=(20, 20))
+    _fig = plt.figure(figsize=(20, 20))
 
     # Color maps
     if xz_clusterer is not None:
-        xz_clusters = sorted([l for l in set(xz_clusterer.labels_) if l != -1])
+        xz_clusters = sorted(
+            [label for label in set(xz_clusterer.labels_) if label != -1]
+        )
     else:
         xz_clusters = []
-        
+
     if yz_clusterer is not None:
-        yz_clusters = sorted([l for l in set(yz_clusterer.labels_) if l != -1])
+        yz_clusters = sorted(
+            [label for label in set(yz_clusterer.labels_) if label != -1]
+        )
     else:
         yz_clusters = []
 
-    xz_colors = plt.cm.viridis(np.linspace(0, 1, max(1, len(xz_clusters))))[:len(xz_clusters)]
-    yz_colors = plt.cm.plasma(np.linspace(0, 1, max(1, len(yz_clusters))))[:len(yz_clusters)]
+    xz_colors = plt.cm.viridis(np.linspace(0, 1, max(1, len(xz_clusters))))[
+        : len(xz_clusters)
+    ]
+    yz_colors = plt.cm.plasma(np.linspace(0, 1, max(1, len(yz_clusters))))[
+        : len(yz_clusters)
+    ]
 
     # masks for noise
-    xz_noise = (df["cluster_xz"] == -1)
-    yz_noise = (df["cluster_yz"] == -1)
+    xz_noise = df["cluster_xz"] == -1
+    yz_noise = df["cluster_yz"] == -1
 
     # 1. Top-left: XZ projection (clustered)
     ax1 = plt.subplot(2, 2, 1)
@@ -253,17 +273,24 @@ def cluster(
         ax1.scatter(
             original_coords.loc[xz_noise, "x"],
             original_coords.loc[xz_noise, "z"],
-            c="0.8", s=point_size, label="Unclustered", zorder=1
+            c="0.8",
+            s=point_size,
+            label="Unclustered",
+            zorder=1,
         )
     for cluster, color in zip(xz_clusters, xz_colors):
-        m = (df["cluster_xz"] == cluster)
+        m = df["cluster_xz"] == cluster
         ax1.scatter(
             original_coords.loc[m, "x"],
             original_coords.loc[m, "z"],
-            c=[color], s=point_size, label=f'XZ Cluster {cluster}', zorder=2
+            c=[color],
+            s=point_size,
+            label=f"XZ Cluster {cluster}",
+            zorder=2,
         )
     ax1.set_title("XZ (HDBSCAN)")
-    ax1.set_xlabel("X"); ax1.set_ylabel("Z")
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Z")
 
     # 2. Top-right: XY projection (colors from XZ clustering)
     ax2 = plt.subplot(2, 2, 2)
@@ -271,17 +298,24 @@ def cluster(
         ax2.scatter(
             original_coords.loc[xz_noise, "x"],
             original_coords.loc[xz_noise, "y"],
-            c="0.8", s=point_size, label="Unclustered", zorder=1
+            c="0.8",
+            s=point_size,
+            label="Unclustered",
+            zorder=1,
         )
     for cluster, color in zip(xz_clusters, xz_colors):
-        m = (df["cluster_xz"] == cluster)
+        m = df["cluster_xz"] == cluster
         ax2.scatter(
             original_coords.loc[m, "x"],
             original_coords.loc[m, "y"],
-            c=[color], s=point_size, label=f'XZ Cluster {cluster}', zorder=2
+            c=[color],
+            s=point_size,
+            label=f"XZ Cluster {cluster}",
+            zorder=2,
         )
     ax2.set_title("XY (colored by XZ)")
-    ax2.set_xlabel("X"); ax2.set_ylabel("Y")
+    ax2.set_xlabel("X")
+    ax2.set_ylabel("Y")
 
     # 3. Bottom-left: YZ projection (clustered)
     ax3 = plt.subplot(2, 2, 3)
@@ -289,17 +323,24 @@ def cluster(
         ax3.scatter(
             original_coords.loc[yz_noise, "y"],
             original_coords.loc[yz_noise, "z"],
-            c="0.8", s=point_size, label="Unclustered", zorder=1
+            c="0.8",
+            s=point_size,
+            label="Unclustered",
+            zorder=1,
         )
     for cluster, color in zip(yz_clusters, yz_colors):
-        m = (df["cluster_yz"] == cluster)
+        m = df["cluster_yz"] == cluster
         ax3.scatter(
             original_coords.loc[m, "y"],
             original_coords.loc[m, "z"],
-            c=[color], s=point_size, label=f'YZ Cluster {cluster}', zorder=2
+            c=[color],
+            s=point_size,
+            label=f"YZ Cluster {cluster}",
+            zorder=2,
         )
     ax3.set_title("YZ (HDBSCAN)")
-    ax3.set_xlabel("Y"); ax3.set_ylabel("Z")
+    ax3.set_xlabel("Y")
+    ax3.set_ylabel("Z")
 
     # 4. Bottom-right: XY projection (colors from YZ clustering)
     ax4 = plt.subplot(2, 2, 4)
@@ -307,28 +348,39 @@ def cluster(
         ax4.scatter(
             original_coords.loc[yz_noise, "x"],
             original_coords.loc[yz_noise, "y"],
-            c="0.8", s=point_size, label="Unclustered", zorder=1
+            c="0.8",
+            s=point_size,
+            label="Unclustered",
+            zorder=1,
         )
     for cluster, color in zip(yz_clusters, yz_colors):
-        m = (df["cluster_yz"] == cluster)
+        m = df["cluster_yz"] == cluster
         ax4.scatter(
             original_coords.loc[m, "x"],
             original_coords.loc[m, "y"],
-            c=[color], s=point_size, label=f'YZ Cluster {cluster}', zorder=2
+            c=[color],
+            s=point_size,
+            label=f"YZ Cluster {cluster}",
+            zorder=2,
         )
     ax4.set_title("XY (colored by YZ)")
-    ax4.set_xlabel("X"); ax4.set_ylabel("Y")
+    ax4.set_xlabel("X")
+    ax4.set_ylabel("Y")
 
     plt.suptitle(
         f"Nuclei Clustering: {csv_path.stem}\n"
         f"XZ Clusters: {len(xz_clusters)}, YZ Clusters: {len(yz_clusters)}",
-        fontsize=16
+        fontsize=16,
     )
     plt.tight_layout(rect=[0, 0, 1, 0.96])
 
     out_dir.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_dir / f"{csv_path.stem}_clusters.csv", index=False)
-    plt.savefig(out_dir / f"{csv_path.stem}_cluster_4proj.png", dpi=150, bbox_inches="tight")
+    plt.savefig(
+        out_dir / f"{csv_path.stem}_cluster_4proj.png",
+        dpi=150,
+        bbox_inches="tight",
+    )
     plt.close()
 
     return image_stats
@@ -340,25 +392,25 @@ def create_summary_dataframe(summary_data: list) -> pd.DataFrame:
 
     for image_data in summary_data:
         row = {
-            'Image': image_data['Image'],
-            'Total_Nuclei': image_data['Total_Nuclei'],
-            'XZ_Clusters': image_data.get('XZ_Clusters', 0),
-            'YZ_Clusters': image_data.get('YZ_Clusters', 0),
-            'XZ_Unclustered': image_data.get('XZ_Unclustered', 0),
-            'YZ_Unclustered': image_data.get('YZ_Unclustered', 0)
+            "Image": image_data["Image"],
+            "Total_Nuclei": image_data["Total_Nuclei"],
+            "XZ_Clusters": image_data.get("XZ_Clusters", 0),
+            "YZ_Clusters": image_data.get("YZ_Clusters", 0),
+            "XZ_Unclustered": image_data.get("XZ_Unclustered", 0),
+            "YZ_Unclustered": image_data.get("YZ_Unclustered", 0),
         }
 
         # Add cluster counts for XZ
-        xz_counts = image_data.get('XZ_Cluster_Counts', {})
+        xz_counts = image_data.get("XZ_Cluster_Counts", {})
         for cluster, count in xz_counts.items():
             if cluster != -1:
-                row[f'XZ_Cluster_{cluster}_Count'] = count
+                row[f"XZ_Cluster_{cluster}_Count"] = count
 
         # Add cluster counts for YZ
-        yz_counts = image_data.get('YZ_Cluster_Counts', {})
+        yz_counts = image_data.get("YZ_Cluster_Counts", {})
         for cluster, count in yz_counts.items():
             if cluster != -1:
-                row[f'YZ_Cluster_{cluster}_Count'] = count
+                row[f"YZ_Cluster_{cluster}_Count"] = count
 
         rows.append(row)
 
@@ -366,10 +418,7 @@ def create_summary_dataframe(summary_data: list) -> pd.DataFrame:
 
 
 def process_all_images(
-        input_dir: Path,
-        output_dir: Path,
-        z_scale: int = 10,
-        point_size: int = 60
+    input_dir: Path, output_dir: Path, z_scale: int = 10, point_size: int = 60
 ):
     """
     Process all CSV files in input_dir and create a summary CSV.
@@ -377,22 +426,22 @@ def process_all_images(
     """
     summary_data = []
 
-    for csv_file in input_dir.glob('*_analysis.csv'):
+    for csv_file in input_dir.glob("*_analysis.csv"):
         if csv_file.name.startswith("._") or not csv_file.is_file():
             continue
         # Process each image
-        image_stats = cluster(
+        _image_stats = cluster(
             csv_path=csv_file,
             out_dir=output_dir,
             z_scale=z_scale,
             summary=summary_data,
-            point_size=point_size
+            point_size=point_size,
         )
 
     # Create comprehensive summary
     if summary_data:
         summary_df = create_summary_dataframe(summary_data)
-        summary_csv = output_dir / 'clustering_summary.csv'
+        summary_csv = output_dir / "clustering_summary.csv"
         summary_df.to_csv(summary_csv, index=False)
         logging.info(f"Saved comprehensive summary to {summary_csv}")
 
@@ -439,8 +488,8 @@ def main(input_file_path):
     np.random.seed(6)
 
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s")
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
     print("=== 3D Nuclei Analysis Pipeline ===")
     print("3 - Post-processing")
     print(f"Start: {datetime.now():%Y-%m-%d %H:%M:%S}")
@@ -451,15 +500,16 @@ def main(input_file_path):
 
     for fld in cfg["folders"]:
         fld = Path(fld)
-        proc = fld / "processed"
+        _proc = fld / "processed"
         masks = fld / "masks"
         anal = fld / "analysis"
         clus = fld / "clustering"
 
-        fh = logging.FileHandler(os.path.join(fld,
-                                              "nuclei_analysis3.log"), mode='w')
+        fh = logging.FileHandler(
+            os.path.join(fld, "nuclei_analysis3.log"), mode="w"
+        )
         fh.setLevel(logging.INFO)
-        logging.getLogger('').addHandler(fh)
+        logging.getLogger("").addHandler(fh)
 
         for msk in masks.glob("*_mask.tif"):
             if msk.name.startswith("._") or not msk.is_file():
@@ -493,12 +543,11 @@ def main(input_file_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="3D Nuclei Analysis Pipeline")
-    parser.add_argument("-i",
-                        "--input",
-                        default=str(
-                            Path(__file__).resolve().with_name("nuclei_layers.json")
-                        ),
-                        help="Path to JSON config file"
+    parser.add_argument(
+        "-i",
+        "--input",
+        default=str(Path(__file__).resolve().with_name("nuclei_layers.json")),
+        help="Path to JSON config file",
     )
     args = parser.parse_args()
     main(args.input)

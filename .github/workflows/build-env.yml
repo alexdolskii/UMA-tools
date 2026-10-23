@@ -2,7 +2,7 @@ name: Build Conda Environment
 
 on:
   push:
-    branches: [main, UMA-tools-V2]
+    branches: [main, UMA-tools-V2, 'ci/**']
     paths:
       - "environment_uma.yaml"
       - ".github/workflows/build-env.yml"

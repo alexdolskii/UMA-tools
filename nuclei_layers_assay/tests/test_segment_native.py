@@ -177,7 +177,6 @@ def test_prepared_dapi_matches_original_instances_and_calibration(tmp_path):
         assert mask.imagej_metadata["unit"] == image.imagej_metadata["unit"]
         for key in ("XResolution", "YResolution"):
             # TIFF may reduce the rational without changing its exact value.
-            assert (
-                Fraction(*mask.pages[0].tags[key].value)
-                == Fraction(*image.pages[0].tags[key].value)
+            assert Fraction(*mask.pages[0].tags[key].value) == Fraction(
+                *image.pages[0].tags[key].value
             )

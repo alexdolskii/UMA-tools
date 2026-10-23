@@ -247,8 +247,7 @@ python -m pip install -r requirements-dev.txt
 ruff format --check code tests
 ruff check code tests
 pycodestyle --max-line-length=79 --max-doc-length=72 --ignore=E203,W503 code
-python -m unittest discover -s tests -v
-python -m pytest tests/test_area_variants.py tests/test_report_options.py tests/test_report_nuclei.py -q
+python -m pytest tests scripts/tests -q
 ```
 
 Use four-space indentation, `snake_case`, `UPPER_CASE` constants, 79-character
@@ -258,11 +257,15 @@ match formatter slice spacing and PEP 8's break before binary operators.
 Enable real Fiji checks with:
 
 ```bash
-UMA_RUN_IMAGEJ_TESTS=1 python -m unittest discover -s tests -v
+python scripts/prepare_fiji.py --check
+UMA_RUN_IMAGEJ_TESTS=1 python -m pytest tests/test_headless.py -q
+UMA_RUN_IMAGEJ_TESTS=1 python -m pytest tests/test_area.py tests/test_cli.py tests/test_partial_fiji.py tests/test_shared_native.py -q
 ```
 
-The [test workflow](../.github/workflows/test.yml) runs numerical, report,
-partial-result, logging and process-exit checks on Linux and macOS. The
+The [test workflow](../.github/workflows/test.yml) separates Python-only main
+and functional tests from real-Fiji checks on Linux and macOS. A dependency
+preflight must pass before native checks run. Use its `cold_cache` manual
+input to verify downloads without a restored Maven/jgo cache. The
 [command workflow](../.github/workflows/core-assays.yml) checks installation
 and lightweight entry points. Fiji tests use synthetic
 TIFF data and require Java, Maven, and the initial component download.

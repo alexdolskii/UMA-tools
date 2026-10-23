@@ -41,7 +41,7 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="UMA workflow ")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.source = self.root / "source images"
         self.source.mkdir()
         self.config = self.root / "input.json"
@@ -338,7 +338,7 @@ class SurvivalRecoveryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="UMA day recovery ")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.template = create_template(self.root)
         self.path = self.root / "survival.json"
         points = []

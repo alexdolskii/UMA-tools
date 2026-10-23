@@ -28,7 +28,7 @@ class SurvivalReportTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="UMA survival, ")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.template = create_template(self.root)
         self.path = self.root / "survival.json"
         self.analyses, self.rows, self.statuses = {}, {}, {}
