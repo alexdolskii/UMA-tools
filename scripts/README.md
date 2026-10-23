@@ -36,8 +36,12 @@ remain enabled. Temporary HTTP failures and timeouts receive at most three
 attempts per source; HTTP 404 is not retried at the same URL.
 
 `--check` runs Fiji and a Gaussian filter in a child process, requires Java 11,
-disposes ImageJ, closes its workers, and requires process exit within 15 minutes.
-An error or timeout fails the command. Running without `--check` only prepares
+disposes ImageJ, closes its workers, and requires process exit within 15 minutes
+per attempt. A reported temporary Maven bootstrap error (HTTP 408/429/5xx or
+connection/read timeout/reset) permits at most three fresh-process attempts.
+Retries pass `-U` through `MAVEN_ARGS` so Maven rechecks failed downloads.
+Missing artifacts, wrong filter output, Java mismatches and process timeouts
+fail immediately; scientific test failures are never retried by this helper. Running without `--check` only prepares
 the dependency. Include the full Maven output when reporting startup failures.
 
 ## Independent CI results

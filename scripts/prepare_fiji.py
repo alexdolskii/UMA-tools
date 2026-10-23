@@ -7,6 +7,8 @@ before Maven sees the JAR. TLS validation remains enabled.
 
 import argparse
 import hashlib
+import os
+import re
 import shutil
 import socket
 import subprocess
@@ -144,6 +146,55 @@ def check_child():
     print("Java/Fiji check passed.", flush=True)
 
 
+def check():
+    """Retry only a reported transient Maven bootstrap failure."""
+    command = [sys.executable, str(Path(__file__).resolve()), "--check-child"]
+    environment = os.environ.copy()
+    for attempt in range(3):
+        print(f"Starting Fiji check (attempt {attempt + 1}/3)...", flush=True)
+        try:
+            result = subprocess.run(
+                command,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=True,
+                timeout=900,
+            )
+        except subprocess.CalledProcessError as error:
+            output = error.stdout or ""
+            print(output, end="", flush=True)
+            transient = (
+                "Failed to bootstrap the artifact." in output
+                and re.search(
+                    r"status code: (408|429|5\d\d)\b|"
+                    r"connect timed out|read timed out|connection reset",
+                    output,
+                    re.IGNORECASE,
+                )
+            )
+            if not transient or attempt == 2:
+                raise
+            # Maven caches failed artifact requests. -U retries missing
+            # releases; it does not replace pinned Fiji with a new release.
+            environment["MAVEN_ARGS"] = (
+                os.environ.get("MAVEN_ARGS", "") + " -U"
+            ).strip()
+            print("Temporary Maven failure; retrying with -U.", flush=True)
+            time.sleep(2 * (attempt + 1))
+        except subprocess.TimeoutExpired as error:
+            output = error.stdout or b""
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", errors="replace")
+            print(output, end="", flush=True)
+            raise
+        else:
+            print(result.stdout, end="", flush=True)
+            print("Fiji process exited successfully.", flush=True)
+            return
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -164,12 +215,7 @@ def main(argv=None):
         return
     prepare(args.artifact_cache.expanduser().resolve())
     if args.check:
-        subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), "--check-child"],
-            check=True,
-            timeout=900,
-        )
-        print("Fiji process exited successfully.", flush=True)
+        check()
 
 
 if __name__ == "__main__":

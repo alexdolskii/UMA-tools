@@ -118,3 +118,43 @@ def test_child_failure_or_hang_is_not_success(tmp_path, monkeypatch, failure):
         bootstrap.main(["--check", "--artifact-cache", str(tmp_path)])
     assert run.call_args.kwargs["check"] is True
     assert run.call_args.kwargs["timeout"] == 900
+
+
+def test_maven_502_retries_in_fresh_child_and_forces_failed_downloads(
+    monkeypatch,
+):
+    output = "Failed to bootstrap the artifact. status code: 502"
+    run = Mock(
+        side_effect=[
+            subprocess.CalledProcessError(1, "python", output=output),
+            subprocess.CompletedProcess("python", 0, stdout="Check passed\n"),
+        ]
+    )
+    monkeypatch.setattr(bootstrap.subprocess, "run", run)
+    monkeypatch.setattr(bootstrap.time, "sleep", Mock())
+    monkeypatch.setenv("MAVEN_ARGS", "-B")
+    bootstrap.check()
+    assert run.call_count == 2
+    assert run.call_args.kwargs["env"]["MAVEN_ARGS"] == "-B -U"
+    assert bootstrap.os.environ["MAVEN_ARGS"] == "-B"
+
+
+@pytest.mark.parametrize(
+    "output, attempts",
+    [
+        ("Failed to bootstrap the artifact. status code: 502", 3),
+        ("Failed to bootstrap the artifact. status code: 404", 1),
+        ("The Fiji filter check returned wrong pixels.", 1),
+    ],
+)
+def test_bootstrap_retry_limit_and_permanent_failures(
+    monkeypatch, output, attempts
+):
+    run = Mock(
+        side_effect=subprocess.CalledProcessError(1, "python", output=output)
+    )
+    monkeypatch.setattr(bootstrap.subprocess, "run", run)
+    monkeypatch.setattr(bootstrap.time, "sleep", Mock())
+    with pytest.raises(subprocess.CalledProcessError):
+        bootstrap.check()
+    assert run.call_count == attempts

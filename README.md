@@ -90,9 +90,10 @@ The check initializes Fiji in a separate Python process, requires Java 11,
 runs a small image filter, closes its workers, and checks that the process
 exits. Success prints **`Java/Fiji check passed.`** followed by
 **`Fiji process exited successfully.`** Initial dependency loading needs
-internet access and can take several minutes; a 15-minute timeout prevents
-an indefinite wait. The environment pins **Maven 3.9.9** alongside Fiji 2.14.0
-and OpenJDK 11 so dependency resolution is tested with a known toolchain.
+internet access and can take several minutes. Each attempt has a 15-minute
+timeout; only temporary Maven download failures receive a bounded retry.
+The environment pins **Maven 3.9.9** alongside Fiji 2.14.0 and OpenJDK 11 so
+dependency resolution is tested with a known toolchain.
 
 **If Java or Maven is missing**, install it in the activated UMA environment,
 then reactivate that environment and repeat the checks:
