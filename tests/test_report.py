@@ -71,7 +71,7 @@ class ReportFixture(unittest.TestCase):
         table_only_boundary(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.source = self.root / "Synthetic assay с пробелами"
         self.source.mkdir()
         self.log = EventLog()

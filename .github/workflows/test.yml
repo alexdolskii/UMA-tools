@@ -32,6 +32,7 @@ jobs:
           environment-file: environment_uma.yaml
 
       - name: Install the package
+        id: install
         run: python -m pip install . ./functional_assay "pytest>=8,<10"
 
       - name: Run the test suite
@@ -42,6 +43,7 @@ jobs:
 
 
       - name: Test Area revisions, template preflight and report integration
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           MPLBACKEND: Agg
         run: >-
@@ -53,6 +55,7 @@ jobs:
           functional_assay/tests/test_workflow.py -q
 
       - name: Verify shared scheme numerical invariance in Fiji
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           UMA_RUN_IMAGEJ_TESTS: "1"
           MPLBACKEND: Agg

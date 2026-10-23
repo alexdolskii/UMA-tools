@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from uma_tools.runtime import observation_supported
+
 
 @unittest.skipUnless(
     os.environ.get("UMA_RUN_IMAGEJ_TESTS") == "1", "Requires the Fiji runtime"
@@ -57,21 +59,27 @@ record_completion(0, True)
             self.assertEqual(Path(values["python_temp"]), expected)
             self.assertEqual(Path(values["java_temp"]), expected)
             self.assertEqual(Path(values["java_file"]).parent, expected)
-            self.assertFalse(expected.exists())
             record = json.loads(
                 next(runtime_home.glob("runs/*/run.json")).read_text()
             )
-            self.assertEqual(record["cleanup"]["status"], "CLEANED")
+            observable = observation_supported()
+            self.assertEqual(record["observation_unavailable"], not observable)
+            self.assertEqual(expected.exists(), not observable)
+            self.assertEqual(
+                record["cleanup"]["status"],
+                "CLEANED" if observable else "RETAINED",
+            )
 
     def test_five_commands_handoff_partial_results_inside_uma_assay(self):
         import numpy as np
         import openpyxl
         import tifffile
+        from shared_plate_fixture import scheme
 
         with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "images"
+            source = Path(temporary).resolve() / "images"
             source.mkdir()
-            runtime_home = Path(temporary) / "runtime"
+            runtime_home = Path(temporary).resolve() / "runtime"
             environment = dict(os.environ, UMA_RUNTIME_HOME=str(runtime_home))
             stack = np.zeros((7, 32, 32), dtype=np.uint16)
             stack[1:6, 5:27, 8:12] = 30000
@@ -87,18 +95,27 @@ record_completion(0, True)
             (source / "._good_WellB02.tiff").write_bytes(b"metadata")
             config = source / "input.json"
             config.write_text(json.dumps({"folder_paths": [str(source)]}))
-            for command, answers, pattern in (
+            design = scheme(
+                source / "FIA_plate.xlsx",
+                channels={"B02": ("Control", 1), "B03": ("Treatment", 1)},
+                layout=["Control", "Treatment"],
+            )
+            workbook = openpyxl.load_workbook(design.path)
+            for column in (4, 5):
+                for row in (11, 12, 13):
+                    workbook["Channels"].cell(row, column).value = None
+            workbook.save(design.path)
+            workbook.close()
+            for command, pattern in (
                 (
                     "uma_alignment",
-                    "1\ny\n",
                     "uma_assay/Alignment_assay_results_*",
                 ),
                 (
                     "uma_thickness",
-                    "2\n1\ny\n",
                     "uma_assay/Thickness_assay_results_*",
                 ),
-                ("area_analysis", "1\n", "uma_assay/Area_assay_results_*"),
+                ("area_analysis", "uma_assay/Area_assay_results_*"),
             ):
                 with self.subTest(command=command):
                     result = subprocess.run(
@@ -106,8 +123,9 @@ record_completion(0, True)
                             str(Path(sys.executable).parent / command),
                             "-i",
                             str(config),
+                            "--non-interactive",
                         ],
-                        input=answers,
+                        input="",
                         text=True,
                         env=environment,
                         capture_output=True,
@@ -132,6 +150,16 @@ record_completion(0, True)
                     self.assertIn("bad_WellB03.tiff", errors)
                     self.assertNotIn("._good", errors)
                     self.assertTrue(status["summary_sha256"])
+                    self.assertEqual(
+                        status["fiber_route"]["marker_name"], "Fibronectin"
+                    )
+                    self.assertEqual(
+                        status["fiber_route"]["source_channel"], 1
+                    )
+                    self.assertEqual(
+                        (output / "plate_design.xlsx").read_bytes(),
+                        design.path.read_bytes(),
+                    )
                     if command == "uma_alignment":
                         journal = (
                             source / "uma_assay/UMA_Logs/1_alignment.log"
@@ -199,16 +227,6 @@ record_completion(0, True)
             self.assertEqual(collection["excluded_images"], 1)
             self.assertEqual(collection["source_folder"], str(source))
 
-            workbook = openpyxl.Workbook()
-            sheet = workbook.active
-            for column in range(1, 13):
-                sheet.cell(1, column + 1, column)
-            for row, label in enumerate("ABCDEFGH", 2):
-                sheet.cell(row, 1, label)
-            sheet["C3"] = "Control"
-            workbook.save(combined / "Any plate filename.xlsx")
-            workbook.close()
-
             reported = subprocess.run(
                 [
                     str(Path(sys.executable).parent / "uma_report"),
@@ -260,9 +278,33 @@ record_completion(0, True)
             )
             for record in records:
                 with self.subTest(runtime_command=record["command"]):
-                    self.assertTrue(record["completion"]["normal_completion"])
-                    self.assertEqual(record["cleanup"]["status"], "CLEANED")
-                    for removed in record["cleanup"]["removed"]:
+                    observable = observation_supported()
+                    completion = json.loads(
+                        (
+                            runtime_home
+                            / "runs"
+                            / record["run_id"]
+                            / "completion.json"
+                        ).read_text()
+                    )
+                    self.assertTrue(completion["normal_completion"])
+                    self.assertEqual(
+                        record["completion"]["normal_completion"], observable
+                    )
+                    self.assertEqual(
+                        record["observation_unavailable"], not observable
+                    )
+                    self.assertEqual(
+                        record["cleanup"]["status"],
+                        "CLEANED" if observable else "RETAINED",
+                    )
+                    for removed in record["cleanup"].get("removed", []):
                         self.assertFalse(Path(removed).exists())
-            self.assertEqual(list((runtime_home / "tmp").iterdir()), [])
-            self.assertEqual(list(source.rglob(".uma_tmp_*")), [])
+            self.assertEqual(
+                bool(list((runtime_home / "tmp").iterdir())),
+                not observation_supported(),
+            )
+            self.assertEqual(
+                bool(list(source.rglob(".uma_tmp_*"))),
+                not observation_supported(),
+            )
