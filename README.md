@@ -27,6 +27,19 @@ OrientationJ approach is linked below. Version 0.2.9 adds optional comparisons
 against plate controls and a filtered FN coverage plot. Image measurements
 are unchanged.
 
+After `uma_report`, an optional offline browser export is available:
+
+```bash
+uma_web_report -i input_paths.json
+```
+
+Open the new `uma_assay/UMA_Web_Report_…/index.html`. It includes all recognized
+saved runs, interactive views of existing report plots, image inspection,
+side-by-side Area masks and downloadable tables. Share the entire output
+folder. This step does not recalculate measurements or statistics and does
+not require Fiji, a web server or an internet connection. See the
+[web report guide](code/README.md#offline-web-report).
+
 ## Install on macOS or Linux
 
 Install [Git](https://git-scm.com/downloads) and
@@ -883,4 +896,5 @@ Related project: [FIA-tools](https://github.com/alexdolskii/FIA-tools).
 - [Aleksandr Dolskii](mailto:aleksandr.dolskii@fccc.edu)
 - [Ekaterina Shitik](mailto:shitik.ekaterina@gmail.com)
 - Michael Miano
+
 

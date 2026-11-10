@@ -35,6 +35,74 @@ is not part of this migration.
 | Collect results | `uma_collect_results` | `collect_results.py` |
 | Report | `uma_report` | `report.py` |
 
+The five analysis stages can be followed by an optional `uma_web_report`
+export. Its modules only read saved results; they do not change the analysis.
+
+## Offline web report
+
+```bash
+uma_web_report -i input_paths.json
+```
+
+Each source folder gets a new
+`uma_assay/UMA_Web_Report_<source>_<timestamp>_<id>` directory. Open its
+`index.html` in a desktop browser. No server or network connection is needed.
+To share a report, copy the **whole directory**, including `data`, `assets`
+and `downloads`. The command uses existing UMA dependencies; no environment
+change or Java startup is required. Reinstall the package after updating.
+
+- Every recognizable Alignment, Thickness, Area, Combined Results, report
+  plan and UMA Report run is listed separately. Archived copies inside
+  collections and earlier web exports are not treated as new runs.
+- Interactive plots require a completed `UMA_Report` with its saved plot
+  tables/manifest. They retain the recorded populations, boxes, colors,
+  technical-well shapes, red low-coverage outlines, `n=0` conditions and
+  statistical annotations. Intermediate runs provide tables and saved
+  previews without newly calculated plots or tests.
+- Charts cover alignment, thickness **measured area**, Fiber coverage and,
+  where recorded, physical Fiber area per non-border nucleus. Other thickness
+  measurements remain in tables. Before/after-filter views are preserved.
+- Click a point or image row to inspect available alignment projections,
+  orientation maps, thickness masks/maps, Area SUM projections/masks,
+  measurements and exclusions. Click a well or saved well-mean row to see
+  its constituent images. Unmasked XZ projections are not currently saved
+  by thickness and are not reconstructed here.
+- Compare two Area masks only when the original filename and SHA256, Fiber
+  marker and source channel match. Thresholds and run names remain visible.
+  No basename-only search, latest-run substitution or cross-channel pooling
+  is performed.
+- FIA counts, exclusions and ratios come from the existing UMA match.
+  Nuclear masks are linked to that recorded run. Nuclear projections also
+  require the exact projection checksum from its StarDist provenance.
+  Missing or unverifiable images are marked unavailable; counts are not
+  recomputed and another FIA run is never substituted.
+- Galleries show at most five reproducibly selected images per condition
+  and saved population (seed 0), including exclusions. All linked images
+  have PNG previews. Comparable signal previews share a linear display range
+  within each measurement run, marker/channel, projection type, recorded Z
+  count and dtype. Preview dimensions are at most 1024 pixels per edge.
+- Full CSV/XLSX, scheme snapshots, statistics, original PNG/PDF figures and
+  provenance are copied. Original TIFF projections/masks and ND2/Z-stacks
+  are **not** copied: their source paths and available checksums are recorded.
+  Browser search/sorting does not redefine scientific filtering or statistics.
+- Add an experiment note and choose **Save annotated report**. Save the
+  downloaded HTML beside `index.html`; it still needs the other directories.
+
+`run.log`, `run_status.json`, `manifest.json` and `export_checksums.json`
+record the export and missing assets. The current command journal is
+`uma_assay/UMA_Logs/6_web_report.log`, with previous journals archived.
+Incomplete exports are marked `PARTIAL`, retain available results and return
+exit code 1; other source folders continue. Source-run status is displayed
+separately from export status. Existing output directories are never replaced.
+
+The implementation uses the FIA offline-report approach as a reference,
+adapted to UMA's own saved plot geometry and per-threshold/run provenance.
+Automated regressions cover the real UMA report pipeline and DOM behavior
+without a server. Browser rendering on macOS, Windows and Safari requires
+verification in those environments.
+
+## Area variants and collection
+
 Area result folders include the requested thresholds: `-t 1500` creates
 `Area_assay_results_threshold_1500_<marker>_C2_<timestamp>_<id>`; `-t 1500 50000` adds
 `threshold_1500_to_50000`. Omitting `-t` records the default `threshold_2000`.
@@ -332,3 +400,4 @@ maps and SUM projections must match pixel for pixel. Run it with:
 ```bash
 UMA_RUN_IMAGEJ_TESTS=1 python -m pytest tests/test_shared_native.py -q
 ```
+

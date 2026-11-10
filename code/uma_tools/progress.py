@@ -32,6 +32,7 @@ STEPS = {
     "area": "3_area.log",
     "collect_results": "4_collect_results.log",
     "report": "5_report.log",
+    "web_report": "6_web_report.log",
 }
 
 
@@ -452,3 +453,4 @@ def console(*args, **kwargs):
     else:
         text = kwargs.get("sep", " ").join(str(arg) for arg in args)
         session.progress.message(text)
+

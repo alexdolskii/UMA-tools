@@ -112,6 +112,8 @@ def parse_arguments(step, argv=None):
         from .collect_results import parse_args
     elif step == "report":
         from .report import parse_args
+    elif step == "web_report":
+        from .web_report import parse_args
     else:
         raise ValueError(f"Unknown command: {step}")
     return parse_args(argv)
@@ -172,8 +174,17 @@ def report(argv: Sequence[str] | None = None) -> int:
     return _invoke("report", main, *(() if argv is None else (argv,)))
 
 
+@managed("web_report")
+def web_report(argv: Sequence[str] | None = None) -> int:
+    """Export saved runs to an offline browser view without starting Fiji."""
+    from .web_report import main
+
+    return _invoke("web_report", main, *(() if argv is None else (argv,)))
+
+
 def diagnostics(argv=None):
     """Inspect known resources without loading scientific libraries."""
     from .diagnostics import main
 
     return main(argv)
+
