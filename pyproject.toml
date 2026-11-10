@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uma-tools"
-version = "0.2.29"
+version = "0.2.30"
 description = "Automated, headless workflows for fibroblast/ECM unit confocal data"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -25,6 +25,9 @@ dependencies = [
     "jgo==1.0.4",
 ]
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.package-dir]
 "" = "code"
 
@@ -33,12 +36,16 @@ where = ["code"]
 include = ["uma_tools"]
 namespaces = false
 
+[tool.setuptools.package-data]
+uma_tools = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
+
 [project.scripts]
 uma_alignment = "uma_tools.cli:alignment"
 uma_thickness = "uma_tools.cli:thickness"
 area_analysis = "uma_tools.cli:area"
 uma_collect_results = "uma_tools.cli:collect_results"
 uma_report = "uma_tools.cli:report"
+uma_web_report = "uma_tools.cli:web_report"
 uma_diagnostics = "uma_tools.cli:diagnostics"
 
 [tool.ruff]
@@ -52,4 +59,5 @@ select = ["E", "W", "F", "I"]
 [tool.ruff.format]
 docstring-code-format = true
 docstring-code-line-length = 72
+
 

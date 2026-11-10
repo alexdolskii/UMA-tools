@@ -28,6 +28,7 @@ COMMANDS = {
     "area_analysis": "area",
     "uma_collect_results": "collect_results",
     "uma_report": "report",
+    "uma_web_report": "web_report",
 }
 _CLEANUP_BLOCKS = []
 
@@ -563,3 +564,4 @@ def run_command(command, argv, worker_path=None):
         flush=True,
     )
     return (128 - code if code < 0 else code) or (1 if journal_failed else 0)
+

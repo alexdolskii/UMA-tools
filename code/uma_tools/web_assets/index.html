@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UMA · Experiment report</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><div class="brand">UMA <span>TOOLS / V2</span></div><div class="local">OFFLINE EXPERIMENT REPORT</div></header>
+  <main>
+    <section id="overview"></section>
+    <section class="annotation"><h2>Experiment annotation</h2><p>Notes for this exported report. Scientific results remain unchanged.</p><textarea id="annotation" rows="3" aria-label="Experiment annotation" placeholder="Add experimental context, observations or discussion notes…"></textarea><button id="save-annotation">Save annotated report</button><span id="save-note" role="status"></span></section>
+    <section class="run-picker"><label for="run">Saved run</label><select id="run"></select><p id="run-context"></p></section>
+    <nav aria-label="Report sections"><a href="#results">Results</a><a href="#plate">Plate & channels</a><a href="#qc">Quality control</a><a href="#gallery">Image examples</a><a href="#tables">Measurements & statistics</a><a href="#provenance">Methods & provenance</a></nav>
+    <div id="loading" role="status">Loading saved runs…</div>
+    <div id="report-content">
+      <section id="results"></section><section id="plate"></section><section id="qc"></section><section id="gallery"></section><section id="tables"></section><section id="provenance"></section>
+    </div>
+    <footer>Saved measurements. Recorded populations. Traceable images.<br>PNG previews are display copies; original TIFF paths are preserved.</footer>
+  </main>
+  <dialog id="image-dialog"><button class="close" aria-label="Close image details">Close ×</button><div id="image-content"></div></dialog>
+  <script id="annotation-data" type="application/json">""</script>
+  <script>window.UMA_RUNS={};</script>
+  <script src="data/index.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
